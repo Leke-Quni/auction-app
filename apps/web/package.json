@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@auction/shared": "workspace:*",
+    "@vercel/blob": "^2.0.0",
     "dotenv": "^16.4.0",
     "jose": "^6.0.0",
     "next": "^16.0.0",

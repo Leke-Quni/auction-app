@@ -27,6 +27,7 @@ model User {
   loginCodes          LoginCode[]
   passwordResetTokens PasswordResetToken[]
   emailChange         EmailChange?
+  listings            Listing[]
 }
 
 model LoginCode {
@@ -60,4 +61,62 @@ model EmailChange {
   expiresAt DateTime
   attempts  Int      @default(0)
   createdAt DateTime @default(now())
+}
+
+enum ListingCondition {
+  NEW
+  LIKE_NEW
+  GOOD
+  FAIR
+  FOR_PARTS
+}
+
+enum ListingStatus {
+  DRAFT
+  PUBLISHED
+}
+
+model Category {
+  id        String    @id @default(cuid())
+  slug      String    @unique
+  name      String
+  sortOrder Int
+  listings  Listing[]
+}
+
+model Listing {
+  id                 String           @id @default(cuid())
+  sellerId           String
+  seller             User             @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  title              String
+  description        String
+  categoryId         String
+  category           Category         @relation(fields: [categoryId], references: [id])
+  condition          ListingCondition
+  startingPriceCents Int
+  reservePriceCents  Int?
+  durationDays       Int
+  status             ListingStatus    @default(DRAFT)
+  startsAt           DateTime?
+  endsAt             DateTime?
+  publishedAt        DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  images             ListingImage[]
+
+  @@index([status, endsAt])
+  @@index([sellerId])
+  @@index([categoryId])
+}
+
+model ListingImage {
+  id        String   @id @default(cuid())
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  url       String
+  pathname  String
+  position  Int
+  createdAt DateTime @default(now())
+
+  @@unique([listingId, position])
 }

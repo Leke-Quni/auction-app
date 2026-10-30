@@ -19,12 +19,14 @@ describe("UserMenu", () => {
     expect(screen.queryByText("Sign out")).toBeNull();
   });
 
-  it("opens with account info, settings, sign out, and the username", () => {
+  it("opens with sell, my listings, account info, settings, sign out, and the username", () => {
     const { button } = setup();
     fireEvent.click(button);
     expect(button.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByRole("menu")).toBeTruthy();
     expect(screen.getByText("ana_k")).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Sell an item" }).getAttribute("href")).toBe("/sell/new");
+    expect(screen.getByRole("menuitem", { name: "My listings" }).getAttribute("href")).toBe("/sell");
     expect(screen.getByRole("menuitem", { name: "Account info" }).getAttribute("href")).toBe("/account");
     expect(screen.getByRole("menuitem", { name: "Settings" }).getAttribute("href")).toBe("/account/settings");
     expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeTruthy();
