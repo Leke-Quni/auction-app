@@ -65,6 +65,15 @@ Data flow and rules:
 - Typesense Cloud indexes only live and upcoming auctions, synced from Postgres via the outbox. Ended auctions drop out. Price refresh is throttled to every few seconds per auction.
 - Zustand holds only live client state (current high bid, bid feed over the WebSocket). Server data goes through server components and a query library, with no duplication in Zustand.
 
+## Visual style
+
+- Decided with the owner on 2026-10-30, after comparing mockups inspired by eBay, Yahoo Auctions Japan, and ZenMarket.
+- Dense, information-first layout in the style of Yahoo Auctions Japan: facts in tables (price, bids, watchers, time left, auto-extension, minimum next bid), compact spacing, and a prominent bid input with a place-bid button.
+- Brand accent: teal `#0f766e`, used for the header, links, buttons, and tags.
+- Urgency (ending soon, final minutes) uses its own red/orange colour, separate from the brand accent, so it stays distinct whatever the brand colour is.
+- The countdown is one shared timer synced to the server, so the listing page and bid history never disagree.
+- Each app still has its own theme tokens (section 5). The admin theme is not chosen yet.
+
 ## 6. Quality and process
 
 - Unit tests; integration tests against real Postgres and Redis in Docker; a concurrency test (50 simultaneous bids, exactly one wins); a few Playwright end-to-end tests (sign up, list, bid, win, pay).
@@ -76,7 +85,8 @@ Data flow and rules:
 
 - Data model: tables, fields, and indexes. Not designed yet; design it in slice 1 and extend per slice.
 - Query library for server data: React Query or SWR.
-- Test runner: Vitest or Jest.
+- Test runner: **Vitest** (decided 2026-10-30, slice 1).
+- Package manager: **Yarn 4** with the `node-modules` linker (decided 2026-10-30, slice 1). Docker Desktop provides local Postgres and Redis.
 - API host: Railway or Fly.io.
 - Anti-sniping parameters (window length and extension length).
 - Reserve-price behavior details (is the reserve visible, what happens when it isn't met).

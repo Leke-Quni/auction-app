@@ -1,0 +1,21 @@
+{
+  "name": "@auction/shared",
+  "version": "0.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@auction/config": "workspace:*",
+    "eslint": "^9.0.0",
+    "vitest": "^3.0.0"
+  }
+}

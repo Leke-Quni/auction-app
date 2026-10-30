@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: #0f766e;
+  --color-brand-dark: #115e59;
+  --color-urgent: #dc2626;
+  --color-page: #f4f4f4;
+  --color-line: #d0d0d0;
+  --color-muted: #666666;
+}
+
+body {
+  background: var(--color-page);
+  color: #222;
+  font: 13px/1.5 "Hiragino Sans", Arial, sans-serif;
+}
