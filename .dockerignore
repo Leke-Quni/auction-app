@@ -1,0 +1,15 @@
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/generated
+.git
+.github
+.env
+.env.*
+!.env.example
+*.md
+docs
+apps/web
+apps/admin
+packages/ui
