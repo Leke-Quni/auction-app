@@ -37,3 +37,9 @@ export async function signInAction(_: FormState, formData: FormData): Promise<Fo
   }
   return {};
 }
+
+export async function verifyEmailAction(formData: FormData) {
+  const token = String(formData.get("token") ?? "");
+  const res = await apiFetch("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) });
+  redirect(`/verify-email?status=${res.ok ? "ok" : "invalid"}`);
+}

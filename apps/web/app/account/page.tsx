@@ -5,6 +5,7 @@ import { authedApiFetch } from "@/lib/api";
 export default async function AccountPage() {
   if (!(await auth())) redirect("/sign-in");
   const res = await authedApiFetch("/me");
+  if (res.status === 401) redirect("/sign-in");
   if (!res.ok) throw new Error(`API /me failed: ${res.status}`);
   const me = await res.json();
   return (

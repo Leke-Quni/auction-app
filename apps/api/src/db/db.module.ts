@@ -1,5 +1,5 @@
 import { createPrismaClient, PrismaClient } from "@auction/db";
-import { Global, Module } from "@nestjs/common";
+import { Global, Inject, Module, OnModuleDestroy } from "@nestjs/common";
 import "../config";
 
 export const PRISMA = Symbol("PRISMA");
@@ -10,4 +10,10 @@ export type Prisma = PrismaClient;
   providers: [{ provide: PRISMA, useFactory: () => createPrismaClient() }],
   exports: [PRISMA],
 })
-export class DbModule {}
+export class DbModule implements OnModuleDestroy {
+  constructor(@Inject(PRISMA) private readonly prisma: Prisma) {}
+
+  async onModuleDestroy() {
+    await this.prisma.$disconnect();
+  }
+}

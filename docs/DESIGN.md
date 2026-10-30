@@ -83,7 +83,9 @@ Data flow and rules:
 
 ## 7. Open decisions (decide in the relevant slice, then record here)
 
-- Data model: tables, fields, and indexes. Not designed yet; design it in slice 1 and extend per slice.
+- Data model: tables, fields, and indexes. Designed per slice. Slice 1 added `User` (id, unique email, name, password hash, `emailVerified`, `role` of `USER` or `ADMIN`, timestamps) and `VerificationToken` (identifier, SHA-256 hash of the token, expiry; the raw token is only in the email). Auth.js uses JWT sessions with email and password, so it has no `Account` or `Session` tables. Extend per slice.
+- Role freshness: the role is copied into a 30-day session JWT at sign-in, and the API trusts it. Before slice 6 (admin) or any ban feature, decide how the API gets a current role (for example, reading it from the database for admin routes) so a demoted admin or banned user doesn't keep access.
+- Unverified sign-ups: signing up again with an unverified email replaces that account's name and password and voids older links. A verified email returns 409. Revisit if account pre-hijacking becomes a concern.
 - Query library for server data: React Query or SWR.
 - Test runner: **Vitest** (decided 2026-10-30, slice 1).
 - Package manager: **Yarn 4** with the `node-modules` linker (decided 2026-10-30, slice 1). Docker Desktop provides local Postgres and Redis.

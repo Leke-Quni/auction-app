@@ -14,6 +14,8 @@ import { PRISMA, type Prisma } from "../db/db.module";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
 
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
+// Compared against when the email is unknown, so unknown emails cost as much as wrong passwords.
+const DUMMY_HASH = bcrypt.hashSync("not-a-real-password", 12);
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
 
 @Injectable()
@@ -25,14 +27,21 @@ export class AuthService {
 
   async signUp(input: SignUpInput) {
     const email = input.email.toLowerCase();
-    if (await this.prisma.user.findUnique({ where: { email } })) {
-      throw new ConflictException("Email already registered");
+    const passwordHash = await bcrypt.hash(input.password, 12);
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing?.emailVerified) throw new ConflictException("Email already registered");
+
+    try {
+      // An unverified account is replaced, so a lost or expired link is recovered by signing up again.
+      const user = existing
+        ? await this.prisma.user.update({ where: { email }, data: { name: input.name, passwordHash } })
+        : await this.prisma.user.create({ data: { email, name: input.name, passwordHash } });
+      await this.sendVerification(user.email);
+      return { id: user.id };
+    } catch (error) {
+      if ((error as { code?: string }).code === "P2002") throw new ConflictException("Email already registered");
+      throw error;
     }
-    const user = await this.prisma.user.create({
-      data: { email, name: input.name, passwordHash: await bcrypt.hash(input.password, 12) },
-    });
-    await this.sendVerification(user.email);
-    return { id: user.id };
   }
 
   async verifyEmail(token: string) {
@@ -46,18 +55,20 @@ export class AuthService {
 
   async validateCredentials(input: SignInInput) {
     const user = await this.prisma.user.findUnique({ where: { email: input.email.toLowerCase() } });
-    if (!user || !(await bcrypt.compare(input.password, user.passwordHash))) {
-      throw new UnauthorizedException("Invalid email or password");
-    }
+    const passwordMatches = await bcrypt.compare(input.password, user?.passwordHash ?? DUMMY_HASH);
+    if (!user || !passwordMatches) throw new UnauthorizedException("Invalid email or password");
     if (!user.emailVerified) throw new ForbiddenException("EMAIL_NOT_VERIFIED");
     return { id: user.id, email: user.email, name: user.name, role: user.role };
   }
 
   private async sendVerification(email: string) {
     const token = randomBytes(32).toString("hex");
-    await this.prisma.verificationToken.create({
-      data: { identifier: email, token: hashToken(token), expires: new Date(Date.now() + VERIFY_TTL_MS) },
-    });
+    await this.prisma.$transaction([
+      this.prisma.verificationToken.deleteMany({ where: { identifier: email } }),
+      this.prisma.verificationToken.create({
+        data: { identifier: email, token: hashToken(token), expires: new Date(Date.now() + VERIFY_TTL_MS) },
+      }),
+    ]);
     await this.mail.send(
       email,
       "Verify your email",

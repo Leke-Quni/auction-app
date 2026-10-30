@@ -25,6 +25,7 @@
     "dotenv": "^16.4.0",
     "eslint": "^9.0.0",
     "prisma": "7.10.1",
+    "typescript": "^5.8.0",
     "vitest": "^3.0.0"
   }
 }
