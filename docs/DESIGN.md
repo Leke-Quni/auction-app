@@ -37,6 +37,8 @@ Status: design agreed with the owner in a grilling session on 2026-10-30. No cod
 - Fixed list of about 10 seeded categories.
 - Watchlist with "ending soon" emails.
 - Seller profiles with post-sale ratings from the buyer.
+- Users have a first name, last name, and username. The username is the public handle (header, later listings and bids); real names stay private. Usernames are 3-20 characters that may contain lowercase letters, numbers, and underscores (none required), unique, with a few reserved names (such as `admin`) blocked, and can be changed any time. Sign-in is by email, not username.
+- Account settings (`/account/settings`): change first/last name, username, email, and password. Changing the email or password needs the current password, and an email change is confirmed with a 6-digit code sent to the new address. Every place a new password is entered (sign-up, change, reset) asks for it twice. Forgot password emails a link that expires after 1 hour and works once; using it also verifies the email and does not sign the user in.
 - Outbid notifications: email, plus an in-app realtime toast ("You've been outbid") with a one-click bid action.
 - Emails (Resend, sent via QStash so a slow provider never blocks a bid): outbid, won, pay-now, ending soon (watchlist), shipping updates.
 - Report button on listings.
@@ -83,9 +85,10 @@ Data flow and rules:
 
 ## 7. Open decisions (decide in the relevant slice, then record here)
 
-- Data model: tables, fields, and indexes. Designed per slice. Slice 1 added `User` (id, unique email, name, password hash, `emailVerified`, `role` of `USER` or `ADMIN`, timestamps) and `VerificationToken` (identifier, SHA-256 hash of the token, expiry; the raw token is only in the email). Auth.js uses JWT sessions with email and password, so it has no `Account` or `Session` tables. Extend per slice.
+- Data model: tables, fields, and indexes. Designed per slice. Slice 1 added `User` (id, unique email, first name, last name, unique lowercase username, password hash, `emailVerified`, `role` of `USER` or `ADMIN`, timestamps) and `LoginCode` (user, HMAC of the 6-digit code, expiry, failed-attempt count). Auth.js uses JWT sessions with email and password, so it has no `Account` or `Session` tables. Extend per slice.
 - Role freshness: the role is copied into a 30-day session JWT at sign-in, and the API trusts it. Before slice 6 (admin) or any ban feature, decide how the API gets a current role (for example, reading it from the database for admin routes) so a demoted admin or banned user doesn't keep access.
-- Unverified sign-ups: signing up again with an unverified email replaces that account's name and password and voids older links. A verified email returns 409. Revisit if account pre-hijacking becomes a concern.
+- Sign-in: **an emailed 6-digit code on every sign-in** (decided 2026-10-30, replacing the sign-up verification link). Sign-up sends a code straight away and goes to the code page, so a new user does not re-enter credentials. Later sign-ins are two steps: password, then the code. A correct code verifies the email, so every signed-in user has a verified email. Codes expire after 10 minutes, are single-use, lock after 5 wrong attempts, and a new code voids the old one. Signing up again with an unverified email replaces that account's name and password and voids its code, so nobody can block an address they don't own; a verified email returns 409. Not built yet: a cooldown on requesting codes (email flooding); add it with the slice 4 rate limits.
+- Username squatting: an unverified sign-up holds its username until it is replaced or deleted, so someone could hold handles without verifying. Decide on a cleanup rule for stale unverified accounts (for example, delete after a few days) before launch.
 - Query library for server data: React Query or SWR.
 - Test runner: **Vitest** (decided 2026-10-30, slice 1).
 - Package manager: **Yarn 4** with the `node-modules` linker (decided 2026-10-30, slice 1). Docker Desktop provides local Postgres and Redis.

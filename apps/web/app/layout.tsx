@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { auth, signOut } from "@/auth";
 import "./globals.css";
+import { UserMenu } from "./user-menu";
 
 export const metadata: Metadata = { title: "Auctionly" };
 
@@ -16,17 +17,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </Link>
           <span className="flex-1" />
           {session ? (
-            <>
-              <Link href="/account">{session.user.name}</Link>
-              <form
-                action={async () => {
-                  "use server";
-                  await signOut({ redirectTo: "/" });
-                }}
-              >
-                <button className="cursor-pointer underline">Sign out</button>
-              </form>
-            </>
+            <UserMenu
+              username={session.user.name ?? ""}
+              signOutAction={async () => {
+                "use server";
+                await signOut({ redirectTo: "/" });
+              }}
+            />
           ) : (
             <>
               <Link href="/sign-in">Sign in</Link>

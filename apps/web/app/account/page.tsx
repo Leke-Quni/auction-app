@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { authedApiFetch } from "@/lib/api";
@@ -14,9 +15,10 @@ export default async function AccountPage() {
       <table className="w-full border-collapse">
         <tbody>
           {[
-            ["Name", me.name],
+            ["Username", me.username],
+            ["First name", me.firstName],
+            ["Last name", me.lastName],
             ["Email", me.email],
-            ["Role", me.role],
             ["Email verified", me.emailVerified ? new Date(me.emailVerified).toUTCString() : "No"],
           ].map(([label, value]) => (
             <tr key={label}>
@@ -26,6 +28,11 @@ export default async function AccountPage() {
           ))}
         </tbody>
       </table>
+      <p className="mt-3">
+        <Link href="/account/settings" className="text-brand underline">
+          Account settings
+        </Link>
+      </p>
     </div>
   );
 }
