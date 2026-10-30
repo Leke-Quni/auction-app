@@ -1,0 +1,11 @@
+{
+  "extends": "@auction/config/tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": ".",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "incremental": false
+  },
+  "include": ["src", "test"]
+}

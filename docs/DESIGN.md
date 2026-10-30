@@ -65,6 +65,15 @@ Data flow and rules:
 - Typesense Cloud indexes only live and upcoming auctions, synced from Postgres via the outbox. Ended auctions drop out. Price refresh is throttled to every few seconds per auction.
 - Zustand holds only live client state (current high bid, bid feed over the WebSocket). Server data goes through server components and a query library, with no duplication in Zustand.
 
+## Visual style
+
+- Decided with the owner on 2026-10-30, after comparing mockups inspired by eBay, Yahoo Auctions Japan, and ZenMarket.
+- Dense, information-first layout in the style of Yahoo Auctions Japan: facts in tables (price, bids, watchers, time left, auto-extension, minimum next bid), compact spacing, and a prominent bid input with a place-bid button.
+- Brand accent: teal `#0f766e`, used for the header, links, buttons, and tags.
+- Urgency (ending soon, final minutes) uses its own red/orange colour, separate from the brand accent, so it stays distinct whatever the brand colour is.
+- The countdown is one shared timer synced to the server, so the listing page and bid history never disagree.
+- Each app still has its own theme tokens (section 5). The admin theme is not chosen yet.
+
 ## 6. Quality and process
 
 - Unit tests; integration tests against real Postgres and Redis in Docker; a concurrency test (50 simultaneous bids, exactly one wins); a few Playwright end-to-end tests (sign up, list, bid, win, pay).
@@ -74,9 +83,12 @@ Data flow and rules:
 
 ## 7. Open decisions (decide in the relevant slice, then record here)
 
-- Data model: tables, fields, and indexes. Not designed yet; design it in slice 1 and extend per slice.
+- Data model: tables, fields, and indexes. Designed per slice. Slice 1 added `User` (id, unique email, name, password hash, `emailVerified`, `role` of `USER` or `ADMIN`, timestamps) and `VerificationToken` (identifier, SHA-256 hash of the token, expiry; the raw token is only in the email). Auth.js uses JWT sessions with email and password, so it has no `Account` or `Session` tables. Extend per slice.
+- Role freshness: the role is copied into a 30-day session JWT at sign-in, and the API trusts it. Before slice 6 (admin) or any ban feature, decide how the API gets a current role (for example, reading it from the database for admin routes) so a demoted admin or banned user doesn't keep access.
+- Unverified sign-ups: signing up again with an unverified email replaces that account's name and password and voids older links. A verified email returns 409. Revisit if account pre-hijacking becomes a concern.
 - Query library for server data: React Query or SWR.
-- Test runner: Vitest or Jest.
+- Test runner: **Vitest** (decided 2026-10-30, slice 1).
+- Package manager: **Yarn 4** with the `node-modules` linker (decided 2026-10-30, slice 1). Docker Desktop provides local Postgres and Redis.
 - API host: Railway or Fly.io.
 - Anti-sniping parameters (window length and extension length).
 - Reserve-price behavior details (is the reserve visible, what happens when it isn't met).

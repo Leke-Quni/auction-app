@@ -1,0 +1,11 @@
+node_modules
+.yarn/*
+!.yarn/releases
+!.yarn/plugins
+.turbo
+dist
+.next
+.env
+.env.local
+*.tsbuildinfo
+generated

@@ -1,0 +1,17 @@
+@import "tailwindcss";
+@source "../../../packages/ui/src";
+
+@theme {
+  --color-brand: #334155;
+  --color-brand-dark: #1e293b;
+  --color-on-brand: #ffffff;
+  --color-line: #cbd5e1;
+  --color-page: #f1f5f9;
+  --color-muted: #64748b;
+}
+
+body {
+  background: var(--color-page);
+  color: #0f172a;
+  font: 12px/1.4 system-ui, sans-serif;
+}
