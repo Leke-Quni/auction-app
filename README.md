@@ -25,7 +25,7 @@ yarn workspace @auction/web dev     # http://localhost:3000
 yarn workspace @auction/admin dev   # http://localhost:3001
 ```
 
-In development the API prints emails (the 6-digit sign-in codes) to its log instead of sending them.
+In development the API prints emails (the 6-digit sign-in codes) to its log instead of sending them. Set `RESEND_API_KEY` (and optionally `MAIL_FROM`) to send real email through Resend. In production the API refuses to start without `RESEND_API_KEY`.
 
 ## Checks
 
