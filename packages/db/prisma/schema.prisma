@@ -68,7 +68,7 @@ enum ListingCondition {
   LIKE_NEW
   GOOD
   FAIR
-  FOR_PARTS
+  POOR
 }
 
 enum ListingStatus {

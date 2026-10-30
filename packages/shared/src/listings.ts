@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const LISTING_CONDITIONS = ["NEW", "LIKE_NEW", "GOOD", "FAIR", "FOR_PARTS"] as const;
+export const LISTING_CONDITIONS = ["NEW", "LIKE_NEW", "GOOD", "FAIR", "POOR"] as const;
 export type ListingCondition = (typeof LISTING_CONDITIONS)[number];
 
 export const CONDITION_LABELS: Record<ListingCondition, string> = {
@@ -8,11 +8,17 @@ export const CONDITION_LABELS: Record<ListingCondition, string> = {
   LIKE_NEW: "Like new",
   GOOD: "Good",
   FAIR: "Fair",
-  FOR_PARTS: "For parts or repair",
+  POOR: "Poor",
 };
 
-export const AUCTION_DURATIONS = [1, 3, 5, 7] as const;
+export const AUCTION_DURATIONS = [1, 3, 5, 7, 30] as const;
 export type AuctionDuration = (typeof AUCTION_DURATIONS)[number];
+
+/** "1 day", "7 days", and "30 days (1 month)". */
+export function formatDuration(days: number): string {
+  if (days === 30) return "30 days (1 month)";
+  return `${days} ${days === 1 ? "day" : "days"}`;
+}
 
 export const MAX_IMAGES = 8;
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -40,7 +46,7 @@ const listingFields = z.object({
   reservePriceCents: priceField("a reserve price").nullable(),
   durationDays: z
     .number()
-    .refine((d): d is AuctionDuration => (AUCTION_DURATIONS as readonly number[]).includes(d), "Choose 1, 3, 5, or 7 days"),
+    .refine((d): d is AuctionDuration => (AUCTION_DURATIONS as readonly number[]).includes(d), "Choose 1, 3, 5, 7, or 30 days"),
 });
 
 const reserveNotBelowStart = {

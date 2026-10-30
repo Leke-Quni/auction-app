@@ -1,6 +1,6 @@
 "use client";
 
-import { AUCTION_DURATIONS, CONDITION_LABELS, LISTING_CONDITIONS, formatEur } from "@auction/shared";
+import { AUCTION_DURATIONS, CONDITION_LABELS, LISTING_CONDITIONS, formatDuration, formatEur } from "@auction/shared";
 import { useActionState } from "react";
 import { saveListingAction } from "./actions";
 
@@ -47,7 +47,7 @@ export function ListingForm({
                 ["Condition", CONDITION_LABELS[listing.condition]],
                 ["Starting price", formatEur(listing.startingPriceCents)],
                 ["Reserve price", listing.reservePriceCents == null ? "None" : formatEur(listing.reservePriceCents)],
-                ["Duration", `${listing.durationDays} ${listing.durationDays === 1 ? "day" : "days"}`],
+                ["Duration", formatDuration(listing.durationDays)],
               ].map(([k, v]) => (
                 <tr key={k}>
                   <th className="w-32 border border-line bg-[#f0f0f0] p-1.5 text-left font-normal text-muted">{k}</th>
@@ -118,7 +118,7 @@ export function ListingForm({
               <select name="durationDays" required defaultValue={listing?.durationDays ?? 7} className={input}>
                 {AUCTION_DURATIONS.map((d) => (
                   <option key={d} value={d}>
-                    {d} {d === 1 ? "day" : "days"}
+                    {formatDuration(d)}
                   </option>
                 ))}
               </select>

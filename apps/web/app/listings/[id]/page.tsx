@@ -1,4 +1,4 @@
-import { CONDITION_LABELS, formatEur } from "@auction/shared";
+import { CONDITION_LABELS, formatDuration, formatEur } from "@auction/shared";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Gallery } from "@/app/gallery";
@@ -23,7 +23,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
     ["Condition", CONDITION_LABELS[listing.condition as keyof typeof CONDITION_LABELS]],
     ["Category", listing.category.name],
     ["Seller", listing.seller.username],
-    ["Duration", `${listing.durationDays} ${listing.durationDays === 1 ? "day" : "days"}`],
+    ["Duration", formatDuration(listing.durationDays)],
     ...(listing.startsAt ? ([["Starts", <LocalTime key="s" iso={listing.startsAt} />]] as [string, React.ReactNode][]) : []),
     ...(listing.endsAt ? ([["Ends", <LocalTime key="e" iso={listing.endsAt} />]] as [string, React.ReactNode][]) : []),
     ["Status", PHASE_LABELS[listing.phase as keyof typeof PHASE_LABELS]],

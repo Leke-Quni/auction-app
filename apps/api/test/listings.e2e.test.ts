@@ -132,6 +132,14 @@ describe("listings", () => {
       await api().post("/listings").set(as(seller)).send({ ...validListing, reservePriceCents: 500 }).expect(400);
     });
 
+    it("accepts the Poor condition and the 30-day duration, and rejects the removed 'for parts' condition", async () => {
+      const ok = await api().post("/listings").set(as(seller)).send({ ...validListing, condition: "POOR", durationDays: 30 }).expect(201);
+      expect(ok.body).toMatchObject({ condition: "POOR", durationDays: 30 });
+      await api().post("/listings").set(as(seller)).send({ ...validListing, condition: "FOR_PARTS" }).expect(400);
+      await api().post("/listings").set(as(seller)).send({ ...validListing, condition: "OLD" }).expect(400);
+      await api().post("/listings").set(as(seller)).send({ ...validListing, durationDays: 14 }).expect(400);
+    });
+
     it("rejects a category that does not exist", async () => {
       await api().post("/listings").set(as(seller)).send({ ...validListing, categoryId: "nope" }).expect(400);
     });
@@ -235,6 +243,11 @@ describe("listings", () => {
       expect(starts).toBeLessThanOrEqual(Date.now() + 1000);
       expect(new Date(listing.endsAt).getTime() - starts).toBe(3 * DAY);
       expect(listing.publishedAt).toBeTruthy();
+    });
+
+    it("ends 30 days after it starts for a one-month auction", async () => {
+      const listing = await createPublished({ durationDays: 30 });
+      expect(new Date(listing.endsAt).getTime() - new Date(listing.startsAt).getTime()).toBe(30 * DAY);
     });
 
     it("can be scheduled for later, which makes it upcoming", async () => {

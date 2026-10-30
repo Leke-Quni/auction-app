@@ -32,9 +32,9 @@ describe("ListingForm", () => {
     expect(field("title")?.value).toBe("");
     expect(field("durationDays")?.value).toBe("7");
     expect(field("listingId")).toBeNull();
-    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(
-      expect.arrayContaining(["Art", "Electronics", "New", "Like new", "For parts or repair", "1 day", "7 days"]),
-    );
+    const options = screen.getAllByRole("option").map((o) => o.textContent);
+    expect(options).toEqual(expect.arrayContaining(["Art", "Electronics", "New", "Like new", "Good", "Fair", "Poor", "1 day", "7 days", "30 days (1 month)"]));
+    expect(options).not.toContain("For parts or repair");
   });
 
   it("fills in a draft, showing prices in euros and an empty reserve", () => {

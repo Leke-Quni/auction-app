@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  CONDITION_LABELS,
+  LISTING_CONDITIONS,
   createListingSchema,
   eurosToCents,
+  formatDuration,
   formatEur,
   listingImagesSchema,
   listingPhase,
@@ -54,9 +57,17 @@ describe("createListingSchema", () => {
     expect(firstMessage(r)).toBe("Reserve price cannot be lower than the starting price");
   });
 
-  it("only allows 1, 3, 5, or 7 day auctions", () => {
-    for (const d of [1, 3, 5, 7]) expect(createListingSchema.safeParse({ ...valid, durationDays: d }).success).toBe(true);
-    for (const d of [0, 2, 4, 6, 10, 30]) expect(createListingSchema.safeParse({ ...valid, durationDays: d }).success).toBe(false);
+  it("only allows 1, 3, 5, 7, or 30 day auctions", () => {
+    for (const d of [1, 3, 5, 7, 30]) expect(createListingSchema.safeParse({ ...valid, durationDays: d }).success).toBe(true);
+    for (const d of [0, 2, 4, 6, 10, 14, 29, 31, 60]) expect(createListingSchema.safeParse({ ...valid, durationDays: d }).success).toBe(false);
+  });
+
+  it("offers New, Like new, Good, Fair, and Poor as conditions, and no longer 'for parts'", () => {
+    expect([...LISTING_CONDITIONS]).toEqual(["NEW", "LIKE_NEW", "GOOD", "FAIR", "POOR"]);
+    expect(CONDITION_LABELS.POOR).toBe("Poor");
+    expect(createListingSchema.safeParse({ ...valid, condition: "POOR" }).success).toBe(true);
+    expect(createListingSchema.safeParse({ ...valid, condition: "OLD" }).success).toBe(false);
+    expect(createListingSchema.safeParse({ ...valid, condition: "FOR_PARTS" }).success).toBe(false);
   });
 
   it("rejects an unknown condition and a missing category", () => {
@@ -140,6 +151,14 @@ describe("eurosToCents", () => {
     expect(eurosToCents("0.1")).toBe(10);
     expect(eurosToCents("19.99")).toBe(1999);
     expect(eurosToCents("1.15")).toBe(115);
+  });
+});
+
+describe("formatDuration", () => {
+  it("writes 1 day, N days, and 30 days as a month", () => {
+    expect(formatDuration(1)).toBe("1 day");
+    expect(formatDuration(7)).toBe("7 days");
+    expect(formatDuration(30)).toBe("30 days (1 month)");
   });
 });
 
