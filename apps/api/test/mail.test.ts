@@ -1,4 +1,4 @@
-import { Logger, ServiceUnavailableException } from "@nestjs/common";
+import { Logger, ServiceUnavailableException, UnprocessableEntityException } from "@nestjs/common";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMailSender, DEFAULT_MAIL_FROM } from "../src/email/create-mail-sender";
 import { ConsoleMailSender } from "../src/email/mail-sender";
@@ -41,14 +41,30 @@ describe("ResendMailSender", () => {
   });
 
   it("turns a rejection into a 503 and logs the reason without the API key", async () => {
-    const sender = new ResendMailSender(KEY, "x", respond(403, '{"message":"You can only send testing emails to your own email address"}') as unknown as typeof fetch);
+    const sender = new ResendMailSender(KEY, "x", respond(401, '{"message":"API key is invalid","name":"validation_error"}') as unknown as typeof fetch);
     const failure = await sender.send("other@example.com", "s", "t").catch((e) => e);
     expect(failure).toBeInstanceOf(ServiceUnavailableException);
     expect(failure.getStatus()).toBe(503);
     expect(failure.message).toBe("We couldn't send the email. Try again.");
-    expect(errors.join("\n")).toContain("HTTP 403");
-    expect(errors.join("\n")).toContain("only send testing emails");
+    expect(errors.join("\n")).toContain("HTTP 401");
+    expect(errors.join("\n")).toContain("API key is invalid");
     expect(errors.join("\n")).not.toContain(KEY);
+  });
+
+  it("says the address cannot be emailed (422) when Resend's sandbox refuses a recipient", async () => {
+    const sandbox = respond(403, '{"statusCode":403,"message":"You can only send testing emails to your own email address (me@example.com)."}');
+    const failure = await new ResendMailSender(KEY, "x", sandbox as unknown as typeof fetch).send("other@example.com", "s", "t").catch((e) => e);
+    expect(failure).toBeInstanceOf(UnprocessableEntityException);
+    expect(failure.getStatus()).toBe(422);
+    expect(failure.getResponse()).toMatchObject({ code: "EMAIL_NOT_ALLOWED" });
+    expect(failure.message).toContain("can only send email to its owner");
+    expect(errors.join("\n")).not.toContain(KEY);
+  });
+
+  it("keeps other 403s, such as an unverified sending domain, as a generic 503", async () => {
+    const domain = respond(403, '{"statusCode":403,"message":"The mail.example.com domain is not verified."}');
+    const failure = await new ResendMailSender(KEY, "x", domain as unknown as typeof fetch).send("a@b.co", "s", "t").catch((e) => e);
+    expect(failure).toBeInstanceOf(ServiceUnavailableException);
   });
 
   it("turns a network failure or timeout into a 503", async () => {
