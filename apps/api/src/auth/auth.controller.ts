@@ -1,10 +1,18 @@
-import { signInSchema, signUpSchema, type SignInInput, type SignUpInput } from "@auction/shared";
+import {
+  forgotPasswordSchema,
+  loginCodeSchema,
+  resetPasswordSchema,
+  signInSchema,
+  signUpSchema,
+  type ForgotPasswordInput,
+  type LoginCodeInput,
+  type ResetPasswordInput,
+  type SignInInput,
+  type SignUpInput,
+} from "@auction/shared";
 import { Body, Controller, HttpCode, Post } from "@nestjs/common";
-import { z } from "zod";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { AuthService } from "./auth.service";
-
-const verifyEmailSchema = z.object({ token: z.string().min(1) });
 
 @Controller("auth")
 export class AuthController {
@@ -15,15 +23,27 @@ export class AuthController {
     return this.auth.signUp(body);
   }
 
-  @Post("verify-email")
+  @Post("login/start")
   @HttpCode(204)
-  async verifyEmail(@Body(new ZodValidationPipe(verifyEmailSchema)) body: { token: string }) {
-    await this.auth.verifyEmail(body.token);
+  async startLogin(@Body(new ZodValidationPipe(signInSchema)) body: SignInInput) {
+    await this.auth.startLogin(body);
   }
 
-  @Post("login")
+  @Post("login/verify")
   @HttpCode(200)
-  login(@Body(new ZodValidationPipe(signInSchema)) body: SignInInput) {
-    return this.auth.validateCredentials(body);
+  verifyLoginCode(@Body(new ZodValidationPipe(loginCodeSchema)) body: LoginCodeInput) {
+    return this.auth.verifyLoginCode(body);
+  }
+
+  @Post("forgot-password")
+  @HttpCode(204)
+  async forgotPassword(@Body(new ZodValidationPipe(forgotPasswordSchema)) body: ForgotPasswordInput) {
+    await this.auth.forgotPassword(body);
+  }
+
+  @Post("reset-password")
+  @HttpCode(204)
+  async resetPassword(@Body(new ZodValidationPipe(resetPasswordSchema)) body: ResetPasswordInput) {
+    await this.auth.resetPassword(body);
   }
 }

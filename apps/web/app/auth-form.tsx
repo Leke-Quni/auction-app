@@ -10,29 +10,35 @@ export function AuthForm({
   action,
   title,
   submit,
-  withName,
+  forgot,
   footer,
 }: {
   action: (state: FormState, formData: FormData) => Promise<FormState>;
   title: string;
   submit: string;
-  withName?: boolean;
+  forgot?: boolean;
   footer: { text: string; href: string; label: string };
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   return (
     <form action={formAction} className="mx-auto max-w-sm space-y-3 border border-line bg-white p-4">
       <h1 className="text-lg font-bold">{title}</h1>
-      {withName && <input name="name" placeholder="Name" autoComplete="name" required className={input} />}
       <input name="email" type="email" placeholder="Email" autoComplete="email" required className={input} />
       <input
         name="password"
         type="password"
         placeholder="Password"
-        autoComplete={withName ? "new-password" : "current-password"}
+        autoComplete="current-password"
         required
         className={input}
       />
+      {forgot && (
+        <p>
+          <Link href="/forgot-password" className="text-brand underline">
+            Forgot your password?
+          </Link>
+        </p>
+      )}
       {state.error && <p className="text-urgent">{state.error}</p>}
       <button disabled={pending} className="w-full cursor-pointer bg-brand p-2 font-bold text-white hover:bg-brand-dark disabled:opacity-60">
         {pending ? "..." : submit}
