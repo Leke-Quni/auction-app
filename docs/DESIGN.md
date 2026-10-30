@@ -1,0 +1,95 @@
+# Auction App: Design & Decisions
+
+Status: design agreed with the owner in a grilling session on 2026-10-30. No code written yet. This file is the source of truth. If you need to deviate from it, ask the owner first and update this file.
+
+## 1. Product
+
+- Portfolio/learning project built to production-quality standards. It is not expected to launch, so there is no legal, tax, or compliance work. Why: the owner doesn't expect it to go live.
+- Multi-seller marketplace: one account type, every user can buy and sell.
+- Reference countries: Kosovo, Albania, North Macedonia. Stripe availability there is unverified (third-party lists show Albania and North Macedonia for Connect payouts, Kosovo unclear; official list not checked). Why this matters: payment and shipping providers sit behind interfaces so they can be swapped.
+- Currency: EUR only. Language: English only. Prices are stored as integer cents. All timestamps are UTC, displayed in the user's timezone. `next-intl` and ALL/MKD can be added later.
+
+## 2. Auction rules
+
+- Timed English auctions with an optional reserve price.
+- Durations: 1, 3, 5, or 7 days.
+- Bids are manual and binding. No proxy/max bidding in v1 (it complicates bid logic a lot).
+- Minimum next bid = `current + max(€1, 5% of current)`, no rounding (cent precision). The user types any amount at or above it. The UI shows the minimum as a hint and the API enforces it. The first bid only needs to meet the starting price. The 5% is a config value. The rule lives in `packages/shared` so web and API apply the same logic. Why: the owner rejected fixed tiers and wanted free-entry bids, but not +1 cent nudges.
+  - Examples: current €10 → min €11; €100 → €105; €1,000 → €1,050.
+- Anti-sniping: a bid in the last few minutes extends the end time.
+- Sellers cannot bid on their own items (shill-bidding is the main fraud risk).
+- Bids are rate-limited (per user and per IP, in Redis) and audit-logged with user ID and IP.
+- Bidding requires a verified email only (no saved payment method).
+
+## 3. Close and payment
+
+- QStash schedules an idempotent close job per auction (rescheduled on extension), plus a periodic sweep as a safety net. Idempotency prevents a duplicate delivery from closing or charging twice.
+- The winner gets an email and a pay-now page with 48 hours to pay by card. Why: the owner wants payment sorted after the auction ends, not a pre-authorization (card holds expire in about 7 days).
+- If the window expires: the item is offered to the second-highest bidder, and the non-payer gets a strike. Two strikes blocks bidding. The seller can relist with one click.
+- The platform takes a configurable percentage from the seller (no listing fees or buyer premium).
+- `PaymentProvider` interface (checkout session create/confirm, refund, payout): Stripe test mode as the main implementation, in-memory fake for tests.
+- `ShippingProvider` interface: fake provider that moves orders `label created → in transit → delivered` on a timer. The seller marks the item shipped. Payout is released after delivery or buyer confirmation. Why: no real carrier integration, since the project won't go live.
+
+## 4. Features
+
+- Listings with up to 8 images (under 5 MB each), uploaded straight from the browser to Vercel Blob via signed tokens, so large files never pass through our server.
+- Search: Typesense Cloud with typo tolerance, filters (category, condition, price range, ending soon), and sorting (ending soonest, newest, most bids, price). Possible later: geo search, autocomplete, synonyms, semantic search.
+- Fixed list of about 10 seeded categories.
+- Watchlist with "ending soon" emails.
+- Seller profiles with post-sale ratings from the buyer.
+- Outbid notifications: email, plus an in-app realtime toast ("You've been outbid") with a one-click bid action.
+- Emails (Resend, sent via QStash so a slow provider never blocks a bid): outbid, won, pay-now, ending soon (watchlist), shipping updates.
+- Report button on listings.
+- Admin app: moderation (remove listings, ban users) and reports queue.
+
+Out of scope for v1: proxy bidding, buy-it-now, offers, messaging, push/SMS, nested categories, automated content moderation, real shipping carriers, multiple currencies or languages.
+
+## 5. Architecture
+
+Turborepo monorepo:
+
+- `apps/web`: Next.js storefront (Vercel).
+- `apps/admin`: separate Next.js app with its own theme (own Vercel project). Calls the same API through admin-only routes guarded by an `ADMIN` role in the API (never trust the UI). No public sign-up.
+- `apps/api`: NestJS modular monolith (auctions, bidding, payments, users, notifications) with in-process domain events (`BidPlaced`, `AuctionClosed`, `AuctionExtended`) and a transactional outbox delivered through QStash. Modules talk through interfaces and events, not by reaching into each other's tables. Hosted on a long-running container host for native WebSockets with the Redis adapter. Why: Vercel functions cannot hold persistent WebSockets.
+- `packages/db`: Prisma schema and client. Only this package imports Prisma.
+- `packages/shared`: types, Zod schemas, bid rules.
+- `packages/ui`: shared unstyled primitives (Tailwind + shadcn/ui). Each app has its own theme tokens (storefront consumer-friendly, admin dense and table-heavy).
+- `packages/config`: shared tsconfig and eslint.
+
+Data flow and rules:
+
+- Next.js apps get all data through the API and never touch Postgres directly.
+- Bid path: Redis decides the bid atomically (Lua script), Postgres persists every accepted bid, and a reconciliation job repairs gaps. Why: without an atomic check, two simultaneous bids could both win.
+- Auth.js (free) issues a JWT that NestJS verifies with the shared secret, for HTTP and WebSocket connections. Admin and storefront share the user table; admins have `role = ADMIN`.
+- Postgres on Neon. Redis and QStash on Upstash (NestJS needs a standard TCP Redis connection for the websocket adapter). Why: the owner doesn't care which, and this fits Vercel and QStash.
+- Typesense Cloud indexes only live and upcoming auctions, synced from Postgres via the outbox. Ended auctions drop out. Price refresh is throttled to every few seconds per auction.
+- Zustand holds only live client state (current high bid, bid feed over the WebSocket). Server data goes through server components and a query library, with no duplication in Zustand.
+
+## 6. Quality and process
+
+- Unit tests; integration tests against real Postgres and Redis in Docker; a concurrency test (50 simultaneous bids, exactly one wins); a few Playwright end-to-end tests (sign up, list, bid, win, pay).
+- GitHub Actions runs lint, typecheck, and tests through Turborepo's cache on every PR.
+- Environments: local (Docker Compose for Postgres and Redis), preview (Vercel previews with a staging backend), production. Stripe in test mode everywhere.
+- Seed script: users, listings with images, auctions in every state (upcoming, live, ending in 1 minute, ended), simulated bidders. Plus a bot-bidder dev script that bids on a chosen auction so realtime can be watched solo.
+
+## 7. Open decisions (decide in the relevant slice, then record here)
+
+- Data model: tables, fields, and indexes. Not designed yet; design it in slice 1 and extend per slice.
+- Query library for server data: React Query or SWR.
+- Test runner: Vitest or Jest.
+- API host: Railway or Fly.io.
+- Anti-sniping parameters (window length and extension length).
+- Reserve-price behavior details (is the reserve visible, what happens when it isn't met).
+- Platform fee percentage and the delay before seller payout.
+- Exact definition of the "strike" lifecycle (expiry, appeals).
+
+## 8. Build order and done-criteria
+
+Work in thin vertical slices. Each slice works end to end, with tests passing, before the next starts.
+
+1. **Monorepo, DB, auth.** Done when: Turborepo builds all apps and packages; Docker Compose brings up Postgres and Redis; Prisma migrations run; a user can sign up, verify email, and sign in on `apps/web`; NestJS verifies the Auth.js JWT on a protected route; CI runs lint, typecheck, and tests.
+2. **Listings and images.** Done when: a seller can create, edit, and publish a listing with images uploaded to Vercel Blob; categories are seeded; listing pages render.
+3. **Search.** Done when: live and upcoming listings sync to Typesense; search has typo tolerance, filters, and sorting; ended auctions drop out of the index.
+4. **Bidding and realtime.** Done when: users can place bids that obey the minimum rule; the page updates live over WebSocket; anti-sniping works; the outbid toast and email fire; the 50-concurrent-bids test passes with exactly one winner; rate limits and audit logging are in place.
+5. **Auction close and payment.** Done when: QStash closes auctions idempotently; the winner receives the pay-now email and can pay in Stripe test mode; the 48-hour expiry triggers the second-bidder offer and strikes; the platform fee is applied.
+6. **Shipping, notifications, admin.** Done when: the fake shipping flow completes an order and releases payout; the watchlist, "ending soon" emails, and seller ratings work; `apps/admin` supports moderation and the reports queue behind the `ADMIN` role.
