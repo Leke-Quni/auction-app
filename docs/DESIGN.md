@@ -93,7 +93,7 @@ Data flow and rules:
 - Query library for server data: React Query or SWR.
 - Test runner: **Vitest** (decided 2026-10-30, slice 1).
 - Package manager: **Yarn 4** with the `node-modules` linker (decided 2026-10-30, slice 1). Docker Desktop provides local Postgres and Redis.
-- API host: Railway or Fly.io.
+- API host: **Fly.io on the free trial, no payment card** (decided 2026-10-30). App `auction-api-leke`, region `fra` (Frankfurt, next to the Neon database), deployed from `apps/api/Dockerfile` with `fly deploy -c apps/api/fly.toml --ha=false`. The trial stops the machine 5 minutes after each start, and Fly's proxy starts it again on the next request, which adds about 3 to 4 seconds for that request. This is accepted for testing and the owner will not add a card. Consequence for slice 4: the API can disappear mid-request at any time, so bidding must tolerate it the same way it tolerates a dropped connection (idempotency key on every bid, re-check state after a failure, auto-reconnect with resync of the live feed, no state held only in API memory). Other hosting: web on Vercel (`auction-web`), database on Neon (Frankfurt), email through Resend.
 - Anti-sniping parameters (window length and extension length).
 - Reserve-price behavior details (is the reserve visible, what happens when it isn't met).
 - Platform fee percentage and the delay before seller payout.
