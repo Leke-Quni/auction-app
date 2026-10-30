@@ -5,7 +5,7 @@ import type {
   SignInInput,
   SignUpInput,
 } from "@auction/shared";
-import { BadRequestException, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import bcrypt from "bcryptjs";
 import { createHash, randomBytes } from "node:crypto";
 import { webUrl } from "../config";
@@ -24,6 +24,8 @@ const loginScope = (userId: string) => `login:${userId}`;
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
     @Inject(MAIL_SENDER) private readonly mail: MailSender,
@@ -112,11 +114,16 @@ export class AuthService {
         data: { userId: user.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + RESET_TTL_MS) },
       }),
     ]);
-    await this.mail.send(
-      user.email,
-      "Reset your password",
-      `Reset your password: ${webUrl()}/reset-password?token=${token}\nThis link expires in 1 hour. If you didn't ask for it, ignore this email.`,
-    );
+    try {
+      await this.mail.send(
+        user.email,
+        "Reset your password",
+        `Reset your password: ${webUrl()}/reset-password?token=${token}\nThis link expires in 1 hour. If you didn't ask for it, ignore this email.`,
+      );
+    } catch (error) {
+      // Saying the email failed would reveal that the address has an account, so the caller gets the usual answer.
+      this.logger.warn(`Could not send a password reset email: ${(error as Error).message}`);
+    }
   }
 
   async resetPassword(input: ResetPasswordInput) {
