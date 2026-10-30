@@ -1,6 +1,6 @@
 # Deploy from the repository root: fly deploy -c apps/api/fly.toml
-# `app` must be unique across Fly.io; `fly launch --no-deploy --copy-config` can set it for you.
-app = "auction-api"
+# `app` must be unique across Fly.io. Created with: fly apps create auction-api-leke
+app = "auction-api-leke"
 primary_region = "fra"
 kill_signal = "SIGTERM"
 
