@@ -18,6 +18,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { signIn, unstable_update } from "@/auth";
 import { apiFetch, authedApiFetch } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 
 export interface FormState {
   error?: string;
@@ -39,6 +40,7 @@ export async function signUpAction(_: FormState, formData: FormData): Promise<Fo
   if (!parsed.success) return { error: firstIssue(parsed.error) };
   const res = await apiFetch("/auth/signup", { method: "POST", body: JSON.stringify(parsed.data) });
   if (res.status === 409) return { error: await conflictMessage(res) };
+  if (res.status === 422) return { error: await apiErrorMessage(res) };
   if (!res.ok) return { error: "Something went wrong. Try again." };
   redirect(`/sign-in/code?email=${encodeURIComponent(parsed.data.email)}`);
 }
@@ -48,6 +50,7 @@ export async function signInAction(_: FormState, formData: FormData): Promise<Fo
   if (!parsed.success) return { error: "Enter your email and password." };
   const res = await apiFetch("/auth/login/start", { method: "POST", body: JSON.stringify(parsed.data) });
   if (res.status === 401) return { error: "Invalid email or password." };
+  if (res.status === 422) return { error: await apiErrorMessage(res) };
   if (!res.ok) return { error: "Something went wrong. Try again." };
   redirect(`/sign-in/code?email=${encodeURIComponent(parsed.data.email)}`);
 }
@@ -118,6 +121,7 @@ export async function startEmailChangeAction(_: FormState, formData: FormData): 
   if (res.status === 403) return { error: "Your password is incorrect." };
   if (res.status === 409) return { error: "That email is already registered." };
   if (res.status === 400) return { error: "That is already your email." };
+  if (res.status === 422) return { error: await apiErrorMessage(res) };
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
   redirect(`/account/email?pending=${encodeURIComponent(parsed.data.newEmail)}`);
 }
