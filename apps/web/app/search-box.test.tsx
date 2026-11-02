@@ -37,4 +37,20 @@ describe("SearchBox", () => {
     expect(hiddenFields(container)).toEqual({});
     expect((screen.getByLabelText("Search auctions") as HTMLInputElement).value).toBe("");
   });
+
+  it("is left out of the sign-in, sign-up and password pages, and nowhere else", () => {
+    nav.search = "";
+    for (const path of ["/sign-in", "/sign-in/code", "/sign-up", "/forgot-password", "/reset-password"]) {
+      nav.pathname = path;
+      render(<SearchBox categories={categories} />);
+      expect(screen.queryByLabelText("Search auctions"), path).toBeNull();
+      cleanup();
+    }
+    for (const path of ["/", "/search", "/listings/abc", "/account/settings", "/sign-insecure"]) {
+      nav.pathname = path;
+      render(<SearchBox categories={categories} />);
+      expect(screen.queryByLabelText("Search auctions"), path).not.toBeNull();
+      cleanup();
+    }
+  });
 });

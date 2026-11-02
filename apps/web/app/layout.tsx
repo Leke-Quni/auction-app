@@ -21,7 +21,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <Suspense fallback={<div className="flex-1" />}>
             <SearchBox categories={categories} />
           </Suspense>
-          <div className="flex items-center justify-end gap-4">
+          <div className="ml-auto flex items-center justify-end gap-4 whitespace-nowrap sm:col-start-3">
             {session ? (
               <UserMenu
                 username={session.user.name ?? ""}
