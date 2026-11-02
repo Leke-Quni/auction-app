@@ -1,9 +1,18 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { Pagination, pageNumbers } from "./pagination";
+import { Pagination, pageCount, pageNumbers } from "./pagination";
 
 afterEach(cleanup);
+
+describe("pageCount", () => {
+  it("counts the pages, and is never less than one", () => {
+    expect(pageCount(0, 24)).toBe(1);
+    expect(pageCount(24, 24)).toBe(1);
+    expect(pageCount(25, 24)).toBe(2);
+    expect(pageCount(17_630, 24)).toBe(735);
+  });
+});
 
 describe("pageNumbers", () => {
   it("shows every page when there are ten or fewer", () => {

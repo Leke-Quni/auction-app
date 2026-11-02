@@ -2,6 +2,8 @@ import Link from "next/link";
 
 const WINDOW = 10;
 
+export const pageCount = (total: number, pageSize: number) => Math.max(1, Math.ceil(total / pageSize));
+
 // The page numbers to show, like Google: ten in a row that slide along with the current page (five before it).
 export function pageNumbers(current: number, pages: number) {
   let start = Math.max(1, current - 5);

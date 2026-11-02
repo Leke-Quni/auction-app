@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { resolveSearchSort } from "@auction/shared";
+import { redirect } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { loadCategories } from "@/lib/categories";
 import { ListingCard, type ListingSummary } from "./listing-card";
-import { Pagination } from "./pagination";
+import { Pagination, pageCount } from "./pagination";
 import { sliderMaxEuros } from "./search/price-scale";
 import { SearchSidebar, SidebarPage } from "./search/search-sidebar";
 import { loadTopPriceCents } from "./search/top-price";
@@ -28,7 +29,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
   ]);
   if (!res.ok) throw new Error(`API /listings failed: ${res.status}`);
   const { items, total }: { items: ListingSummary[]; total: number } = await res.json();
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pages = pageCount(total, PAGE_SIZE);
+  if (page > pages) redirect(pages === 1 ? "/" : `/?page=${pages}`);
   const [endingSoon, upcoming] = page === 1 ? await Promise.all([loadSection("endingSoon"), loadSection("upcoming")]) : [[], []];
   const sections = [
     { title: "Ending soon", items: endingSoon },

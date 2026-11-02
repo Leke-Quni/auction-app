@@ -1,8 +1,9 @@
 import { SEARCH_SORTS, resolveSearchSort } from "@auction/shared";
+import { redirect } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { loadCategories } from "@/lib/categories";
 import { ListingCard, type ListingSummary } from "../listing-card";
-import { Pagination } from "../pagination";
+import { Pagination, pageCount } from "../pagination";
 import { sliderMaxEuros } from "./price-scale";
 import { SearchSidebar, SidebarPage } from "./search-sidebar";
 import { SEARCH_PAGE_SIZE, apiQueryFromParams, pageHref, readSearchParams } from "./search-params";
@@ -28,6 +29,10 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   const params = readSearchParams(await searchParams);
   const [categories, outcome, topPriceCents] = await Promise.all([loadCategories(), runSearch(params), loadTopPriceCents()]);
   const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
+  // A page past the last one (an old link, or a search that now has fewer results) goes to the last page instead.
+  if (!("message" in outcome) && page > pageCount(outcome.total, SEARCH_PAGE_SIZE)) {
+    redirect(pageHref(params, pageCount(outcome.total, SEARCH_PAGE_SIZE)));
+  }
   const sort = SEARCH_SORTS.includes(params.sort as (typeof SEARCH_SORTS)[number])
     ? (params.sort as (typeof SEARCH_SORTS)[number])
     : resolveSearchSort({ q: params.q ?? "" });
@@ -51,7 +56,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
           </div>
           <Pagination
             page={page}
-            pages={Math.max(1, Math.ceil(outcome.total / SEARCH_PAGE_SIZE))}
+            pages={pageCount(outcome.total, SEARCH_PAGE_SIZE)}
             hrefFor={(n) => pageHref(params, n)}
           />
         </>
