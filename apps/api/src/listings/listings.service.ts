@@ -12,13 +12,18 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
+  type OnModuleDestroy,
+  type OnModuleInit,
 } from "@nestjs/common";
 import type { Prisma as PrismaTypes } from "@auction/db";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { SEARCH_INDEX, type ListingDocument, type SearchIndex } from "../search/search-index";
 import { isSellerImage } from "./seller-image";
 
 const ENDING_SOON_MS = 24 * 60 * 60 * 1000;
+const SEARCH_SWEEP_MS = 5 * 60 * 1000;
 
 const listingInclude = {
   category: true,
@@ -46,11 +51,76 @@ const toDto = (l: ListingRow, now = new Date()) => ({
   images: l.images.map((i) => ({ id: i.id, url: i.url, position: i.position })),
 });
 
+// Only live and upcoming published listings are searchable.
+const toDocument = (l: ListingRow, now = new Date()): ListingDocument | null => {
+  if (l.status !== "PUBLISHED" || !l.startsAt || !l.endsAt || !l.publishedAt || l.endsAt <= now) return null;
+  return {
+    id: l.id,
+    title: l.title,
+    description: l.description,
+    category_slug: l.category.slug,
+    condition: l.condition,
+    price_cents: l.startingPriceCents,
+    bid_count: 0,
+    starts_at: Math.floor(l.startsAt.getTime() / 1000),
+    ends_at: Math.floor(l.endsAt.getTime() / 1000),
+    published_at: Math.floor(l.publishedAt.getTime() / 1000),
+    seller_username: l.seller.username,
+    cover_url: l.images[0]?.url,
+  };
+};
+
 @Injectable()
-export class ListingsService {
+export class ListingsService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(ListingsService.name);
+  private sweepTimer?: NodeJS.Timeout;
+
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
+    @Inject(SEARCH_INDEX) private readonly search: SearchIndex,
   ) {}
+
+  async onModuleInit() {
+    await this.sweepSearch();
+    this.sweepTimer = setInterval(() => void this.sweepSearch(), SEARCH_SWEEP_MS);
+    this.sweepTimer.unref();
+  }
+
+  onModuleDestroy() {
+    clearInterval(this.sweepTimer);
+  }
+
+  // Rebuilds the search index from Postgres. Run it to repair the index after downtime or a schema change.
+  async reindexSearch() {
+    const rows = await this.prisma.listing.findMany({
+      where: { status: "PUBLISHED", endsAt: { gt: new Date() } },
+      include: listingInclude,
+    });
+    const docs = rows.map((l) => toDocument(l)).filter((doc): doc is ListingDocument => doc !== null);
+    await this.search.replaceAll(docs);
+    return docs.length;
+  }
+
+  // Ended auctions drop out of the index. Searches also filter by end time, so a missed sweep shows nothing stale.
+  private async sweepSearch() {
+    try {
+      await this.search.removeEnded(new Date());
+    } catch (error) {
+      this.logger.error(`Search sweep failed: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+
+  // The listing is already saved, so a search outage must not fail the request; the next sweep or reindex repairs it.
+  private async syncSearch(listing: ListingRow) {
+    if (listing.status !== "PUBLISHED") return;
+    try {
+      const doc = toDocument(listing);
+      if (doc) await this.search.upsert(doc);
+      else await this.search.remove(listing.id);
+    } catch (error) {
+      this.logger.error(`Search sync failed for listing ${listing.id}: ${error instanceof Error ? error.message : error}`);
+    }
+  }
 
   categories() {
     return this.prisma.category.findMany({ orderBy: { sortOrder: "asc" }, select: { id: true, slug: true, name: true } });
@@ -132,6 +202,7 @@ export class ListingsService {
     }
 
     const updated = await this.prisma.listing.update({ where: { id }, data: input, include: listingInclude });
+    await this.syncSearch(updated);
     return toDto(updated);
   }
 
@@ -155,6 +226,7 @@ export class ListingsService {
     const kept = new Set(images.map((i) => i.url));
     const removedImageUrls = listing.images.map((i) => i.url).filter((url) => !kept.has(url));
     const updated = await this.prisma.listing.findUniqueOrThrow({ where: { id }, include: listingInclude });
+    await this.syncSearch(updated);
     return { ...toDto(updated), removedImageUrls };
   }
 
@@ -170,13 +242,21 @@ export class ListingsService {
       data: { status: "PUBLISHED", publishedAt: new Date(), startsAt, endsAt },
       include: listingInclude,
     });
+    await this.syncSearch(published);
     return toDto(published);
   }
 
   async remove(sellerId: string, id: string) {
     const listing = await this.getOwned(sellerId, id);
-    if (listing.status === "PUBLISHED") throw new ConflictException("Only drafts can be deleted");
+    // Slice 4: refuse here once the listing has bids.
     await this.prisma.listing.delete({ where: { id } });
+    if (listing.status === "PUBLISHED") {
+      try {
+        await this.search.remove(id);
+      } catch (error) {
+        this.logger.error(`Search removal failed for listing ${id}: ${error instanceof Error ? error.message : error}`);
+      }
+    }
     return { removedImageUrls: listing.images.map((i) => i.url) };
   }
 
