@@ -10,3 +10,5 @@ export function authSecret(): Uint8Array {
 }
 
 export const webUrl = () => process.env.WEB_URL ?? "http://localhost:3000";
+
+export const redisUrl = () => process.env.REDIS_URL || undefined;

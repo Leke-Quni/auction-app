@@ -16,11 +16,10 @@ export interface AuthUser {
   role: (typeof USER_ROLES)[number];
 }
 
-/** Returns the user for a valid `Bearer` token, or null for a missing, malformed, expired, or incomplete one. */
-async function authenticate(header: string | undefined): Promise<AuthUser | null> {
-  if (!header?.startsWith("Bearer ")) return null;
+/** Returns the user for a valid token, or null for a malformed, expired, or incomplete one. */
+export async function verifyToken(token: string): Promise<AuthUser | null> {
   try {
-    const { payload } = await jwtVerify(header.slice(7), authSecret(), {
+    const { payload } = await jwtVerify(token, authSecret(), {
       algorithms: ["HS256"],
       requiredClaims: ["exp", "sub"],
     });
@@ -29,6 +28,12 @@ async function authenticate(header: string | undefined): Promise<AuthUser | null
   } catch {
     return null;
   }
+}
+
+/** Returns the user for a valid `Bearer` header, or null for a missing or invalid one. */
+async function authenticate(header: string | undefined): Promise<AuthUser | null> {
+  if (!header?.startsWith("Bearer ")) return null;
+  return verifyToken(header.slice(7));
 }
 
 @Injectable()

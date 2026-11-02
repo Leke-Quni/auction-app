@@ -7,6 +7,7 @@ import {
 } from "@auction/shared";
 import { ConflictException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { AuctionEvents } from "./auction-events";
 
 const REFUSAL_STATUS: Record<BidRefusal, HttpStatus> = {
   NOT_FOUND: HttpStatus.NOT_FOUND,
@@ -69,14 +70,18 @@ export interface BidResult {
 
 @Injectable()
 export class BidsService {
-  constructor(@Inject(PRISMA) private readonly prisma: Prisma) {}
+  constructor(
+    @Inject(PRISMA) private readonly prisma: Prisma,
+    private readonly events: AuctionEvents,
+  ) {}
 
   // The whole decision is one transaction that holds a lock on the listing's row, so two bids at the same moment are
   // handled one after the other: the second sees the first's price and is refused if it no longer clears the minimum.
   // Nothing is accepted without being saved, and a retry with the same key can never place the bid twice.
   async placeBid(bidderId: string, listingId: string, input: PlaceBidInput, ip: string | null): Promise<BidResult> {
+    let result: BidResult;
     try {
-      return await this.prisma.$transaction(
+      result = await this.prisma.$transaction(
         async (tx) => {
           const [listing] = await tx.$queryRaw<LockedListing[]>`
             SELECT "id", "sellerId", "status", "startsAt", "endsAt", "startingPriceCents", "currentBidCents", "bidCount",
@@ -140,6 +145,14 @@ export class BidsService {
       // (Two requests with one key for different listings can race past the key check; the database stops the second.)
       throw bidFailure(error) ?? error;
     }
+    // Only now, with the bid committed, does anyone hear of it.
+    if (!result.replayed) {
+      this.events.publish({ type: "BidPlaced", listingId, result });
+      if (result.extended) {
+        this.events.publish({ type: "AuctionExtended", listingId, endsAt: result.listing.endsAt, extensionCount: result.listing.extensionCount });
+      }
+    }
+    return result;
   }
 
   // Public bid history, newest first. Drafts have none to show.
