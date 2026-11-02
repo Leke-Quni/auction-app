@@ -3,6 +3,7 @@ import { resolveSearchSort } from "@auction/shared";
 import { apiFetch } from "@/lib/api";
 import { loadCategories } from "@/lib/categories";
 import { ListingCard, type ListingSummary } from "./listing-card";
+import { Pagination } from "./pagination";
 import { sliderMaxEuros } from "./search/price-scale";
 import { SearchSidebar, SidebarPage } from "./search/search-sidebar";
 import { loadTopPriceCents } from "./search/top-price";
@@ -61,27 +62,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
           ))}
         </div>
       )}
-      {pages > 1 && (
-        <nav className="flex items-center justify-between">
-          {page > 1 ? (
-            <Link href={`/?page=${page - 1}`} className="text-brand underline">
-              Previous
-            </Link>
-          ) : (
-            <span />
-          )}
-          <span className="text-muted">
-            Page {page} of {pages}
-          </span>
-          {page < pages ? (
-            <Link href={`/?page=${page + 1}`} className="text-brand underline">
-              Next
-            </Link>
-          ) : (
-            <span />
-          )}
-        </nav>
-      )}
+      <Pagination page={page} pages={pages} hrefFor={(n) => (n === 1 ? "/" : `/?page=${n}`)} />
     </SidebarPage>
   );
 }

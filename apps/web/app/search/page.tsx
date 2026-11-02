@@ -1,8 +1,8 @@
 import { SEARCH_SORTS, resolveSearchSort } from "@auction/shared";
-import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { loadCategories } from "@/lib/categories";
 import { ListingCard, type ListingSummary } from "../listing-card";
+import { Pagination } from "../pagination";
 import { sliderMaxEuros } from "./price-scale";
 import { SearchSidebar, SidebarPage } from "./search-sidebar";
 import { SEARCH_PAGE_SIZE, apiQueryFromParams, pageHref, readSearchParams } from "./search-params";
@@ -49,34 +49,13 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
               <ListingCard key={listing.id} listing={listing} />
             ))}
           </div>
-          <Pagination params={params} page={page} pages={Math.max(1, Math.ceil(outcome.total / SEARCH_PAGE_SIZE))} />
+          <Pagination
+            page={page}
+            pages={Math.max(1, Math.ceil(outcome.total / SEARCH_PAGE_SIZE))}
+            hrefFor={(n) => pageHref(params, n)}
+          />
         </>
       )}
     </SidebarPage>
-  );
-}
-
-function Pagination({ params, page, pages }: { params: ReturnType<typeof readSearchParams>; page: number; pages: number }) {
-  if (pages <= 1) return null;
-  return (
-    <nav className="flex items-center justify-between">
-      {page > 1 ? (
-        <Link href={pageHref(params, page - 1)} className="text-brand underline">
-          Previous
-        </Link>
-      ) : (
-        <span />
-      )}
-      <span className="text-muted">
-        Page {page} of {pages}
-      </span>
-      {page < pages ? (
-        <Link href={pageHref(params, page + 1)} className="text-brand underline">
-          Next
-        </Link>
-      ) : (
-        <span />
-      )}
-    </nav>
   );
 }
