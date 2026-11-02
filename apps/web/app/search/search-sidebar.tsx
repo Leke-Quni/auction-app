@@ -37,7 +37,7 @@ export function SearchSidebar({
 }) {
   return (
     <aside
-      className="space-y-2 text-xs min-[1180px]:col-start-1 min-[1180px]:row-start-1 min-[1180px]:w-44 min-[1180px]:translate-x-[calc(-100%_-_0.75rem)] min-[1180px]:self-start [@media(min-width:1180px)_and_(min-height:760px)]:sticky [@media(min-width:1180px)_and_(min-height:760px)]:top-[calc(var(--header-height,4.5rem)_+_0.5rem)]"
+      className="space-y-2 text-xs min-[1180px]:col-start-1 min-[1180px]:row-start-1 min-[1180px]:w-44 min-[1180px]:translate-x-[calc(-100%_-_2rem)] min-[1180px]:self-start [@media(min-width:1180px)_and_(min-height:760px)]:sticky [@media(min-width:1180px)_and_(min-height:760px)]:top-[calc(var(--header-height,4.5rem)_+_0.5rem)]"
     >
       <nav aria-label="Categories" className="border border-line bg-white">
         <h2 className="border-b border-line bg-[#f0f0f0] px-2 py-1 font-bold">Categories</h2>
