@@ -40,7 +40,7 @@ export async function signUpAction(_: FormState, formData: FormData): Promise<Fo
   if (!parsed.success) return { error: firstIssue(parsed.error) };
   const res = await apiFetch("/auth/signup", { method: "POST", body: JSON.stringify(parsed.data) });
   if (res.status === 409) return { error: await conflictMessage(res) };
-  if (res.status === 422) return { error: await apiErrorMessage(res) };
+  if (res.status === 422 || res.status === 429) return { error: await apiErrorMessage(res) };
   if (!res.ok) return { error: "Something went wrong. Try again." };
   redirect(`/sign-in/code?email=${encodeURIComponent(parsed.data.email)}`);
 }
@@ -50,7 +50,7 @@ export async function signInAction(_: FormState, formData: FormData): Promise<Fo
   if (!parsed.success) return { error: "Enter your email and password." };
   const res = await apiFetch("/auth/login/start", { method: "POST", body: JSON.stringify(parsed.data) });
   if (res.status === 401) return { error: "Invalid email or password." };
-  if (res.status === 422) return { error: await apiErrorMessage(res) };
+  if (res.status === 422 || res.status === 429) return { error: await apiErrorMessage(res) };
   if (!res.ok) return { error: "Something went wrong. Try again." };
   redirect(`/sign-in/code?email=${encodeURIComponent(parsed.data.email)}`);
 }

@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { auth, authedApiFetch, revalidatePath } = vi.hoisted(() => ({ auth: vi.fn(), authedApiFetch: vi.fn(), revalidatePath: vi.fn() }));
+const { auth, authedApiFetch, revalidatePath, viewerIpHeaders } = vi.hoisted(() => ({
+  auth: vi.fn(),
+  authedApiFetch: vi.fn(),
+  revalidatePath: vi.fn(),
+  viewerIpHeaders: vi.fn(),
+}));
+vi.mock("@/lib/viewer-ip", () => ({ viewerIpHeaders }));
 vi.mock("@/auth", () => ({ auth }));
 vi.mock("@/lib/api", () => ({ authedApiFetch }));
 vi.mock("next/cache", () => ({ revalidatePath }));
@@ -13,6 +19,7 @@ beforeEach(() => {
   auth.mockReset().mockResolvedValue({ user: { id: "u1" } });
   authedApiFetch.mockReset();
   revalidatePath.mockReset();
+  viewerIpHeaders.mockReset().mockResolvedValue({});
 });
 
 describe("placeBidAction", () => {
@@ -26,8 +33,19 @@ describe("placeBidAction", () => {
     authedApiFetch.mockResolvedValue(reply(201, { extended: true, listing: { endsAt: "2026-11-02T12:15:00Z" } }));
     const result = await placeBidAction("L1", 1250, "key-123456");
     expect(result).toEqual({ ok: true, extended: true, endsAt: "2026-11-02T12:15:00Z" });
-    expect(authedApiFetch).toHaveBeenCalledWith("/listings/L1/bids", { method: "POST", body: JSON.stringify({ amountCents: 1250, idempotencyKey: "key-123456" }) });
+    expect(authedApiFetch).toHaveBeenCalledWith("/listings/L1/bids", {
+      method: "POST",
+      headers: {},
+      body: JSON.stringify({ amountCents: 1250, idempotencyKey: "key-123456" }),
+    });
     expect(revalidatePath).toHaveBeenCalledWith("/listings/L1");
+  });
+
+  it("passes the bidder's own address on to the API", async () => {
+    viewerIpHeaders.mockResolvedValue({ "x-viewer-ip": "203.0.113.9", "x-viewer-ip-signature": "sig" });
+    authedApiFetch.mockResolvedValue(reply(201, { listing: {} }));
+    await placeBidAction("L1", 1250, "key-123456");
+    expect(authedApiFetch.mock.calls[0][1].headers).toEqual({ "x-viewer-ip": "203.0.113.9", "x-viewer-ip-signature": "sig" });
   });
 
   it("treats the answer to a retried bid (200) as a success", async () => {

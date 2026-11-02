@@ -62,7 +62,7 @@ State of the dev database: 20,003 listings from the seed (sample sellers have em
 - A bot-bidder dev script that bids on a chosen auction every few seconds **through the HTTP API** (mint an HS256 JWT with `AUTH_SECRET` for a sample user) so the realtime path is exercised. Removing sample data must delete bids first and reset any real listing a sample user was leading (a listing's high bidder and any bid is `Restrict`ed from deletion).
 
 ## Open questions for the owner
-- Should the current high bidder be allowed to raise their own bid? Today it is refused (`ALREADY_HIGHEST`); the owner's wording was ambiguous. Ask before changing it.
+- (Answered 2026-11-02) The current high bidder cannot raise their own bid; it stays refused as `ALREADY_HIGHEST`.
 - Set an explicit Prisma pool size and test pool starvation / the 15-second transaction timeout (review finding, not done).
 
 ## How to work in this repo

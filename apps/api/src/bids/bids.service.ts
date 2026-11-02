@@ -5,8 +5,10 @@ import {
   type BidRefusal,
   type PlaceBidInput,
 } from "@auction/shared";
-import { ConflictException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import { ConflictException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { bidLimits } from "../config";
+import { RATE_LIMITER, type RateLimiter } from "../rate-limit/rate-limiter";
 import { AuctionEvents } from "./auction-events";
 
 const REFUSAL_STATUS: Record<BidRefusal, HttpStatus> = {
@@ -73,14 +75,18 @@ export class BidsService {
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
     private readonly events: AuctionEvents,
+    @Inject(RATE_LIMITER) private readonly limiter: RateLimiter,
   ) {}
 
+  private readonly log = new Logger(BidsService.name);
   // The whole decision is one transaction that holds a lock on the listing's row, so two bids at the same moment are
   // handled one after the other: the second sees the first's price and is refused if it no longer clears the minimum.
   // Nothing is accepted without being saved, and a retry with the same key can never place the bid twice.
   async placeBid(bidderId: string, listingId: string, input: PlaceBidInput, ip: string | null): Promise<BidResult> {
+    const attempt = { userId: bidderId, listingId, amountCents: input.amountCents, ip };
     let result: BidResult;
     try {
+      await this.checkRate(bidderId, ip);
       result = await this.prisma.$transaction(
         async (tx) => {
           const [listing] = await tx.$queryRaw<LockedListing[]>`
@@ -97,6 +103,7 @@ export class BidsService {
               throw new ConflictException({ code: KEY_REUSED, message: "That bid key was already used for a different bid." });
             }
             const current = listing ?? (await tx.listing.findUniqueOrThrow({ where: { id: listingId } }));
+            await tx.bidAudit.create({ data: { ...attempt, outcome: "ACCEPTED", reason: "REPLAY" } });
             return replayOf(earlier, current as LockedListing);
           }
 
@@ -112,6 +119,7 @@ export class BidsService {
           const bid = await tx.bid.create({
             data: { listingId, bidderId, amountCents: input.amountCents, idempotencyKey: input.idempotencyKey, ip },
           });
+          await tx.bidAudit.create({ data: { ...attempt, outcome: "ACCEPTED" } });
           const updated = await tx.listing.update({
             where: { id: listingId },
             data: {
@@ -143,8 +151,10 @@ export class BidsService {
       );
     } catch (error) {
       // (Two requests with one key for different listings can race past the key check; the database stops the second.)
-      throw bidFailure(error) ?? error;
+      const failure = bidFailure(error) ?? error;
     }
+      await this.auditRefusal(attempt, failure);
+      throw failure;
     // Only now, with the bid committed, does anyone hear of it.
     if (!result.replayed) {
       this.events.publish({ type: "BidPlaced", listingId, result });
@@ -155,6 +165,23 @@ export class BidsService {
     return result;
   }
 
+  // Every attempt counts, refused or not, so hammering the endpoint with bad bids is limited too.
+  private async checkRate(bidderId: string, ip: string | null) {
+    const { perUser, perIp } = bidLimits();
+    const allowedUser = await this.limiter.allow(`rl:bid-user:${bidderId}`, perUser, 60);
+    const allowedIp = ip ? await this.limiter.allow(`rl:bid-ip:${ip}`, perIp, 60) : true;
+    if (!allowedUser || !allowedIp) throw refusal("RATE_LIMITED");
+  }
+  // The accepted rows are written inside the bid's own transaction; a refusal rolled everything back, so it is
+  // recorded afterwards. A failure to record never changes the answer the bidder gets.
+  private async auditRefusal(attempt: { userId: string; listingId: string; amountCents: number; ip: string | null }, failure: unknown) {
+    const body = failure instanceof HttpException ? (failure.getResponse() as { code?: string }) : undefined;
+    try {
+      await this.prisma.bidAudit.create({ data: { ...attempt, outcome: "REFUSED", reason: body?.code ?? "ERROR" } });
+    } catch (error) {
+      this.log.error(`Could not record a refused bid: ${(error as Error).message}`);
+    }
+  }
   // Public bid history, newest first. Drafts have none to show.
   async history(listingId: string, limit: number) {
     const listing = await this.prisma.listing.findUnique({ where: { id: listingId }, select: { status: true, bidCount: true } });

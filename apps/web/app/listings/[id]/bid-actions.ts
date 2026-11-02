@@ -4,6 +4,7 @@ import { BID_REFUSAL_MESSAGES, BID_REFUSALS, formatEur, type BidRefusal } from "
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { authedApiFetch } from "@/lib/api";
+import { viewerIpHeaders } from "@/lib/viewer-ip";
 
 export interface BidActionResult {
   ok?: boolean;
@@ -24,7 +25,11 @@ export async function placeBidAction(listingId: string, amountCents: number, ide
 
   let res: Response;
   try {
-    res = await authedApiFetch(`/listings/${listingId}/bids`, { method: "POST", body: JSON.stringify({ amountCents, idempotencyKey }) });
+    res = await authedApiFetch(`/listings/${listingId}/bids`, {
+      method: "POST",
+      headers: await viewerIpHeaders(),
+      body: JSON.stringify({ amountCents, idempotencyKey }),
+    });
   } catch {
     return { error: "Could not reach the auction server. Your bid may not have been placed; try again.", retry: true };
   }

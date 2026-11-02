@@ -5,10 +5,10 @@ import type {
   SignInInput,
   SignUpInput,
 } from "@auction/shared";
-import { BadRequestException, Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import bcrypt from "bcryptjs";
 import { createHash, randomBytes } from "node:crypto";
-import { webUrl } from "../config";
+import { loginCodeCooldownSeconds, webUrl } from "../config";
 import { conflict, isUniqueViolation } from "../common/errors";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
@@ -38,6 +38,7 @@ export class AuthService {
     if (existing?.emailVerified) throw conflict("EMAIL_TAKEN", "Email already registered");
     const usernameHolder = await this.prisma.user.findUnique({ where: { username: input.username } });
     if (usernameHolder && usernameHolder.email !== email) throw conflict("USERNAME_TAKEN", "Username already taken");
+    if (existing) await this.assertCodeCooldown(existing.id);
 
     try {
       // An unverified account is replaced, so nobody can block an address they don't own. This is safe
@@ -64,7 +65,24 @@ export class AuthService {
     const passwordMatches = await bcrypt.compare(input.password, user?.passwordHash ?? DUMMY_HASH);
     if (!user || !passwordMatches) throw new UnauthorizedException("Invalid email or password");
 
+    await this.assertCodeCooldown(user.id);
     await this.sendLoginCode(user);
+  }
+
+  // A short wait between codes, so nobody can use sign-in to flood an inbox. Only asked after the password is right,
+  // so it tells a stranger nothing about who has an account.
+  private async assertCodeCooldown(userId: string) {
+    const wait = loginCodeCooldownSeconds();
+    if (wait === 0) return;
+    const latest = await this.prisma.loginCode.findFirst({ where: { userId }, orderBy: { createdAt: "desc" }, select: { createdAt: true } });
+    if (!latest) return;
+    const left = Math.ceil((latest.createdAt.getTime() + wait * 1000 - Date.now()) / 1000);
+    if (left > 0) {
+      throw new HttpException(
+        { code: "CODE_COOLDOWN", message: `A code was just sent. Wait ${left} second${left === 1 ? "" : "s"} before asking for another.`, retryAfterSeconds: left },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
   }
 
   private async sendLoginCode(user: { id: string; email: string }) {

@@ -3,6 +3,7 @@ import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards } from "
 import type { Response } from "express";
 import { z } from "zod";
 import { JwtAuthGuard, type AuthUser } from "../auth/jwt-auth.guard";
+import { clientIp } from "../common/client-ip";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { BidsService } from "./bids.service";
 
@@ -17,11 +18,11 @@ export class BidsController {
   @UseGuards(JwtAuthGuard)
   async place(
     @Param("id") id: string,
-    @Req() req: { user: AuthUser; ip?: string },
+    @Req() req: { user: AuthUser; ip?: string; headers: Record<string, string | string[] | undefined> },
     @Body(new ZodValidationPipe(placeBidSchema)) body: PlaceBidInput,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.bids.placeBid(req.user.id, id, body, req.ip ?? null);
+    const result = await this.bids.placeBid(req.user.id, id, body, clientIp(req));
     if (result.replayed) res.status(200);
     return result;
   }
