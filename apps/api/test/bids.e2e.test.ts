@@ -92,7 +92,11 @@ describe("bids", () => {
   });
 
   afterAll(async () => {
-    await prisma.user.deleteMany({ where: { email: { endsWith: `-${stamp}@example.com`, startsWith: "bid-" } } });
+    // Bids and listings first: a listing or an account that has bids cannot be deleted.
+    const mine = { email: { startsWith: "bid-", endsWith: `-${stamp}@example.com` } };
+    await prisma.bid.deleteMany({ where: { listing: { seller: mine } } });
+    await prisma.listing.deleteMany({ where: { seller: mine } });
+    await prisma.user.deleteMany({ where: mine });
     await app.close();
   });
 

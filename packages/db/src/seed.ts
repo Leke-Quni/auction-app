@@ -129,7 +129,10 @@ async function main() {
     const unknown = Object.keys(CATALOG).filter((slug) => !categories.some((c) => c.slug === slug));
     if (unknown.length > 0) throw new Error(`Missing categories: ${unknown.join(", ")}. Run the migrations first.`);
 
-    const removed = await prisma.user.deleteMany({ where: { email: { endsWith: SEED_EMAIL_DOMAIN } } });
+    // A listing or an account that has bids cannot be deleted, so the sample sellers' bids and their bids elsewhere go first.
+    const sample = { email: { endsWith: SEED_EMAIL_DOMAIN } };
+    await prisma.bid.deleteMany({ where: { OR: [{ bidder: sample }, { listing: { seller: sample } }] } });
+    const removed = await prisma.user.deleteMany({ where: sample });
     console.log(`Removed ${removed.count} earlier sample sellers (and their listings).`);
 
     const now = Date.now();

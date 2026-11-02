@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ANTI_SNIPING_STEPS,
+  MAX_BID_CENTS,
   MAX_EXTENSIONS,
   endsAtAfterBid,
   isFinalChance,
@@ -136,15 +137,32 @@ describe("isFinalChance", () => {
   });
 });
 
+describe("minimumNextBidCents over the whole range", () => {
+  it("always rises by at least €1 and at least 5%, by no more than a cent over that, and fits a 32-bit column", () => {
+    for (let current = 1; current <= 400_000; current += 7) {
+      const rise = minimumNextBidCents({ startingPriceCents: 100, currentBidCents: current }) - current;
+      expect(rise, String(current)).toBeGreaterThanOrEqual(100);
+      expect(rise, String(current)).toBeGreaterThanOrEqual(current * 0.05);
+      expect(rise, String(current)).toBeLessThan(Math.max(100, current * 0.05) + 1);
+    }
+    expect(minimumNextBidCents({ startingPriceCents: 100, currentBidCents: MAX_BID_CENTS })).toBeLessThan(2_147_483_647);
+  });
+});
+
 describe("placeBidSchema", () => {
   const key = "a1b2c3d4-e5f6";
+
+  it("allows the largest bid, and no more", () => {
+    expect(placeBidSchema.safeParse({ amountCents: MAX_BID_CENTS, idempotencyKey: key }).success).toBe(true);
+    expect(placeBidSchema.safeParse({ amountCents: MAX_BID_CENTS + 1, idempotencyKey: key }).success).toBe(false);
+  });
 
   it("accepts a whole number of cents with a key", () => {
     expect(placeBidSchema.parse({ amountCents: 10_500, idempotencyKey: key })).toEqual({ amountCents: 10_500, idempotencyKey: key });
   });
 
   it("rejects an amount that is not a positive whole number of cents or is too high", () => {
-    for (const amountCents of [0, -1, 10.5, 100_000_001, "100", null]) {
+    for (const amountCents of [0, -1, 10.5, MAX_BID_CENTS + 1, "100", null]) {
       expect(placeBidSchema.safeParse({ amountCents, idempotencyKey: key }).success, String(amountCents)).toBe(false);
     }
   });

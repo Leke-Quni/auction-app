@@ -209,7 +209,14 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
       if (input.categoryId) await this.requireCategory(input.categoryId);
     }
 
-    const updated = await this.prisma.listing.update({ where: { id }, data: input, include: listingInclude });
+    // The draft or published state was read a moment ago. If the listing was published since, its terms (price, reserve,
+    // duration) must not change under bidders, so a draft's details are written only while it is still a draft.
+    const written = await this.prisma.listing.updateMany({
+      where: listing.status === "DRAFT" ? { id, status: "DRAFT" } : { id },
+      data: input,
+    });
+    if (written.count === 0) throw new ConflictException("This listing was just published, so those details can no longer change.");
+    const updated = await this.prisma.listing.findUniqueOrThrow({ where: { id }, include: listingInclude });
     await this.syncSearch(updated);
     return toDto(updated);
   }

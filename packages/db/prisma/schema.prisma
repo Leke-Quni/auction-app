@@ -108,7 +108,7 @@ model Listing {
   // How many of the two anti-sniping extensions this auction has used (0, 1 or 2).
   extensionCount     Int              @default(0)
   highBidderId       String?
-  highBidder         User?            @relation("ListingHighBidder", fields: [highBidderId], references: [id], onDelete: SetNull)
+  highBidder         User?            @relation("ListingHighBidder", fields: [highBidderId], references: [id], onDelete: Restrict)
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
   images             ListingImage[]
@@ -136,9 +136,9 @@ model ListingImage {
 model Bid {
   id             String   @id @default(cuid())
   listingId      String
-  listing        Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  listing        Listing  @relation(fields: [listingId], references: [id], onDelete: Restrict)
   bidderId       String
-  bidder         User     @relation(fields: [bidderId], references: [id], onDelete: Cascade)
+  bidder         User     @relation(fields: [bidderId], references: [id], onDelete: Restrict)
   amountCents    Int
   idempotencyKey String
   ip             String?

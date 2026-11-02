@@ -1,11 +1,11 @@
 import "reflect-metadata";
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import { MAX_PRICE_CENTS, minimumNextBidCents } from "@auction/shared";
+import { MAX_BID_CENTS, MAX_PRICE_CENTS, minimumNextBidCents } from "@auction/shared";
 import { SignJWT } from "jose";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
@@ -105,7 +105,11 @@ describe("the top bidder is safe", () => {
   });
 
   afterAll(async () => {
-    await prisma.user.deleteMany({ where: { email: { startsWith: "bidg-", endsWith: `-${stamp}@example.com` } } });
+    // Bids and listings first: a listing or an account that has bids cannot be deleted.
+    const mine = { email: { startsWith: "bidg-", endsWith: `-${stamp}@example.com` } };
+    await prisma.bid.deleteMany({ where: { listing: { seller: mine } } });
+    await prisma.listing.deleteMany({ where: { seller: mine } });
+    await prisma.user.deleteMany({ where: mine });
     await app.close();
   });
 
@@ -223,9 +227,56 @@ describe("the top bidder is safe", () => {
   it("gives a clear answer, not a server error, for amounts at the top of the range", async () => {
     const [a, b] = await makePeople(2);
     const listing = await makeListing({ startingPriceCents: MAX_PRICE_CENTS });
-    await bid(a, listing.id, MAX_PRICE_CENTS).expect(201);
-    await bid(b, listing.id, MAX_PRICE_CENTS + 1).expect(400);
-    await bid(b, listing.id, MAX_PRICE_CENTS).expect(422);
-    expect((await prisma.listing.findUniqueOrThrow({ where: { id: listing.id } })).highBidderId).toBe(a.id);
+    const top = await bid(a, listing.id, MAX_BID_CENTS).expect(201);
+    expect(top.body.listing.minimumNextBidCents).toBe(1_050_000_000); // fits the column, but is above the largest bid
+    await bid(b, listing.id, MAX_BID_CENTS + 1).expect(400); // more than the largest bid
+    await bid(b, listing.id, MAX_BID_CENTS).expect(422); // below the minimum
+    expect(await prisma.listing.findUniqueOrThrow({ where: { id: listing.id } })).toMatchObject({ highBidderId: a.id, currentBidCents: MAX_BID_CENTS, bidCount: 1 });
+  });
+
+  it("lets one person's different bids sent at the same moment place only one: the rest see they already lead", async () => {
+    const [person] = await makePeople(1);
+    const listing = await makeListing();
+    const responses = await Promise.all(Array.from({ length: 6 }, (_, i) => bid(person, listing.id, 1000 + i * 500)));
+    const statuses = responses.map((res) => res.status).sort();
+    expect(statuses).toEqual([201, 409, 409, 409, 409, 409]);
+    expect(await prisma.bid.count({ where: { listingId: listing.id } })).toBe(1);
+  });
+
+  describe("the database itself refuses to lose a bid", () => {
+    it("will not delete a listing that has bids, or the account that holds the top bid", async () => {
+      const [top] = await makePeople(1);
+      const listing = await makeListing();
+      await bid(top, listing.id, 1000).expect(201);
+      await expect(prisma.listing.delete({ where: { id: listing.id } })).rejects.toThrow();
+      await expect(prisma.user.delete({ where: { id: top.id } })).rejects.toThrow();
+      await expect(prisma.bid.deleteMany({ where: { listingId: listing.id } })).resolves.toBeDefined(); // allowed on its own...
+      await expect(prisma.listing.findUniqueOrThrow({ where: { id: listing.id } })).resolves.toMatchObject({ bidCount: 1, highBidderId: top.id });
+    });
+
+    it("will not let a listing claim a bid without a high bidder", async () => {
+      const listing = await makeListing();
+      await expect(prisma.listing.update({ where: { id: listing.id }, data: { currentBidCents: 1000, bidCount: 1 } })).rejects.toThrow();
+      await expect(prisma.listing.update({ where: { id: listing.id }, data: { bidCount: 3 } })).rejects.toThrow();
+    });
+  });
+
+  it("does not let a draft's details change if it was published while the edit was being made", async () => {
+    const draft = await makeListing({ status: "DRAFT", startsAt: null, endsAt: null, publishedAt: null, startingPriceCents: 5000 });
+    const realFindUnique = prisma.listing.findUnique.bind(prisma.listing);
+    // The edit reads the listing as a draft; at that moment the seller's own publish goes through.
+    const spy = vi.spyOn(prisma.listing, "findUnique").mockImplementationOnce(((args: Parameters<typeof realFindUnique>[0]) =>
+      (async () => {
+        const row = await realFindUnique(args);
+        await prisma.listing.update({
+          where: { id: draft.id },
+          data: { status: "PUBLISHED", startsAt: new Date(Date.now() - DAY), endsAt: new Date(Date.now() + 2 * DAY), publishedAt: new Date() },
+        });
+        return row;
+      })()) as never);
+    const res = await api().patch(`/listings/${draft.id}`).set("Authorization", `Bearer ${seller.token}`).send({ startingPriceCents: 100 });
+    spy.mockRestore();
+    expect(res.status).toBe(409);
+    expect(await prisma.listing.findUniqueOrThrow({ where: { id: draft.id } })).toMatchObject({ startingPriceCents: 5000, status: "PUBLISHED" });
   });
 });

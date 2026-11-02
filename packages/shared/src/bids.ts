@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { MAX_PRICE_CENTS } from "./listings";
 
 // The minimum rise is the larger of €1 and 5% of the current bid. The 5% is a config value.
 export const MIN_BID_INCREMENT_CENTS = 100;
@@ -16,6 +15,10 @@ export const MAX_EXTENSIONS = ANTI_SNIPING_STEPS.length;
 
 // True once the last extension has been used: the auction cannot be extended again, so this is the final chance to bid.
 export const isFinalChance = (extensionCount: number | null | undefined) => (extensionCount ?? 0) >= MAX_EXTENSIONS;
+
+// The most a single bid may be (EUR 10 million). It sits far below the 32-bit limit of the price columns, so the minimum
+// for the next bid always fits too. Past about EUR 9.5 million the next minimum is above this cap, so nobody can outbid.
+export const MAX_BID_CENTS = 1_000_000_000;
 
 // The least the next bid may be, in cents. With no bids yet it is the starting price; after that it is the current bid
 // plus the rise, rounded up to a whole cent. Examples: €10 -> €11, €100 -> €105, €1,000 -> €1,050.
@@ -50,7 +53,7 @@ export const placeBidSchema = z.object({
     .number({ invalid_type_error: "Enter your bid" })
     .int("Enter your bid")
     .min(1, "Enter your bid")
-    .max(MAX_PRICE_CENTS, "That bid is too high"),
+    .max(MAX_BID_CENTS, "That bid is too high"),
   idempotencyKey: z
     .string()
     .min(8, "Missing bid key")

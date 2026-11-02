@@ -5,9 +5,8 @@ import {
   type BidRefusal,
   type PlaceBidInput,
 } from "@auction/shared";
-import { ConflictException, HttpException, HttpStatus, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
-import { isUniqueViolation } from "../common/errors";
 
 const REFUSAL_STATUS: Record<BidRefusal, HttpStatus> = {
   NOT_FOUND: HttpStatus.NOT_FOUND,
@@ -23,6 +22,18 @@ export const refusal = (reason: BidRefusal, extra: Record<string, unknown> = {})
   new HttpException({ code: reason, message: BID_REFUSAL_MESSAGES[reason], ...extra }, REFUSAL_STATUS[reason]);
 
 const KEY_REUSED = "IDEMPOTENCY_KEY_REUSED";
+
+// Database failures that are not the bidder's fault, as answers they can act on instead of a bare 500. A failed bid
+// is rolled back whole, so trying again with the same key is always safe.
+export function bidFailure(error: unknown): HttpException | undefined {
+  const code = (error as { code?: string } | null)?.code;
+  if (code === "P2002") return new ConflictException({ code: KEY_REUSED, message: "That bid key was already used for a different bid." });
+  if (code === "P2003") return refusal("NOT_FOUND"); // the listing or the bidder was deleted while the bid ran
+  if (code === "P2024" || code === "P2028") {
+    return new ServiceUnavailableException({ code: "BUSY", message: "Bidding is busy right now. Your bid was not placed; try again." });
+  }
+  return undefined;
+}
 
 interface LockedListing {
   id: string;
@@ -126,11 +137,8 @@ export class BidsService {
         { maxWait: 15_000, timeout: 15_000 },
       );
     } catch (error) {
-      // Two requests with one key for different listings can race past the check above; the database stops the second.
-      if (isUniqueViolation(error)) {
-        throw new ConflictException({ code: KEY_REUSED, message: "That bid key was already used for a different bid." });
-      }
-      throw error;
+      // (Two requests with one key for different listings can race past the key check; the database stops the second.)
+      throw bidFailure(error) ?? error;
     }
   }
 
