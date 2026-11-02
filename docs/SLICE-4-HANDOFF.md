@@ -53,7 +53,7 @@ State of the dev database: 20,003 listings from the seed (sample sellers have em
 - **Real client IP:** today `Bid.ip` is the **web server's** address, because `placeBidAction` calls the API from the server. Forward the viewer's address (for example `X-Forwarded-For` from `next/headers` in `bid-actions.ts`) and set Express `trust proxy` appropriately in `apps/api/src/main.ts`.
 - The cooldown on requesting login codes that `DESIGN.md` flagged "add with the slice 4 rate limits" (`apps/api/src/auth/auth.service.ts`).
 
-### Step 7. Keep the search index current
+### Step 7. Keep the search index current (built)
 - On each bid update the Typesense document (`price_cents`, `bid_count`, `final_chance`, `ends_at`); `toDocument` in `apps/api/src/listings/listings.service.ts` already builds them from the listing, but `syncSearch` is private and only runs on listing edits. The design says to throttle price refreshes to every few seconds per auction, **but an extension must update `ends_at` immediately**: otherwise the 5-minute sweep (`removeEnded`) and the `ends_at > now` search filter drop a still-live extended auction from search after its original end time.
 - "Most bids" sorting becomes meaningful here.
 

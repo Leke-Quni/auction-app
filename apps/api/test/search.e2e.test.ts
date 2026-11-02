@@ -29,6 +29,7 @@ let lastParams: SearchParams | undefined;
 const fakeSearch: SearchIndex = {
   async ensureReady() {},
   async upsert() {},
+  async update() {},
   async remove() {},
   async removeEnded() {},
   async replaceAll() {},

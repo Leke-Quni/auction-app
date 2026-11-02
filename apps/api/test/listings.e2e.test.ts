@@ -26,6 +26,10 @@ const fakeSearch: SearchIndex = {
     if (failSearch) throw new Error("search is down");
     indexed.set(doc.id, doc);
   },
+  async update(id, fields) {
+    const doc = indexed.get(id);
+    if (doc) indexed.set(id, { ...doc, ...fields });
+  },
   async remove(id) {
     if (failSearch) throw new Error("search is down");
     indexed.delete(id);

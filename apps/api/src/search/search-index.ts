@@ -21,6 +21,9 @@ export interface ListingDocument {
   cover_url?: string;
 }
 
+// The fields a bid changes.
+export type LiveFields = Pick<ListingDocument, "price_cents" | "bid_count" | "final_chance" | "ends_at">;
+
 export interface SearchParams extends Omit<SearchQuery, "sort" | "endingSoon"> {
   sort: SearchSort;
   endingSoon: boolean;
@@ -30,6 +33,8 @@ export interface SearchParams extends Omit<SearchQuery, "sort" | "endingSoon"> {
 export interface SearchIndex {
   ensureReady(): Promise<void>;
   upsert(doc: ListingDocument): Promise<void>;
+  // Changes some fields of a document already in the index. A document that is not there (ended, removed) is left alone.
+  update(id: string, fields: LiveFields): Promise<void>;
   remove(id: string): Promise<void>;
   removeEnded(now: Date): Promise<void>;
   replaceAll(docs: ListingDocument[]): Promise<void>;
@@ -41,6 +46,7 @@ export interface SearchIndex {
 export class NoopSearchIndex implements SearchIndex {
   async ensureReady() {}
   async upsert() {}
+  async update() {}
   async remove() {}
   async removeEnded() {}
   async replaceAll() {}
