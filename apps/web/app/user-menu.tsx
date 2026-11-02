@@ -46,6 +46,12 @@ export function UserMenu({ username, signOutAction }: { username: string; signOu
           <p className="border-b border-line px-3 py-2 text-muted">
             Signed in as <b className="text-[#222]">{username}</b>
           </p>
+          <Link role="menuitem" href="/sell/new" onClick={() => setOpen(false)} className={itemClass}>
+            Sell an item
+          </Link>
+          <Link role="menuitem" href="/sell" onClick={() => setOpen(false)} className={itemClass}>
+            My listings
+          </Link>
           <Link role="menuitem" href="/account" onClick={() => setOpen(false)} className={itemClass}>
             Account info
           </Link>

@@ -59,7 +59,7 @@ export async function verifyCodeAction(_: FormState, formData: FormData): Promis
   const parsed = loginCodeSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Enter the 6-digit code from your email." };
   try {
-    await signIn("credentials", { ...parsed.data, redirectTo: "/account" });
+    await signIn("credentials", { ...parsed.data, redirectTo: "/" });
   } catch (error) {
     if (error instanceof AuthError) return { error: "That code is invalid or has expired. Sign in again to get a new one." };
     throw error;
