@@ -153,6 +153,7 @@ async function main() {
     });
     await prisma.user.createMany({ data: sellers });
 
+    const finalChance = (when: { state: string }, i: number) => (when.state === "live" || when.state === "endingSoon") && i % 40 === 0;
     const listings = [];
     const images = [];
     const tally: Record<string, number> = {};
@@ -176,11 +177,11 @@ async function main() {
         startingPriceCents,
         reservePriceCents: random() < 0.35 ? Math.round((startingPriceCents * between(1.2, 3)) / 100) * 100 : null,
         durationDays: when.days,
-        // A few live auctions that have used both anti-sniping extensions, so the "Final chance to bid" tag has data.
-        extensionCount: (when.state === "live" || when.state === "endingSoon") && i % 40 === 0 ? 2 : 0,
+        // A few live auctions that have been extended right up to the ceiling, so the "Final chance to bid" tag has data.
+        extensionCount: finalChance(when, i) ? 30 : 0,
         status: "PUBLISHED" as const,
         startsAt: when.startsAt,
-        endsAt: when.endsAt,
+        endsAt: finalChance(when, i) ? new Date(when.endsAt.getTime() + DAY) : when.endsAt,
         publishedAt: when.publishedAt,
         createdAt: new Date(Math.min(when.publishedAt.getTime(), now) - between(3_600_000, 2 * DAY)),
       });

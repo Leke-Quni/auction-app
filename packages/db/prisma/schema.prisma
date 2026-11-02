@@ -105,7 +105,7 @@ model Listing {
   // Kept in step with the bids by the bid transaction, so a page never has to add them up.
   currentBidCents    Int?
   bidCount           Int              @default(0)
-  // How many of the two anti-sniping extensions this auction has used (0, 1 or 2).
+  // How many times a late bid has extended this auction (see ANTI_SNIPING in packages/shared).
   extensionCount     Int              @default(0)
   highBidderId       String?
   highBidder         User?            @relation("ListingHighBidder", fields: [highBidderId], references: [id], onDelete: Restrict)

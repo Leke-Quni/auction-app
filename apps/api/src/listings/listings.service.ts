@@ -1,5 +1,7 @@
 import {
   createListingSchema,
+  extensionCeiling,
+  isFinalChance,
   listingPhase,
   minimumNextBidCents,
   type CreateListingInput,
@@ -35,6 +37,9 @@ const listingInclude = {
 
 type ListingRow = PrismaTypes.ListingGetPayload<{ include: typeof listingInclude }>;
 
+// True once a published auction's end has reached its ceiling and cannot move again.
+const isFinal = (l: ListingRow) => (l.startsAt && l.endsAt ? isFinalChance(l.endsAt, extensionCeiling(l.startsAt, l.durationDays)) : false);
+
 const toDto = (l: ListingRow, now = new Date()) => ({
   id: l.id,
   title: l.title,
@@ -49,6 +54,7 @@ const toDto = (l: ListingRow, now = new Date()) => ({
   // The server's clock when this was sent, so a countdown can follow it instead of the viewer's clock.
   serverTime: now.toISOString(),
   extensionCount: l.extensionCount,
+  finalChance: isFinal(l),
   currentBidCents: l.currentBidCents,
   bidCount: l.bidCount,
   minimumNextBidCents: minimumNextBidCents(l),
@@ -71,7 +77,7 @@ const toDocument = (l: ListingRow, now = new Date()): ListingDocument | null => 
     condition: l.condition,
     price_cents: l.currentBidCents ?? l.startingPriceCents,
     bid_count: l.bidCount,
-    extension_count: l.extensionCount,
+    final_chance: isFinal(l),
     starts_at: Math.floor(l.startsAt.getTime() / 1000),
     ends_at: Math.floor(l.endsAt.getTime() / 1000),
     published_at: Math.floor(l.publishedAt.getTime() / 1000),

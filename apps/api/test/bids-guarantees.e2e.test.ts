@@ -15,7 +15,6 @@ import { NoopSearchIndex, SEARCH_INDEX } from "../src/search/search-index";
 // (a refused bid, a retry, a crash halfway, a race) can change the listing or lose their bid.
 const stamp = Date.now();
 const DAY = 86_400_000;
-const MINUTE = 60_000;
 let counter = 0;
 
 describe("the top bidder is safe", () => {
@@ -191,7 +190,7 @@ describe("the top bidder is safe", () => {
 
   it("is not extended again by a retry of the bid that already extended the auction", async () => {
     const [a] = await makePeople(1);
-    const listing = await makeListing({ endsAt: new Date(Date.now() + 3 * MINUTE) });
+    const listing = await makeListing({ endsAt: new Date(Date.now() + 90_000) });
     const key = randomUUID();
     await bid(a, listing.id, 1000, key).expect(201);
     expect((await prisma.listing.findUniqueOrThrow({ where: { id: listing.id } })).extensionCount).toBe(1);

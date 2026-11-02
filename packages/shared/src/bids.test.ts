@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  ANTI_SNIPING_STEPS,
+  ANTI_SNIPING,
   MAX_BID_CENTS,
-  MAX_EXTENSIONS,
   endsAtAfterBid,
+  extensionCeiling,
   isFinalChance,
   minimumNextBidCents,
   placeBidSchema,
@@ -49,91 +49,78 @@ describe("minimumNextBidCents", () => {
 
 describe("endsAtAfterBid", () => {
   const end = new Date("2026-11-02T12:00:00Z");
+  const far = new Date("2026-11-03T12:00:00Z");
   const at = (time: string) => new Date(`2026-11-02T${time}Z`);
-  const result = (endsAt: Date, bidAt: string, used: number) => {
-    const out = endsAtAfterBid(endsAt, at(bidAt), used);
-    return { endsAt: out.endsAt, used: out.extensionCount, extended: out.extended };
-  };
+  const result = (endsAt: Date, bidAt: string, ceiling = far) => endsAtAfterBid(endsAt, at(bidAt), ceiling);
 
-  describe("the first extension: a bid in the last 5 minutes sets the end to 15 minutes after it", () => {
-    it("leaves the end alone for a bid earlier than that", () => {
-      expect(result(end, "11:00:00", 0)).toEqual({ endsAt: end, used: 0, extended: false });
-      expect(result(end, "11:54:59", 0)).toEqual({ endsAt: end, used: 0, extended: false });
-    });
-
-    it("extends for a bid inside the last 5 minutes, counting it as the first extension", () => {
-      expect(result(end, "11:55:00", 0)).toEqual({ endsAt: at("12:10:00"), used: 1, extended: true });
-      expect(result(end, "11:57:00", 0)).toEqual({ endsAt: at("12:12:00"), used: 1, extended: true });
-      expect(result(end, "11:59:59", 0)).toEqual({ endsAt: at("12:14:59"), used: 1, extended: true });
-    });
-
-    it("uses the 15-minute step, not the 5-minute one, for a bid in the last 60 seconds of the original end", () => {
-      expect(result(end, "11:59:30", 0)).toEqual({ endsAt: at("12:14:30"), used: 1, extended: true });
-    });
+  it("leaves the end alone for a bid earlier than the last 2 minutes", () => {
+    expect(result(end, "11:00:00")).toEqual({ endsAt: end, extended: false });
+    expect(result(end, "11:57:59")).toEqual({ endsAt: end, extended: false });
   });
 
-  describe("the second extension: after the first, a bid in the last 60 seconds sets the end to 5 minutes after it", () => {
-    const extended = at("12:12:00");
-
-    it("ignores a bid that is not in the last 60 seconds, however late it is otherwise", () => {
-      expect(result(extended, "12:01:00", 1)).toEqual({ endsAt: extended, used: 1, extended: false });
-      expect(result(extended, "12:08:00", 1)).toEqual({ endsAt: extended, used: 1, extended: false });
-      expect(result(extended, "12:10:59", 1)).toEqual({ endsAt: extended, used: 1, extended: false });
-    });
-
-    it("extends for a bid in the last 60 seconds, counting it as the second and last extension", () => {
-      expect(result(extended, "12:11:00", 1)).toEqual({ endsAt: at("12:16:00"), used: 2, extended: true });
-      expect(result(extended, "12:11:59", 1)).toEqual({ endsAt: at("12:16:59"), used: 2, extended: true });
-    });
+  it("moves the end to 2 minutes after a bid in the last 2 minutes", () => {
+    expect(result(end, "11:58:00")).toEqual({ endsAt: at("12:00:00"), extended: false }); // 2 minutes after is the same end
+    expect(result(end, "11:58:01")).toEqual({ endsAt: at("12:00:01"), extended: true });
+    expect(result(end, "11:59:00")).toEqual({ endsAt: at("12:01:00"), extended: true });
+    expect(result(end, "11:59:59")).toEqual({ endsAt: at("12:01:59"), extended: true });
   });
 
-  describe("after both extensions", () => {
-    it("never moves the end again, however late the bid", () => {
-      const last = at("12:16:00");
-      for (const time of ["12:00:00", "12:10:00", "12:15:00", "12:15:59"]) {
-        expect(result(last, time, 2), time).toEqual({ endsAt: last, used: 2, extended: false });
-      }
-    });
-  });
-
-  it("walks through a whole auction that gets two extensions and then ends on time", () => {
-    const first = endsAtAfterBid(end, at("11:58:00"), 0);
-    expect(first.endsAt).toEqual(at("12:13:00"));
-    const second = endsAtAfterBid(first.endsAt, at("12:12:30"), first.extensionCount);
-    expect(second.endsAt).toEqual(at("12:17:30"));
-    const third = endsAtAfterBid(second.endsAt, at("12:17:00"), second.extensionCount);
-    expect(third).toEqual({ endsAt: at("12:17:30"), extensionCount: 2, extended: false });
+  it("keeps extending for as long as late bids keep coming", () => {
+    let ends = end;
+    for (const time of ["11:59:00", "12:00:30", "12:02:00", "12:03:30"]) {
+      const out = result(ends, time);
+      expect(out.extended, time).toBe(true);
+      ends = out.endsAt;
+    }
+    expect(ends).toEqual(at("12:05:30"));
   });
 
   it("never moves the end earlier, and ignores a bid at or after the end", () => {
-    for (const used of [0, 1, 2]) {
-      for (const time of ["11:00:00", "11:55:00", "11:59:00", "11:59:59"]) {
-        expect(endsAtAfterBid(end, at(time), used).endsAt.getTime(), `${time} / ${used}`).toBeGreaterThanOrEqual(end.getTime());
-      }
-      expect(endsAtAfterBid(end, at("12:00:00"), used).extended).toBe(false);
-      expect(endsAtAfterBid(end, at("12:05:00"), used).extended).toBe(false);
+    for (const time of ["10:00:00", "11:58:00", "11:59:00", "11:59:59"]) {
+      expect(result(end, time).endsAt.getTime(), time).toBeGreaterThanOrEqual(end.getTime());
     }
+    expect(result(end, "12:00:00")).toEqual({ endsAt: end, extended: false });
+    expect(result(end, "12:05:00")).toEqual({ endsAt: end, extended: false });
   });
 
-  it("is two steps: 5 minutes then 15, and 60 seconds then 5", () => {
-    expect(ANTI_SNIPING_STEPS).toEqual([
-      { windowMs: 300_000, extensionMs: 900_000 },
-      { windowMs: 60_000, extensionMs: 300_000 },
-    ]);
-    expect(MAX_EXTENSIONS).toBe(2);
+  describe("the ceiling", () => {
+    const ceiling = at("12:10:00");
+
+    it("stops the end at the ceiling, however many bids come", () => {
+      const out = result(at("12:09:00"), "12:08:30", ceiling);
+      expect(out).toEqual({ endsAt: ceiling, extended: true });
+    });
+
+    it("does not move the end once it is at the ceiling", () => {
+      expect(result(ceiling, "12:09:59", ceiling)).toEqual({ endsAt: ceiling, extended: false });
+      expect(result(ceiling, "12:09:00", ceiling)).toEqual({ endsAt: ceiling, extended: false });
+    });
+
+    it("never pulls an end back to the ceiling if it was somehow already past it", () => {
+      expect(result(at("12:20:00"), "12:19:00", ceiling).endsAt).toEqual(at("12:20:00"));
+    });
+  });
+
+  it("is a 2-minute window, a 2-minute extension and 24 hours of extra time at most", () => {
+    expect(ANTI_SNIPING).toEqual({ windowMs: 120_000, extensionMs: 120_000, maxExtraMs: 86_400_000 });
+  });
+});
+
+describe("extensionCeiling", () => {
+  it("is the original end (start plus duration) plus 24 hours", () => {
+    const starts = new Date("2026-11-02T10:00:00Z");
+    expect(extensionCeiling(starts, 3)).toEqual(new Date("2026-11-06T10:00:00Z"));
+    expect(extensionCeiling(starts, 1)).toEqual(new Date("2026-11-04T10:00:00Z"));
   });
 });
 
 describe("isFinalChance", () => {
-  it("is true only once both extensions have been used", () => {
-    expect(isFinalChance(0)).toBe(false);
-    expect(isFinalChance(1)).toBe(false);
-    expect(isFinalChance(2)).toBe(true);
-  });
+  const ceiling = new Date("2026-11-06T10:00:00Z");
 
-  it("treats a missing count as none used", () => {
-    expect(isFinalChance(undefined)).toBe(false);
-    expect(isFinalChance(null)).toBe(false);
+  it("is true only once the end time has reached the ceiling", () => {
+    expect(isFinalChance(new Date("2026-11-05T10:00:00Z"), ceiling)).toBe(false);
+    expect(isFinalChance(new Date("2026-11-06T09:59:59Z"), ceiling)).toBe(false);
+    expect(isFinalChance(ceiling, ceiling)).toBe(true);
   });
 });
 

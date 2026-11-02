@@ -1,4 +1,4 @@
-import { formatEur, isFinalChance, SOCKET_EVENTS, type ExtendedNotice, type OutbidNotice } from "@auction/shared";
+import { formatEur, SOCKET_EVENTS, type ExtendedNotice, type OutbidNotice } from "@auction/shared";
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import type { Subscription } from "rxjs";
 import { AuctionEvents } from "../bids/auction-events";
@@ -65,7 +65,7 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
         title: listing.title,
         endsAt: endsAt.toISOString(),
         extensionCount,
-        final: isFinalChance(extensionCount),
+        final: result.listing.finalChance,
       };
       this.gateway.emitToUsers(others, SOCKET_EVENTS.extendedNotice, notice);
     }

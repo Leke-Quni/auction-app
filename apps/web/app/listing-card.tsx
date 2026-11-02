@@ -1,4 +1,4 @@
-import { formatEur, isFinalChance } from "@auction/shared";
+import { formatEur } from "@auction/shared";
 import Link from "next/link";
 import { Countdown } from "./countdown";
 import { LocalTime } from "./local-time";
@@ -11,7 +11,7 @@ export interface ListingSummary {
   startsAt: string | null;
   endsAt: string | null;
   images: { id: string; url: string }[];
-  extensionCount?: number;
+  finalChance?: boolean;
   currentBidCents?: number | null;
   bidCount?: number;
 }
@@ -26,7 +26,7 @@ export function ListingCard({ listing }: { listing: ListingSummary }) {
         ) : (
           <div className="flex aspect-square items-center justify-center bg-[#ddd] text-muted">No photo</div>
         )}
-        {listing.phase === "live" && isFinalChance(listing.extensionCount) && (
+        {listing.phase === "live" && listing.finalChance && (
           <span className="absolute left-1.5 top-1.5 rounded-md bg-[#fef08a]/80 px-2 py-0.5 text-xs font-bold text-[#422006] backdrop-blur-[2px]">Final chance to bid</span>
         )}
       </div>

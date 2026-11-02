@@ -1,13 +1,15 @@
 import {
   BID_REFUSAL_MESSAGES,
   endsAtAfterBid,
+  extensionCeiling,
+  isFinalChance,
   minimumNextBidCents,
   type BidRefusal,
   type PlaceBidInput,
 } from "@auction/shared";
 import { ConflictException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
-import { PRISMA, type Prisma } from "../db/db.module";
 import { bidLimits } from "../config";
+import { PRISMA, type Prisma } from "../db/db.module";
 import { RATE_LIMITER, type RateLimiter } from "../rate-limit/rate-limiter";
 import { AuctionEvents } from "./auction-events";
 
@@ -44,6 +46,7 @@ interface LockedListing {
   status: "DRAFT" | "PUBLISHED";
   startsAt: Date | null;
   endsAt: Date | null;
+  durationDays: number;
   startingPriceCents: number;
   currentBidCents: number | null;
   bidCount: number;
@@ -59,6 +62,8 @@ export interface BidResult {
     bidCount: number;
     endsAt: Date;
     extensionCount: number;
+    // True when the end time has reached its ceiling, so the auction cannot be extended again.
+    finalChance: boolean;
     minimumNextBidCents: number;
     highBidderId: string;
   };
@@ -79,6 +84,7 @@ export class BidsService {
   ) {}
 
   private readonly log = new Logger(BidsService.name);
+
   // The whole decision is one transaction that holds a lock on the listing's row, so two bids at the same moment are
   // handled one after the other: the second sees the first's price and is refused if it no longer clears the minimum.
   // Nothing is accepted without being saved, and a retry with the same key can never place the bid twice.
@@ -90,7 +96,7 @@ export class BidsService {
       result = await this.prisma.$transaction(
         async (tx) => {
           const [listing] = await tx.$queryRaw<LockedListing[]>`
-            SELECT "id", "sellerId", "status", "startsAt", "endsAt", "startingPriceCents", "currentBidCents", "bidCount",
+            SELECT "id", "sellerId", "status", "startsAt", "endsAt", "durationDays", "startingPriceCents", "currentBidCents", "bidCount",
                    "highBidderId", "extensionCount"
             FROM "Listing" WHERE "id" = ${listingId} FOR UPDATE`;
 
@@ -115,7 +121,9 @@ export class BidsService {
           const minimum = minimumNextBidCents(listing);
           if (input.amountCents < minimum) throw refusal("TOO_LOW", { minimumNextBidCents: minimum });
 
-          const timing = endsAtAfterBid(listing.endsAt, now, listing.extensionCount);
+          const ceiling = extensionCeiling(listing.startsAt, listing.durationDays);
+          const timing = endsAtAfterBid(listing.endsAt, now, ceiling);
+          const extensionCount = listing.extensionCount + (timing.extended ? 1 : 0);
           const bid = await tx.bid.create({
             data: { listingId, bidderId, amountCents: input.amountCents, idempotencyKey: input.idempotencyKey, ip },
           });
@@ -127,7 +135,7 @@ export class BidsService {
               bidCount: { increment: 1 },
               highBidderId: bidderId,
               endsAt: timing.endsAt,
-              extensionCount: timing.extensionCount,
+              extensionCount,
             },
           });
           return {
@@ -137,7 +145,8 @@ export class BidsService {
               currentBidCents: input.amountCents,
               bidCount: updated.bidCount,
               endsAt: timing.endsAt,
-              extensionCount: timing.extensionCount,
+              extensionCount,
+              finalChance: isFinalChance(timing.endsAt, ceiling),
               minimumNextBidCents: minimumNextBidCents({ startingPriceCents: updated.startingPriceCents, currentBidCents: input.amountCents }),
               highBidderId: bidderId,
             },
@@ -152,9 +161,9 @@ export class BidsService {
     } catch (error) {
       // (Two requests with one key for different listings can race past the key check; the database stops the second.)
       const failure = bidFailure(error) ?? error;
-    }
       await this.auditRefusal(attempt, failure);
       throw failure;
+    }
     // Only now, with the bid committed, does anyone hear of it.
     if (!result.replayed) {
       this.events.publish({ type: "BidPlaced", listingId, result });
@@ -172,6 +181,7 @@ export class BidsService {
     const allowedIp = ip ? await this.limiter.allow(`rl:bid-ip:${ip}`, perIp, 60) : true;
     if (!allowedUser || !allowedIp) throw refusal("RATE_LIMITED");
   }
+
   // The accepted rows are written inside the bid's own transaction; a refusal rolled everything back, so it is
   // recorded afterwards. A failure to record never changes the answer the bidder gets.
   private async auditRefusal(attempt: { userId: string; listingId: string; amountCents: number; ip: string | null }, failure: unknown) {
@@ -182,6 +192,7 @@ export class BidsService {
       this.log.error(`Could not record a refused bid: ${(error as Error).message}`);
     }
   }
+
   // Public bid history, newest first. Drafts have none to show.
   async history(listingId: string, limit: number) {
     const listing = await this.prisma.listing.findUnique({ where: { id: listingId }, select: { status: true, bidCount: true } });
@@ -198,7 +209,7 @@ export class BidsService {
 
 function replayOf(
   earlier: { id: string; amountCents: number; createdAt: Date },
-  listing: Pick<LockedListing, "id" | "currentBidCents" | "bidCount" | "endsAt" | "extensionCount" | "highBidderId" | "startingPriceCents">,
+  listing: Pick<LockedListing, "id" | "currentBidCents" | "bidCount" | "startsAt" | "endsAt" | "durationDays" | "extensionCount" | "highBidderId" | "startingPriceCents">,
 ): BidResult {
   return {
     bid: { id: earlier.id, amountCents: earlier.amountCents, createdAt: earlier.createdAt },
@@ -208,6 +219,7 @@ function replayOf(
       bidCount: listing.bidCount,
       endsAt: listing.endsAt as Date,
       extensionCount: listing.extensionCount,
+      finalChance: isFinalChance(listing.endsAt as Date, extensionCeiling(listing.startsAt as Date, listing.durationDays)),
       minimumNextBidCents: minimumNextBidCents(listing),
       highBidderId: listing.highBidderId ?? "",
     },

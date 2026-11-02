@@ -17,7 +17,6 @@ import { NoopSearchIndex, SEARCH_INDEX } from "../src/search/search-index";
 
 const stamp = Date.now();
 const DAY = 86_400_000;
-const MINUTE = 60_000;
 
 interface Person {
   id: string;
@@ -160,7 +159,7 @@ describe("realtime", () => {
   it("announces an extension, and nothing for a refused bid", async () => {
     const url = `http://localhost:${(apps[0].getHttpServer().address() as AddressInfo).port}`;
     const [bidder, rival] = await makePeople(2);
-    const listing = await makeListing({ endsAt: new Date(Date.now() + 2 * MINUTE) });
+    const listing = await makeListing({ endsAt: new Date(Date.now() + 90_000) });
     const viewer = await open(url);
     await watch(viewer, listing.id);
 
@@ -170,7 +169,7 @@ describe("realtime", () => {
     const event = await extended;
     expect(await placed).toMatchObject({ extended: true, extensionCount: 1, endsAt: event.endsAt });
     expect(event).toMatchObject({ listingId: listing.id, extensionCount: 1 });
-    expect(new Date(event.endsAt).getTime()).toBeGreaterThan(Date.now() + 14 * MINUTE);
+    expect(new Date(event.endsAt).getTime()).toBeGreaterThan(Date.now() + 100_000);
 
     const quiet = silent(viewer, SOCKET_EVENTS.bidPlaced);
     await bid(url, rival, listing.id, 1).expect(422);

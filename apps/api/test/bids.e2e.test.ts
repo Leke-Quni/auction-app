@@ -220,55 +220,61 @@ describe("bids", () => {
     const near = (ms: number) => ({ endsAt: new Date(Date.now() + ms) });
     const within = (actual: Date, expectedMs: number) => Math.abs(actual.getTime() - (Date.now() + expectedMs)) < 5_000;
 
-    it("a bid in the last 5 minutes moves the end to 15 minutes from now, as the first extension", async () => {
+    it("a bid in the last 2 minutes moves the end to 2 minutes from now", async () => {
       const [person] = await makePeople(1);
-      const listing = await makeListing(near(3 * MINUTE));
+      const listing = await makeListing(near(90_000));
       const res = await bid(person, listing.id, 1000).expect(201);
       expect(res.body.extended).toBe(true);
       expect(res.body.listing.extensionCount).toBe(1);
+      expect(res.body.listing.finalChance).toBe(false);
       const row = await stored(listing.id);
       expect(row.extensionCount).toBe(1);
-      expect(within(row.endsAt!, 15 * MINUTE)).toBe(true);
+      expect(within(row.endsAt!, 2 * MINUTE)).toBe(true);
     });
 
-    it("after the first, a bid in the last 60 seconds moves the end to 5 minutes from now, as the last extension", async () => {
-      const [person] = await makePeople(1);
-      const listing = await makeListing({ ...near(40_000), extensionCount: 1 });
-      const res = await bid(person, listing.id, 1000).expect(201);
-      expect(res.body.extended).toBe(true);
+    it("keeps extending on every late bid, counting each one", async () => {
+      const people = await makePeople(5);
+      const listing = await makeListing(near(100_000));
+      for (const [i, person] of people.entries()) {
+        await prisma.listing.update({ where: { id: listing.id }, data: near(60_000) });
+        const res = await bid(person, listing.id, 1000 + i * 200).expect(201);
+        expect(res.body.extended, `bid ${i}`).toBe(true);
+      }
       const row = await stored(listing.id);
-      expect(row.extensionCount).toBe(2);
-      expect(within(row.endsAt!, 5 * MINUTE)).toBe(true);
+      expect(row.extensionCount).toBe(5);
+      expect(within(row.endsAt!, 2 * MINUTE)).toBe(true);
     });
 
-    it("leaves the end alone when the bid is not late enough, or both extensions are used", async () => {
-      const [a, b, c] = await makePeople(3);
-      const early = await makeListing(near(2 * DAY));
-      const notLateEnough = await makeListing({ ...near(3 * MINUTE), extensionCount: 1 });
-      const used = await makeListing({ ...near(30_000), extensionCount: 2 });
-      for (const [person, listing] of [[a, early], [b, notLateEnough], [c, used]] as const) {
+    it("leaves the end alone for a bid earlier than the last 2 minutes", async () => {
+      const [a, b] = await makePeople(2);
+      for (const [person, ms] of [[a, 2 * DAY], [b, 3 * MINUTE]] as const) {
+        const listing = await makeListing(near(ms));
         const before = (await stored(listing.id)).endsAt!.getTime();
         const res = await bid(person, listing.id, 1000).expect(201);
-        expect(res.body.extended, listing.id).toBe(false);
-        expect((await stored(listing.id)).endsAt!.getTime()).toBe(before);
+        expect(res.body.extended, String(ms)).toBe(false);
+        const row = await stored(listing.id);
+        expect(row.endsAt!.getTime()).toBe(before);
+        expect(row.extensionCount).toBe(0);
       }
     });
 
-    it("walks a whole auction through both extensions and then leaves it alone", async () => {
-      const [a, b, c, d] = await makePeople(4);
-      const listing = await makeListing(near(4 * MINUTE));
-      await bid(a, listing.id, 1000).expect(201);
-      expect((await stored(listing.id)).extensionCount).toBe(1);
-      // Move the clock on by editing the end time to 30 seconds away, as if 14.5 minutes had passed.
-      await prisma.listing.update({ where: { id: listing.id }, data: near(30_000) });
-      await bid(b, listing.id, 1100).expect(201);
-      expect((await stored(listing.id)).extensionCount).toBe(2);
-      await prisma.listing.update({ where: { id: listing.id }, data: near(20_000) });
+    it("stops at 24 hours past the original end, and says it is the final chance", async () => {
+      const [a, b, c] = await makePeople(3);
+      // A 1-day auction already extended for almost a day: the ceiling (start + 1 day + 24 hours) is 30 seconds away.
+      const ceiling = Date.now() + 30_000;
+      const listing = await makeListing({ durationDays: 1, startsAt: new Date(ceiling - 2 * DAY), endsAt: new Date(Date.now() + 20_000) });
+      const res = await bid(a, listing.id, 1000).expect(201);
+      expect(res.body.extended).toBe(true);
+      expect(res.body.listing.finalChance).toBe(true);
+      expect((await stored(listing.id)).endsAt!.getTime()).toBe(ceiling);
+
+      // At the ceiling the end never moves again, however late the bid.
+      const later = await bid(b, listing.id, 1100).expect(201);
+      expect(later.body.extended).toBe(false);
+      expect(later.body.listing.finalChance).toBe(true);
+      expect((await stored(listing.id)).endsAt!.getTime()).toBe(ceiling);
       await bid(c, listing.id, 1300).expect(201);
-      const final = await stored(listing.id);
-      expect(final.extensionCount).toBe(2);
-      expect(final.endsAt!.getTime() - Date.now()).toBeLessThan(21_000);
-      await bid(d, listing.id, 5000).expect(201);
+      expect((await stored(listing.id)).extensionCount).toBe(1);
     });
   });
 

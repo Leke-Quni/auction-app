@@ -17,7 +17,6 @@ import { NoopSearchIndex, SEARCH_INDEX } from "../src/search/search-index";
 
 const stamp = Date.now();
 const DAY = 86_400_000;
-const MINUTE = 60_000;
 
 interface Person {
   id: string;
@@ -186,12 +185,12 @@ describe("bid notifications", () => {
 
   it("on a late bid, adds the new end time to the outbid notice and toasts every other bidder, with no extra email", async () => {
     const [anna, ben, cara] = await makePeople(3);
-    const listing = await makeListing({ endsAt: new Date(Date.now() + 2 * MINUTE) });
+    const listing = await makeListing({ endsAt: new Date(Date.now() + DAY) });
     // Anna bid early, Cara leads, then Ben bids at the last moment.
     await prisma.listing.update({ where: { id: listing.id }, data: { endsAt: new Date(Date.now() + DAY) } });
     await bid(anna, listing.id, 1000).expect(201);
     await bid(cara, listing.id, 1100).expect(201);
-    await prisma.listing.update({ where: { id: listing.id }, data: { endsAt: new Date(Date.now() + 2 * MINUTE) } });
+    await prisma.listing.update({ where: { id: listing.id }, data: { endsAt: new Date(Date.now() + 90_000) } });
 
     const [annaSocket, benSocket, caraSocket, sellerSocket] = await Promise.all([open(anna), open(ben), open(cara), open(seller)]);
     const annaExtended = collect(annaSocket, SOCKET_EVENTS.extendedNotice);
@@ -211,7 +210,7 @@ describe("bid notifications", () => {
 
     expect(annaExtended).toHaveLength(1);
     expect(annaExtended[0] as ExtendedNotice).toMatchObject({ listingId: listing.id, extensionCount: 1, final: false });
-    expect(new Date((annaExtended[0] as ExtendedNotice).endsAt).getTime()).toBeGreaterThan(Date.now() + 14 * MINUTE);
+    expect(new Date((annaExtended[0] as ExtendedNotice).endsAt).getTime()).toBeGreaterThan(Date.now() + 100_000);
 
     expect(caraOutbid).toHaveLength(1);
     expect(caraOutbid[0] as OutbidNotice).toMatchObject({ extended: true, extensionCount: 1 });
@@ -221,21 +220,26 @@ describe("bid notifications", () => {
     expect(sent[0].text).toContain("extended");
   });
 
-  it("marks the second and last extension as final", async () => {
+  it("marks the extension that reaches the ceiling as final, and sends no more extension notices after it", async () => {
     const [anna, ben, cara, dana] = await makePeople(4);
     const listing = await makeListing({ endsAt: new Date(Date.now() + DAY) });
     await bid(anna, listing.id, 1000).expect(201);
     await bid(dana, listing.id, 1100).expect(201);
-    await prisma.listing.update({ where: { id: listing.id }, data: { endsAt: new Date(Date.now() + 30_000), extensionCount: 1 } });
+    // A 1-day auction already extended for almost a day: the ceiling (start + 1 day + 24 hours) is 30 seconds away.
+    const ceiling = Date.now() + 30_000;
+    await prisma.listing.update({
+      where: { id: listing.id },
+      data: { durationDays: 1, startsAt: new Date(ceiling - 2 * DAY), endsAt: new Date(Date.now() + 20_000), extensionCount: 40 },
+    });
     const annaSocket = await open(anna);
     const got = collect(annaSocket, SOCKET_EVENTS.extendedNotice);
 
     await bid(ben, listing.id, 1300).expect(201);
     await settle();
     expect(got).toHaveLength(1);
-    expect(got[0] as ExtendedNotice).toMatchObject({ extensionCount: 2, final: true });
+    expect(got[0] as ExtendedNotice).toMatchObject({ extensionCount: 41, final: true });
 
-    // The auction can no longer be extended, so a further late bid sends no extension notice.
+    // The end is at the ceiling and cannot move, so a further late bid sends no extension notice.
     await bid(cara, listing.id, 1400).expect(201);
     await settle();
     expect(got).toHaveLength(1);

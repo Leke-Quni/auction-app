@@ -19,28 +19,28 @@ const listing = (over: Partial<ListingSummary> = {}): ListingSummary => ({
 
 describe("ListingCard final-chance tag", () => {
   it("shows on a live auction that has used both extensions", () => {
-    render(<ListingCard listing={listing({ extensionCount: 2 })} />);
+    render(<ListingCard listing={listing({ finalChance: true })} />);
     expect(screen.getByText("Final chance to bid")).toBeTruthy();
   });
 
   it("does not show before the second extension, or when the count is missing", () => {
-    for (const extensionCount of [0, 1, undefined]) {
-      render(<ListingCard listing={listing({ extensionCount })} />);
-      expect(screen.queryByText("Final chance to bid"), String(extensionCount)).toBeNull();
+    for (const finalChance of [false, undefined]) {
+      render(<ListingCard listing={listing({ finalChance })} />);
+      expect(screen.queryByText("Final chance to bid"), String(finalChance)).toBeNull();
       cleanup();
     }
   });
 
   it("does not show on an auction that is not live", () => {
     for (const phase of ["upcoming", "ended"] as const) {
-      render(<ListingCard listing={listing({ phase, extensionCount: 2 })} />);
+      render(<ListingCard listing={listing({ phase, finalChance: true })} />);
       expect(screen.queryByText("Final chance to bid"), phase).toBeNull();
       cleanup();
     }
   });
 
   it("also shows on a listing with no photo", () => {
-    render(<ListingCard listing={listing({ images: [], extensionCount: 2 })} />);
+    render(<ListingCard listing={listing({ images: [], finalChance: true })} />);
     expect(screen.getByText("No photo")).toBeTruthy();
     expect(screen.getByText("Final chance to bid")).toBeTruthy();
   });

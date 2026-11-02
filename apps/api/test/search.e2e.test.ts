@@ -63,7 +63,7 @@ describe("GET /search", () => {
       startingPriceCents: 2500,
       bidCount: 3,
       currentBidCents: 2500,
-      extensionCount: 0,
+      finalChance: false,
       phase: "live",
       startsAt: new Date((now - 3600) * 1000).toISOString(),
       endsAt: new Date((now + 3600) * 1000).toISOString(),
