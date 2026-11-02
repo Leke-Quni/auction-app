@@ -27,7 +27,9 @@ model User {
   loginCodes          LoginCode[]
   passwordResetTokens PasswordResetToken[]
   emailChange         EmailChange?
-  listings            Listing[]
+  listings            Listing[]            @relation("ListingSeller")
+  leadingListings     Listing[]            @relation("ListingHighBidder")
+  bids                Bid[]
 }
 
 model LoginCode {
@@ -87,7 +89,7 @@ model Category {
 model Listing {
   id                 String           @id @default(cuid())
   sellerId           String
-  seller             User             @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  seller             User             @relation("ListingSeller", fields: [sellerId], references: [id], onDelete: Cascade)
   title              String
   description        String
   categoryId         String
@@ -100,13 +102,22 @@ model Listing {
   startsAt           DateTime?
   endsAt             DateTime?
   publishedAt        DateTime?
+  // Kept in step with the bids by the bid transaction, so a page never has to add them up.
+  currentBidCents    Int?
+  bidCount           Int              @default(0)
+  // How many of the two anti-sniping extensions this auction has used (0, 1 or 2).
+  extensionCount     Int              @default(0)
+  highBidderId       String?
+  highBidder         User?            @relation("ListingHighBidder", fields: [highBidderId], references: [id], onDelete: SetNull)
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
   images             ListingImage[]
+  bids               Bid[]
 
   @@index([status, endsAt])
   @@index([sellerId])
   @@index([categoryId])
+  @@index([highBidderId])
 }
 
 model ListingImage {
@@ -119,4 +130,43 @@ model ListingImage {
   createdAt DateTime @default(now())
 
   @@unique([listingId, position])
+}
+
+// Every accepted bid. The unique key makes a retry harmless: the same bidder and key never place two bids.
+model Bid {
+  id             String   @id @default(cuid())
+  listingId      String
+  listing        Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  bidderId       String
+  bidder         User     @relation(fields: [bidderId], references: [id], onDelete: Cascade)
+  amountCents    Int
+  idempotencyKey String
+  ip             String?
+  createdAt      DateTime @default(now())
+
+  @@unique([bidderId, idempotencyKey])
+  @@index([listingId, amountCents(sort: Desc)])
+  @@index([bidderId])
+}
+
+enum BidOutcome {
+  ACCEPTED
+  REFUSED
+}
+
+// One row per bid attempt, accepted or refused, with who and from where. Plain ids and no relations, so deleting a
+// listing or an account never erases the record.
+model BidAudit {
+  id          String     @id @default(cuid())
+  userId      String?
+  listingId   String?
+  amountCents Int?
+  ip          String?
+  outcome     BidOutcome
+  reason      String?
+  createdAt   DateTime   @default(now())
+
+  @@index([userId, createdAt])
+  @@index([listingId, createdAt])
+  @@index([ip, createdAt])
 }
