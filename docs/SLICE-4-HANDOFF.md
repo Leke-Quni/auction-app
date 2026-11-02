@@ -57,7 +57,7 @@ State of the dev database: 20,003 listings from the seed (sample sellers have em
 - On each bid update the Typesense document (`price_cents`, `bid_count`, `final_chance`, `ends_at`); `toDocument` in `apps/api/src/listings/listings.service.ts` already builds them from the listing, but `syncSearch` is private and only runs on listing edits. The design says to throttle price refreshes to every few seconds per auction, **but an extension must update `ends_at` immediately**: otherwise the 5-minute sweep (`removeEnded`) and the `ends_at > now` search filter drop a still-live extended auction from search after its original end time.
 - "Most bids" sorting becomes meaningful here.
 
-### Step 8. Seed and bot
+### Step 8. Seed and bot (built)
 - Extend `packages/db/src/seed.ts` with bids from sample users on live listings, keeping the Listing fields consistent (the CHECK constraints enforce it). `seed-guard.ts` must keep refusing non-local databases.
 - A bot-bidder dev script that bids on a chosen auction every few seconds **through the HTTP API** (mint an HS256 JWT with `AUTH_SECRET` for a sample user) so the realtime path is exercised. Removing sample data must delete bids first and reset any real listing a sample user was leading (a listing's high bidder and any bid is `Restrict`ed from deletion).
 

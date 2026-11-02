@@ -188,6 +188,7 @@ __metadata:
   resolution: "@auction/db@workspace:packages/db"
   dependencies:
     "@auction/config": "workspace:*"
+    "@auction/shared": "workspace:*"
     "@prisma/adapter-pg": "npm:7.10.1"
     "@prisma/client": "npm:7.10.1"
     "@types/node": "npm:^22.0.0"
