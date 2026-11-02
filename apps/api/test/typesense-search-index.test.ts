@@ -194,3 +194,44 @@ describe("TypesenseSearchIndex.search typo tolerance", () => {
     expect(await find("jxanz")).toEqual([]);
   });
 });
+
+describe("TypesenseSearchIndex.search synonyms", () => {
+  const synonymIndex = new TypesenseSearchIndex(url, apiKey, `listings_synonym_test_${Date.now()}`);
+  const find = async (q: string) =>
+    (await synonymIndex.search({ q, page: 1, pageSize: 10, sort: "relevance", endingSoon: false, now: new Date() })).documents
+      .map((d) => d.title)
+      .sort();
+
+  beforeAll(async () => {
+    await synonymIndex.replaceAll([
+      doc("sneakers", { title: "Leather sneakers", description: "Size 42" }),
+      doc("boots", { title: "Ankle boots", description: "Brown" }),
+      doc("bicycle", { title: "Road bicycle", description: "Light frame" }),
+      doc("painting", { title: "Watercolour landscape", description: "Framed" }),
+      doc("lamp", { title: "Floor lamp", description: "Brass" }),
+    ]);
+  });
+
+  afterAll(async () => {
+    await fetch(`${url}/collections/${synonymIndex.collection}`, { method: "DELETE", headers: { "X-TYPESENSE-API-KEY": apiKey } });
+  });
+
+  it("finds specific items from a general word", async () => {
+    expect(await find("shoes")).toEqual(["Ankle boots", "Leather sneakers"]);
+    expect(await find("footwear")).toEqual(["Ankle boots", "Leather sneakers"]);
+  });
+
+  it("works one way: a specific word does not pull in the others", async () => {
+    expect(await find("sneakers")).toEqual(["Leather sneakers"]);
+    expect(await find("boots")).toEqual(["Ankle boots"]);
+  });
+
+  it("treats equivalent words and spellings the same", async () => {
+    expect(await find("bike")).toEqual(["Road bicycle"]);
+    expect(await find("watercolor")).toEqual(["Watercolour landscape"]);
+  });
+
+  it("still finds nothing for a word without synonyms", async () => {
+    expect(await find("submarine")).toEqual([]);
+  });
+});

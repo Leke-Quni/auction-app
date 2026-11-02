@@ -1,5 +1,7 @@
 import { ENDING_SOON_HOURS, type SearchSort } from "@auction/shared";
+import { Logger } from "@nestjs/common";
 import type { ListingDocument, SearchIndex, SearchParams } from "./search-index";
+import { LISTING_SYNONYMS, SYNONYM_SET } from "./synonyms";
 
 const SCHEMA_FIELDS = [
   { name: "title", type: "string" },
@@ -48,7 +50,9 @@ export function buildFilter(params: Pick<SearchParams, "category" | "condition" 
 }
 
 export class TypesenseSearchIndex implements SearchIndex {
+  private readonly logger = new Logger(TypesenseSearchIndex.name);
   private ready?: Promise<void>;
+  private synonymsReady = false;
 
   constructor(
     private readonly url: string,
@@ -57,7 +61,7 @@ export class TypesenseSearchIndex implements SearchIndex {
   ) {}
 
   ensureReady() {
-    this.ready ??= this.createCollectionIfMissing().catch((error) => {
+    this.ready ??= this.prepare().catch((error) => {
       this.ready = undefined;
       throw error;
     });
@@ -110,9 +114,26 @@ export class TypesenseSearchIndex implements SearchIndex {
       page: String(params.page),
       per_page: String(params.pageSize),
     });
+    if (this.synonymsReady) query.set("synonym_sets", SYNONYM_SET);
     const res = await this.call(`/collections/${this.collection}/documents/search?${query}`);
     const body = (await res.json()) as { found: number; hits: { document: ListingDocument }[] };
     return { documents: body.hits.map((hit) => hit.document), total: body.found };
+  }
+
+  private async prepare() {
+    await this.createCollectionIfMissing();
+    // Synonyms are a nicety (and need Typesense 30 or newer): if they cannot be loaded, search carries on without them.
+    try {
+      await this.putSynonyms();
+      this.synonymsReady = true;
+    } catch (error) {
+      this.logger.warn(`Searching without synonyms: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+
+  // Replaces the whole set, so removing a group from synonyms.ts removes it from Typesense too. Needs Typesense 30 or newer.
+  private async putSynonyms() {
+    await this.call(`/synonym_sets/${SYNONYM_SET}`, { method: "PUT", body: JSON.stringify({ items: LISTING_SYNONYMS }) });
   }
 
   private async createCollectionIfMissing() {

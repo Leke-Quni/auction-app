@@ -7,7 +7,10 @@ import { useEffect, useRef } from "react";
 import { activeFilterChips, carriedFilters } from "./search/active-filters";
 import { readSearchParams } from "./search/search-params";
 
-// The header search. On the search page it shows the current text, keeps the chosen filters when searching again,
+const AUTH_PATHS = ["/sign-in", "/sign-up", "/forgot-password", "/reset-password"];
+const isAuthPath = (pathname: string) => AUTH_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+
+// The header search. It is left out of the sign-in, sign-up and password pages. On the search page it shows the current text, keeps the chosen filters when searching again,
 // and lists them as chips that each remove one filter.
 export function SearchBox({ categories }: { categories: { slug: string; name: string }[] }) {
   const pathname = usePathname();
@@ -26,6 +29,8 @@ export function SearchBox({ categories }: { categories: { slug: string; name: st
     observer.observe(header);
     return () => observer.disconnect();
   }, []);
+
+  if (isAuthPath(pathname)) return null;
 
   return (
     <div ref={box} className="flex min-w-0 flex-1 flex-col gap-1 sm:w-full">
