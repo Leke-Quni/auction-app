@@ -37,6 +37,9 @@ const fakeSearch: SearchIndex = {
     indexed.clear();
     for (const doc of docs) indexed.set(doc.id, doc);
   },
+  async search() {
+    return { documents: [], total: 0 };
+  },
 };
 
 const stamp = Date.now();

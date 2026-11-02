@@ -1,4 +1,5 @@
-import type { ListingDocument, SearchIndex } from "./search-index";
+import { ENDING_SOON_HOURS, type SearchSort } from "@auction/shared";
+import type { ListingDocument, SearchIndex, SearchParams } from "./search-index";
 
 const SCHEMA_FIELDS = [
   { name: "title", type: "string" },
@@ -15,6 +16,27 @@ const SCHEMA_FIELDS = [
 ];
 
 const seconds = (date: Date) => Math.floor(date.getTime() / 1000);
+
+const SORT_BY: Record<SearchSort, string> = {
+  relevance: "_text_match:desc,ends_at:asc",
+  endingSoon: "ends_at:asc",
+  newest: "published_at:desc",
+  mostBids: "bid_count:desc,ends_at:asc",
+  priceAsc: "price_cents:asc",
+  priceDesc: "price_cents:desc",
+};
+
+// Values reaching these filters were validated by searchQuerySchema (slug characters, a fixed list of conditions, integers).
+export function buildFilter(params: Pick<SearchParams, "category" | "condition" | "minPriceCents" | "maxPriceCents" | "endingSoon" | "now">) {
+  const now = seconds(params.now);
+  const filters = [`ends_at:>${now}`];
+  if (params.category) filters.push(`category_slug:=${params.category}`);
+  if (params.condition) filters.push(`condition:=${params.condition}`);
+  if (params.minPriceCents !== undefined) filters.push(`price_cents:>=${params.minPriceCents}`);
+  if (params.maxPriceCents !== undefined) filters.push(`price_cents:<=${params.maxPriceCents}`);
+  if (params.endingSoon) filters.push(`starts_at:<=${now}`, `ends_at:<=${now + ENDING_SOON_HOURS * 3600}`);
+  return filters.join(" && ");
+}
 
 export class TypesenseSearchIndex implements SearchIndex {
   private ready?: Promise<void>;
@@ -65,6 +87,22 @@ export class TypesenseSearchIndex implements SearchIndex {
     if (failed.length > 0) throw new Error(`Typesense rejected ${failed.length} documents: ${failed[0]}`);
     const keep = docs.map((doc) => doc.id).join(",");
     await this.call(`${documents}?filter_by=${encodeURIComponent(`id:!=[${keep}]`)}`, { method: "DELETE" });
+  }
+
+  async search(params: SearchParams) {
+    await this.ensureReady();
+    const query = new URLSearchParams({
+      q: params.q || "*",
+      query_by: "title,description",
+      query_by_weights: "3,1",
+      filter_by: buildFilter(params),
+      sort_by: SORT_BY[params.sort],
+      page: String(params.page),
+      per_page: String(params.pageSize),
+    });
+    const res = await this.call(`/collections/${this.collection}/documents/search?${query}`);
+    const body = (await res.json()) as { found: number; hits: { document: ListingDocument }[] };
+    return { documents: body.hits.map((hit) => hit.document), total: body.found };
   }
 
   private async createCollectionIfMissing() {

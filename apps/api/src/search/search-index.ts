@@ -1,3 +1,4 @@
+import type { SearchQuery, SearchSort } from "@auction/shared";
 import { Injectable } from "@nestjs/common";
 
 export const SEARCH_INDEX = Symbol("SEARCH_INDEX");
@@ -18,12 +19,19 @@ export interface ListingDocument {
   cover_url?: string;
 }
 
+export interface SearchParams extends Omit<SearchQuery, "sort" | "endingSoon"> {
+  sort: SearchSort;
+  endingSoon: boolean;
+  now: Date;
+}
+
 export interface SearchIndex {
   ensureReady(): Promise<void>;
   upsert(doc: ListingDocument): Promise<void>;
   remove(id: string): Promise<void>;
   removeEnded(now: Date): Promise<void>;
   replaceAll(docs: ListingDocument[]): Promise<void>;
+  search(params: SearchParams): Promise<{ documents: ListingDocument[]; total: number }>;
 }
 
 // Used when Typesense is not configured (tests, deployed environments without search).
@@ -34,4 +42,7 @@ export class NoopSearchIndex implements SearchIndex {
   async remove() {}
   async removeEnded() {}
   async replaceAll() {}
+  async search() {
+    return { documents: [], total: 0 };
+  }
 }
