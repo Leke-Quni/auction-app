@@ -46,6 +46,8 @@ const toDto = (l: ListingRow, now = new Date()) => ({
   durationDays: l.durationDays,
   status: l.status,
   phase: listingPhase(l, now),
+  // The server's clock when this was sent, so a countdown can follow it instead of the viewer's clock.
+  serverTime: now.toISOString(),
   extensionCount: l.extensionCount,
   currentBidCents: l.currentBidCents,
   bidCount: l.bidCount,

@@ -45,3 +45,25 @@ describe("ListingCard final-chance tag", () => {
     expect(screen.getByText("Final chance to bid")).toBeTruthy();
   });
 });
+
+describe("ListingCard price", () => {
+  it("says starting for a listing with no bids", () => {
+    render(<ListingCard listing={listing({ currentBidCents: null, bidCount: 0 })} />);
+    expect(screen.getByText("€25.00")).toBeTruthy();
+    expect(screen.getByText("starting")).toBeTruthy();
+    expect(screen.queryByText(/bids?$/)).toBeNull();
+  });
+
+  it("shows the current bid and the number of bids once there are some", () => {
+    render(<ListingCard listing={listing({ currentBidCents: 4_200, bidCount: 3 })} />);
+    expect(screen.getByText(/€42\.00/)).toBeTruthy();
+    expect(screen.getByText("current bid")).toBeTruthy();
+    expect(screen.getByText(/3 bids/)).toBeTruthy();
+    expect(screen.queryByText("starting")).toBeNull();
+  });
+
+  it("says '1 bid' for a single bid", () => {
+    render(<ListingCard listing={listing({ currentBidCents: 3_000, bidCount: 1 })} />);
+    expect(screen.getByText(/1 bid$/)).toBeTruthy();
+  });
+});

@@ -176,6 +176,7 @@ describe("bids", () => {
       const listing = await makeListing();
       const before = (await api().get(`/listings/${listing.id}`).expect(200)).body;
       expect(before).toMatchObject({ currentBidCents: null, bidCount: 0, minimumNextBidCents: 1000, highBidder: null });
+      expect(Math.abs(new Date(before.serverTime).getTime() - Date.now())).toBeLessThan(5_000);
       await bid(person, listing.id, 1200).expect(201);
       const after = (await api().get(`/listings/${listing.id}`).expect(200)).body;
       expect(after).toMatchObject({ currentBidCents: 1200, bidCount: 1, minimumNextBidCents: 1300, highBidder: { id: person.id, username: person.username } });

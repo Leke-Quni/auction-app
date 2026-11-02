@@ -12,6 +12,8 @@ export interface ListingSummary {
   endsAt: string | null;
   images: { id: string; url: string }[];
   extensionCount?: number;
+  currentBidCents?: number | null;
+  bidCount?: number;
 }
 
 export function ListingCard({ listing }: { listing: ListingSummary }) {
@@ -31,7 +33,14 @@ export function ListingCard({ listing }: { listing: ListingSummary }) {
       <div className="space-y-0.5 p-2">
         <p className="line-clamp-2 font-bold">{listing.title}</p>
         <p>
-          {formatEur(listing.startingPriceCents)} <span className="text-xs text-muted">starting</span>
+          {formatEur(listing.currentBidCents ?? listing.startingPriceCents)}{" "}
+          <span className="text-xs text-muted">{listing.currentBidCents != null ? "current bid" : "starting"}</span>
+          {(listing.bidCount ?? 0) > 0 && (
+            <span className="text-xs text-muted">
+              {" "}
+              · {listing.bidCount} {listing.bidCount === 1 ? "bid" : "bids"}
+            </span>
+          )}
         </p>
         {listing.phase === "upcoming" && listing.startsAt ? (
           <p className="text-xs text-muted">

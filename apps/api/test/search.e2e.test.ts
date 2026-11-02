@@ -62,6 +62,7 @@ describe("GET /search", () => {
       title: "Vintage wristwatch",
       startingPriceCents: 2500,
       bidCount: 3,
+      currentBidCents: 2500,
       extensionCount: 0,
       phase: "live",
       startsAt: new Date((now - 3600) * 1000).toISOString(),

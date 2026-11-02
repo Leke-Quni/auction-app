@@ -1,0 +1,64 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { auth, authedApiFetch, revalidatePath } = vi.hoisted(() => ({ auth: vi.fn(), authedApiFetch: vi.fn(), revalidatePath: vi.fn() }));
+vi.mock("@/auth", () => ({ auth }));
+vi.mock("@/lib/api", () => ({ authedApiFetch }));
+vi.mock("next/cache", () => ({ revalidatePath }));
+
+import { placeBidAction } from "./bid-actions";
+
+const reply = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
+
+beforeEach(() => {
+  auth.mockReset().mockResolvedValue({ user: { id: "u1" } });
+  authedApiFetch.mockReset();
+  revalidatePath.mockReset();
+});
+
+describe("placeBidAction", () => {
+  it("needs a signed-in user and does not call the API without one", async () => {
+    auth.mockResolvedValue(null);
+    expect(await placeBidAction("L1", 1000, "key-123456")).toEqual({ error: "Sign in to place a bid." });
+    expect(authedApiFetch).not.toHaveBeenCalled();
+  });
+
+  it("sends the amount and the key, and refreshes the listing page on success", async () => {
+    authedApiFetch.mockResolvedValue(reply(201, { extended: true, listing: { endsAt: "2026-11-02T12:15:00Z" } }));
+    const result = await placeBidAction("L1", 1250, "key-123456");
+    expect(result).toEqual({ ok: true, extended: true, endsAt: "2026-11-02T12:15:00Z" });
+    expect(authedApiFetch).toHaveBeenCalledWith("/listings/L1/bids", { method: "POST", body: JSON.stringify({ amountCents: 1250, idempotencyKey: "key-123456" }) });
+    expect(revalidatePath).toHaveBeenCalledWith("/listings/L1");
+  });
+
+  it("treats the answer to a retried bid (200) as a success", async () => {
+    authedApiFetch.mockResolvedValue(reply(200, { replayed: true, extended: false, listing: { endsAt: "2026-11-02T12:00:00Z" } }));
+    expect((await placeBidAction("L1", 1250, "key-123456")).ok).toBe(true);
+  });
+
+  it("says in words why a bid was refused, and passes the minimum on", async () => {
+    authedApiFetch.mockResolvedValue(reply(422, { code: "TOO_LOW", message: "x", minimumNextBidCents: 1500 }));
+    expect(await placeBidAction("L1", 1000, "key-123456")).toEqual({ error: "Your bid is below the minimum of €15.00.", minimumNextBidCents: 1500 });
+    authedApiFetch.mockResolvedValue(reply(409, { code: "ALREADY_HIGHEST", message: "x" }));
+    expect((await placeBidAction("L1", 2000, "key-654321")).error).toBe("You already have the highest bid.");
+    authedApiFetch.mockResolvedValue(reply(409, { code: "NOT_LIVE", message: "x" }));
+    expect((await placeBidAction("L1", 2000, "key-111111")).error).toBe("This auction is not open for bids.");
+    authedApiFetch.mockResolvedValue(reply(400, { message: "Enter your bid" }));
+    expect((await placeBidAction("L1", 2000, "key-222222")).error).toBe("Enter your bid");
+  });
+
+  it("marks a server error or no answer as safe to retry with the same key", async () => {
+    authedApiFetch.mockResolvedValue(reply(503, { code: "BUSY", message: "Bidding is busy right now. Your bid was not placed; try again." }));
+    expect(await placeBidAction("L1", 1000, "key-123456")).toMatchObject({ retry: true, error: expect.stringContaining("not placed") });
+    authedApiFetch.mockResolvedValue(reply(500, {}));
+    expect((await placeBidAction("L1", 1000, "key-123456")).retry).toBe(true);
+    authedApiFetch.mockRejectedValue(new Error("connect ECONNREFUSED"));
+    expect(await placeBidAction("L1", 1000, "key-123456")).toMatchObject({ retry: true, error: expect.stringContaining("may not have been placed") });
+  });
+
+  it("does not mark a clear refusal as retryable, and asks to sign in again when the session has expired", async () => {
+    authedApiFetch.mockResolvedValue(reply(403, { code: "OWN_LISTING", message: "x" }));
+    expect((await placeBidAction("L1", 1000, "key-123456")).retry).toBeUndefined();
+    authedApiFetch.mockResolvedValue(reply(401, {}));
+    expect((await placeBidAction("L1", 1000, "key-123456")).error).toMatch(/Sign in again/);
+  });
+});
