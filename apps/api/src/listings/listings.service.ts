@@ -1,6 +1,7 @@
 import {
   createListingSchema,
   listingPhase,
+  minimumNextBidCents,
   type CreateListingInput,
   type ListingImageInput,
   type PublishListingInput,
@@ -28,6 +29,7 @@ const SEARCH_SWEEP_MS = 5 * 60 * 1000;
 const listingInclude = {
   category: true,
   seller: { select: { id: true, username: true } },
+  highBidder: { select: { id: true, username: true } },
   images: { orderBy: { position: "asc" } },
 } satisfies PrismaTypes.ListingInclude;
 
@@ -45,6 +47,10 @@ const toDto = (l: ListingRow, now = new Date()) => ({
   status: l.status,
   phase: listingPhase(l, now),
   extensionCount: l.extensionCount,
+  currentBidCents: l.currentBidCents,
+  bidCount: l.bidCount,
+  minimumNextBidCents: minimumNextBidCents(l),
+  highBidder: l.highBidder,
   startsAt: l.startsAt,
   endsAt: l.endsAt,
   publishedAt: l.publishedAt,
@@ -61,8 +67,8 @@ const toDocument = (l: ListingRow, now = new Date()): ListingDocument | null => 
     description: l.description,
     category_slug: l.category.slug,
     condition: l.condition,
-    price_cents: l.startingPriceCents,
-    bid_count: 0,
+    price_cents: l.currentBidCents ?? l.startingPriceCents,
+    bid_count: l.bidCount,
     extension_count: l.extensionCount,
     starts_at: Math.floor(l.startsAt.getTime() / 1000),
     ends_at: Math.floor(l.endsAt.getTime() / 1000),
@@ -250,8 +256,10 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
 
   async remove(sellerId: string, id: string) {
     const listing = await this.getOwned(sellerId, id);
-    // Slice 4: refuse here once the listing has bids.
-    await this.prisma.listing.delete({ where: { id } });
+    // One statement checks and deletes, so a bid that lands at the same moment cannot be deleted with the listing: the
+    // bid transaction holds the row's lock, this waits for it, then sees the bid count and deletes nothing.
+    const deleted = await this.prisma.listing.deleteMany({ where: { id, bidCount: 0 } });
+    if (deleted.count === 0) throw new ConflictException("A listing that has bids cannot be removed");
     if (listing.status === "PUBLISHED") {
       try {
         await this.search.remove(id);
