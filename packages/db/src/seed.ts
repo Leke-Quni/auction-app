@@ -173,6 +173,8 @@ async function main() {
         startingPriceCents,
         reservePriceCents: random() < 0.35 ? Math.round((startingPriceCents * between(1.2, 3)) / 100) * 100 : null,
         durationDays: when.days,
+        // A few live auctions that have used both anti-sniping extensions, so the "Final chance to bid" tag has data.
+        extensionCount: (when.state === "live" || when.state === "endingSoon") && i % 40 === 0 ? 2 : 0,
         status: "PUBLISHED" as const,
         startsAt: when.startsAt,
         endsAt: when.endsAt,

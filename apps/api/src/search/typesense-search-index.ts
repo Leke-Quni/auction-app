@@ -10,6 +10,7 @@ const SCHEMA_FIELDS = [
   { name: "condition", type: "string", facet: true },
   { name: "price_cents", type: "int32" },
   { name: "bid_count", type: "int32" },
+  { name: "extension_count", type: "int32", index: false, optional: true },
   { name: "starts_at", type: "int64" },
   { name: "ends_at", type: "int64" },
   { name: "published_at", type: "int64" },

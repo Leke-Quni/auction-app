@@ -12,6 +12,7 @@ const toSummary = (doc: ListingDocument, now: Date) => {
     title: doc.title,
     startingPriceCents: doc.price_cents,
     bidCount: doc.bid_count,
+    extensionCount: doc.extension_count ?? 0,
     phase: listingPhase({ status: "PUBLISHED", startsAt, endsAt }, now),
     startsAt,
     endsAt,

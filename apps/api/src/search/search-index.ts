@@ -12,6 +12,8 @@ export interface ListingDocument {
   condition: string;
   price_cents: number;
   bid_count: number;
+  // Missing in documents indexed before this field existed, which count as 0.
+  extension_count?: number;
   starts_at: number;
   ends_at: number;
   published_at: number;
