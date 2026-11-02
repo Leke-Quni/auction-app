@@ -27,6 +27,11 @@ const outbid: OutbidNotice = {
 };
 const extended: ExtendedNotice = { listingId: "l2", title: "Blue vase", endsAt: "2026-11-05T10:15:00.000Z", extensionCount: 1, final: false };
 
+const askAndConfirm = (amount = "€13.00") => {
+  fireEvent.click(screen.getByRole("button", { name: `Bid ${amount}` }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+};
+
 const push = (event: string, payload: unknown) => act(() => handlers.get(event)!(payload));
 
 beforeEach(() => {
@@ -63,20 +68,46 @@ describe("Notifications", () => {
     expect(screen.getByRole("alert").textContent).toContain("It was extended and now ends at");
   });
 
-  it("places the minimum bid with one click and confirms it", async () => {
+  it("places the minimum bid once it is confirmed, and says so", async () => {
     placeBidAction.mockResolvedValue({ ok: true });
     render(<Notifications />);
     push("notice:outbid", outbid);
-    fireEvent.click(screen.getByRole("button", { name: "Bid €13.00" }));
+    askAndConfirm();
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("was placed"));
     expect(placeBidAction).toHaveBeenCalledWith("l1", 1300, expect.any(String));
+  });
+
+  it("asks before bidding, and waits as long as it takes without bidding", () => {
+    vi.useFakeTimers();
+    render(<Notifications />);
+    push("notice:outbid", outbid);
+    act(() => void vi.advanceTimersByTime(4_000));
+    fireEvent.click(screen.getByRole("button", { name: "Bid €13.00" }));
+    expect(screen.getByRole("alert").textContent).toContain("A bid cannot be withdrawn");
+    act(() => void vi.advanceTimersByTime(60_000));
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(placeBidAction).not.toHaveBeenCalled();
+  });
+
+  it("goes back to the plain toast on cancel, with a fresh 5 seconds and no bid", () => {
+    vi.useFakeTimers();
+    render(<Notifications />);
+    push("notice:outbid", outbid);
+    fireEvent.click(screen.getByRole("button", { name: "Bid €13.00" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "Bid €13.00" })).toBeTruthy();
+    act(() => void vi.advanceTimersByTime(4_900));
+    expect(screen.getByRole("alert")).toBeTruthy();
+    act(() => void vi.advanceTimersByTime(200));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(placeBidAction).not.toHaveBeenCalled();
   });
 
   it("when the minimum has moved on, shows the reason and offers the new minimum", async () => {
     placeBidAction.mockResolvedValue({ error: "Your bid is below the minimum of €14.00.", minimumNextBidCents: 1400 });
     render(<Notifications />);
     push("notice:outbid", outbid);
-    fireEvent.click(screen.getByRole("button", { name: "Bid €13.00" }));
+    askAndConfirm();
     await waitFor(() => expect(screen.getByRole("button", { name: "Bid €14.00" })).toBeTruthy());
     expect(screen.getByRole("alert").textContent).toContain("below the minimum of €14.00");
   });
@@ -85,9 +116,9 @@ describe("Notifications", () => {
     placeBidAction.mockResolvedValueOnce({ error: "No answer", retry: true }).mockResolvedValueOnce({ error: "Too low", minimumNextBidCents: 1400 });
     render(<Notifications />);
     push("notice:outbid", outbid);
-    fireEvent.click(screen.getByRole("button", { name: "Bid €13.00" }));
+    askAndConfirm();
     await waitFor(() => expect(screen.getByText("No answer")).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "Bid €13.00" }));
+    askAndConfirm();
     await waitFor(() => expect(screen.getByRole("button", { name: "Bid €14.00" })).toBeTruthy());
     expect(placeBidAction.mock.calls[0][2]).toBe(placeBidAction.mock.calls[1][2]);
   });
@@ -141,7 +172,7 @@ describe("Notifications", () => {
     render(<Notifications />);
     push("notice:outbid", outbid);
     act(() => void vi.advanceTimersByTime(4_000));
-    fireEvent.click(screen.getByRole("button", { name: "Bid €13.00" }));
+    askAndConfirm();
     act(() => void vi.advanceTimersByTime(20_000));
     expect(screen.getByRole("alert").textContent).toContain("Placing bid");
     await act(async () => finish({ ok: true }));

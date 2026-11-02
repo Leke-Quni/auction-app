@@ -19,7 +19,8 @@ afterEach(() => {
 
 const panel = (mode: BidMode = "live", minimumNextBidCents = 1100) => <BidPanel listingId="L1" mode={mode} minimumNextBidCents={minimumNextBidCents} />;
 const box = () => screen.getByLabelText("Your bid (€)") as HTMLInputElement;
-const place = () => fireEvent.click(screen.getByRole("button", { name: /place bid/i }));
+const place = () => fireEvent.click(screen.getByRole("button", { name: /^place bid$/i }));
+const confirmBid = async () => fireEvent.click(await screen.findByRole("button", { name: /^confirm bid of/i }));
 
 describe("BidPanel when you cannot bid", () => {
   it("says why, for each case", () => {
@@ -52,6 +53,7 @@ describe("BidPanel when you can bid", () => {
     render(panel("live", 1100));
     fireEvent.change(box(), { target: { value: "12,50" } });
     place();
+    await confirmBid();
     await waitFor(() => expect(placeBidAction).toHaveBeenCalledTimes(1));
     const [listingId, cents, key] = placeBidAction.mock.calls[0];
     expect([listingId, cents]).toEqual(["L1", 1250]);
@@ -70,29 +72,53 @@ describe("BidPanel when you can bid", () => {
     expect(placeBidAction).not.toHaveBeenCalled();
   });
 
-  it("asks first when a bid is ten times the minimum or more, and only sends it if confirmed", async () => {
+  it("asks to confirm the amount first, and sends nothing until it is confirmed", async () => {
     placeBidAction.mockResolvedValue({ ok: true });
-    const confirmSpy = vi.spyOn(window, "confirm");
+    render(panel("live", 1100));
+    place();
+    expect(screen.getByText(/You are about to bid/).textContent).toContain("€11.00");
+    expect(screen.getByText(/A bid cannot be withdrawn/)).toBeTruthy();
+    expect(placeBidAction).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /^place bid$/i })).toBeNull();
+    await confirmBid();
+    await waitFor(() => expect(placeBidAction).toHaveBeenCalledWith("L1", 1100, expect.any(String)));
+  });
+
+  it("lets you go back and change the amount without bidding", () => {
+    render(panel("live", 1100));
+    place();
+    expect(box().readOnly).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Change" }));
+    expect(screen.queryByText(/You are about to bid/)).toBeNull();
+    expect(box().readOnly).toBe(false);
+    expect(placeBidAction).not.toHaveBeenCalled();
+  });
+
+  it("warns on the confirmation when a bid is ten times the minimum or more", () => {
     render(panel("live", 1100));
     fireEvent.change(box(), { target: { value: "110" } });
-    confirmSpy.mockReturnValueOnce(false);
     place();
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
-    expect(confirmSpy.mock.calls[0][0]).toMatch(/cannot be withdrawn/);
-    expect(placeBidAction).not.toHaveBeenCalled();
-    confirmSpy.mockReturnValueOnce(true);
-    place();
-    await waitFor(() => expect(placeBidAction).toHaveBeenCalledWith("L1", 11_000, expect.any(String)));
+    expect(screen.getByText(/far above the minimum of €11\.00/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Change" }));
     fireEvent.change(box(), { target: { value: "109.99" } });
-    confirmSpy.mockClear();
     place();
-    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(screen.queryByText(/far above the minimum/)).toBeNull();
+  });
+
+  it("drops the confirmation when someone else bids, since the minimum changed", () => {
+    const { rerender } = render(panel("live", 1100));
+    place();
+    expect(screen.getByText(/You are about to bid/)).toBeTruthy();
+    rerender(panel("live", 1300));
+    expect(screen.queryByText(/You are about to bid/)).toBeNull();
+    expect(box().value).toBe("13.00");
   });
 
   it("shows why a bid was refused and puts the right minimum in the box", async () => {
     placeBidAction.mockResolvedValue({ error: "Your bid is below the minimum of €15.00.", minimumNextBidCents: 1500 });
     render(panel("live", 1100));
     place();
+    await confirmBid();
     await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Your bid is below the minimum of €15.00."));
     expect(box().value).toBe("15.00");
     expect(screen.getByText(/Minimum bid: €15\.00/)).toBeTruthy();
@@ -101,7 +127,10 @@ describe("BidPanel when you can bid", () => {
   it("uses the same key to retry a bid whose outcome is unknown, and a new key after a clear answer or a changed amount", async () => {
     render(panel("live", 1100));
     // The button reads "Placing bid..." while a bid is out, so wait for it before each click.
-    const placeWhenReady = async () => fireEvent.click(await screen.findByRole("button", { name: /^place bid$/i }));
+    const placeWhenReady = async () => {
+      fireEvent.click(await screen.findByRole("button", { name: /^place bid$/i }));
+      await confirmBid();
+    };
     placeBidAction.mockResolvedValueOnce({ error: "Try again", retry: true });
     await placeWhenReady();
     await waitFor(() => expect(placeBidAction).toHaveBeenCalledTimes(1));
@@ -133,6 +162,7 @@ describe("BidPanel when you can bid", () => {
     placeBidAction.mockResolvedValue({ ok: true, extended: true, endsAt: "2026-11-02T12:15:00Z" });
     const { rerender } = render(panel("live", 1100));
     place();
+    await confirmBid();
     await waitFor(() => expect(refresh).toHaveBeenCalled());
     rerender(panel("highest", 1200));
     expect(screen.getByText("You are the highest bidder.")).toBeTruthy();

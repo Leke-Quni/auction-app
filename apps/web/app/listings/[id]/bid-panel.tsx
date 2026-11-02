@@ -9,8 +9,8 @@ import { placeBidAction } from "./bid-actions";
 
 export type BidMode = "signed-out" | "owner" | "upcoming" | "ended" | "highest" | "live";
 
-// A bid this many times the minimum is probably a slip of the keys, and bids cannot be withdrawn.
-const CONFIRM_ABOVE_TIMES_MINIMUM = 10;
+// A bid this many times the minimum is probably a slip of the keys, so the confirmation says so.
+const FAR_ABOVE_TIMES_MINIMUM = 10;
 
 const toEuros = (cents: number) => (cents / 100).toFixed(2);
 const note = "border border-line bg-white p-2 text-muted";
@@ -21,6 +21,8 @@ export function BidPanel({ listingId, mode, minimumNextBidCents }: { listingId: 
   const [amount, setAmount] = useState(toEuros(minimumNextBidCents));
   const [minimum, setMinimum] = useState(minimumNextBidCents);
   const [error, setError] = useState("");
+  // The amount (in cents) waiting for a second click to confirm, so a stray click never places a bid.
+  const [confirming, setConfirming] = useState<number | null>(null);
   const [placed, setPlaced] = useState<{ extended: boolean; endsAt?: string } | null>(null);
   // One key per bid, kept while the answer is unknown, so retrying can never place the bid twice.
   const attempt = useRef<{ key: string; cents: number } | null>(null);
@@ -30,6 +32,7 @@ export function BidPanel({ listingId, mode, minimumNextBidCents }: { listingId: 
     setLastMinimum(minimumNextBidCents);
     setMinimum(minimumNextBidCents);
     setAmount(toEuros(minimumNextBidCents));
+    setConfirming(null);
   }
 
   if (mode === "signed-out") {
@@ -64,21 +67,22 @@ export function BidPanel({ listingId, mode, minimumNextBidCents }: { listingId: 
     );
   }
 
-  const submit = (event: React.FormEvent) => {
+  const review = (event: React.FormEvent) => {
     event.preventDefault();
     setError("");
     const cents = eurosToCents(amount);
     if (cents === null) return setError("Enter an amount like 25 or 25.50.");
     if (cents < minimum) return setError(`Your bid must be at least ${formatEur(minimum)}.`);
-    if (cents >= minimum * CONFIRM_ABOVE_TIMES_MINIMUM) {
-      const sure = confirm(`Bid ${formatEur(cents)}? That is far above the minimum of ${formatEur(minimum)}, and a bid cannot be withdrawn.`);
-      if (!sure) return;
-    }
+    setConfirming(cents);
+  };
+
+  const place = (cents: number) => {
     if (!attempt.current || attempt.current.cents !== cents) attempt.current = { key: crypto.randomUUID(), cents };
     const { key } = attempt.current;
     startTransition(async () => {
       const result = await placeBidAction(listingId, cents, key);
       if (!result.retry) attempt.current = null;
+      setConfirming(null);
       if (result.ok) {
         setPlaced({ extended: Boolean(result.extended), endsAt: result.endsAt });
         router.refresh();
@@ -94,13 +98,14 @@ export function BidPanel({ listingId, mode, minimumNextBidCents }: { listingId: 
   };
 
   return (
-    <form onSubmit={submit} className="space-y-2 border border-line bg-white p-3">
+    <form onSubmit={review} className="space-y-2 border border-line bg-white p-3">
       <label className="block">
         <span className="text-xs text-muted">Your bid (€)</span>
         <input
           inputMode="decimal"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
+          readOnly={confirming !== null}
           aria-describedby="bid-minimum"
           className="mt-1 w-full border border-[#888] bg-white p-2 text-base font-bold"
         />
@@ -113,9 +118,38 @@ export function BidPanel({ listingId, mode, minimumNextBidCents }: { listingId: 
           {error}
         </p>
       )}
-      <button type="submit" disabled={pending} className="w-full cursor-pointer bg-brand px-3 py-2 font-bold text-white hover:bg-brand-dark disabled:opacity-60">
-        {pending ? "Placing bid..." : "Place bid"}
-      </button>
+      {confirming === null ? (
+        <button type="submit" className="w-full cursor-pointer bg-brand px-3 py-2 font-bold text-white hover:bg-brand-dark">
+          Place bid
+        </button>
+      ) : (
+        <div className="space-y-2 border border-time-warn bg-[#fff7e6] p-2">
+          <p>
+            You are about to bid <strong>{formatEur(confirming)}</strong>. A bid cannot be withdrawn.
+          </p>
+          {confirming >= minimum * FAR_ABOVE_TIMES_MINIMUM && (
+            <p className="font-bold">That is far above the minimum of {formatEur(minimum)}. Check the amount.</p>
+          )}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => place(confirming)}
+              className="flex-1 cursor-pointer bg-brand px-3 py-2 font-bold text-white hover:bg-brand-dark disabled:opacity-60"
+            >
+              {pending ? "Placing bid..." : `Confirm bid of ${formatEur(confirming)}`}
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => setConfirming(null)}
+              className="cursor-pointer border border-[#888] bg-white px-3 py-2 hover:bg-[#f0f0f0] disabled:opacity-60"
+            >
+              Change
+            </button>
+          </div>
+        </div>
+      )}
     </form>
   );
 }

@@ -9,7 +9,7 @@ import { LocalTime } from "./local-time";
 import { placeBidAction } from "./listings/[id]/bid-actions";
 
 type Toast =
-  | { id: string; v: number; kind: "outbid"; notice: OutbidNotice; state: "idle" | "pending" | "placed"; error: string }
+  | { id: string; v: number; kind: "outbid"; notice: OutbidNotice; state: "idle" | "confirm" | "pending" | "placed"; error: string }
   | { id: string; v: number; kind: "extended"; notice: ExtendedNotice };
 type OutbidToast = Extract<Toast, { kind: "outbid" }>;
 
@@ -65,6 +65,16 @@ export function Notifications() {
     };
   }, []);
 
+  // The first click only asks; nothing is bid until the second, and the clock stands still while it waits.
+  const ask = (toast: OutbidToast) => {
+    stopTimer(toast.id);
+    update(toast.id, { state: "confirm", error: "" });
+  };
+  const cancel = (toast: OutbidToast) => {
+    update(toast.id, { state: "idle" });
+    startTimer(toast.id);
+  };
+
   const bidNow = async (toast: OutbidToast) => {
     const { listingId, minimumNextBidCents: cents } = toast.notice;
     const keyId = `${listingId}:${cents}`;
@@ -104,17 +114,17 @@ export function Notifications() {
                 </span>
               )}
               <div className="min-w-0 flex-1">
-                {toast.kind === "outbid" ? <OutbidBody toast={toast} onBid={() => bidNow(toast)} /> : <ExtendedBody notice={toast.notice} />}
+                {toast.kind === "outbid" ? <OutbidBody toast={toast} onAsk={() => ask(toast)} onCancel={() => cancel(toast)} onConfirm={() => bidNow(toast)} /> : <ExtendedBody notice={toast.notice} />}
               </div>
             </div>
             <button type="button" aria-label="Dismiss" onClick={() => dismiss(toast.id)} className="absolute right-2 top-1 cursor-pointer text-muted hover:text-black">
               ✕
             </button>
-            {/* Shrinks over the toast's lifetime; stands still while a bid is being placed. */}
+            {/* Shrinks over the toast's lifetime; stands still while a bid is being confirmed or placed. */}
             <div
               key={toast.v}
               className="absolute bottom-0 left-0 h-1 bg-brand"
-              style={{ animation: `toast-timer ${TOAST_MS}ms linear forwards`, animationPlayState: toast.kind === "outbid" && toast.state === "pending" ? "paused" : "running" }}
+              style={{ animation: `toast-timer ${TOAST_MS}ms linear forwards`, animationPlayState: toast.kind === "outbid" && (toast.state === "pending" || toast.state === "confirm") ? "paused" : "running" }}
             />
           </div>
         );
@@ -125,7 +135,7 @@ export function Notifications() {
 
 const link = "font-bold text-brand underline";
 
-function OutbidBody({ toast, onBid }: { toast: OutbidToast; onBid: () => void }) {
+function OutbidBody({ toast, onAsk, onCancel, onConfirm }: { toast: OutbidToast; onAsk: () => void; onCancel: () => void; onConfirm: () => void }) {
   const { notice, state, error } = toast;
   if (state === "placed") {
     return (
@@ -154,14 +164,33 @@ function OutbidBody({ toast, onBid }: { toast: OutbidToast; onBid: () => void })
         )}
       </p>
       {error && <p className="font-bold text-time-warn">{error}</p>}
-      <button
-        type="button"
-        onClick={onBid}
-        disabled={state === "pending"}
-        className="w-full cursor-pointer rounded bg-brand px-3 py-1.5 font-bold text-white hover:bg-brand-dark disabled:opacity-60"
-      >
-        {state === "pending" ? "Placing bid..." : `Bid ${formatEur(notice.minimumNextBidCents)}`}
-      </button>
+      {state === "idle" ? (
+        <button type="button" onClick={onAsk} className="w-full cursor-pointer rounded bg-brand px-3 py-1.5 font-bold text-white hover:bg-brand-dark">
+          Bid {formatEur(notice.minimumNextBidCents)}
+        </button>
+      ) : (
+        <div className="space-y-1.5">
+          <p className="font-bold">Bid {formatEur(notice.minimumNextBidCents)}? A bid cannot be withdrawn.</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={state === "pending"}
+              className="flex-1 cursor-pointer rounded bg-brand px-3 py-1.5 font-bold text-white hover:bg-brand-dark disabled:opacity-60"
+            >
+              {state === "pending" ? "Placing bid..." : "Confirm"}
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={state === "pending"}
+              className="cursor-pointer rounded border border-line px-3 py-1.5 hover:bg-[#f0f0f0] disabled:opacity-60"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
