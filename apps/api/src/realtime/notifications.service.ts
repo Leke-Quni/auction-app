@@ -13,6 +13,9 @@ import { RealtimeGateway } from "./realtime.gateway";
 const utc = (date: Date) => `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 
 const SWEEP_EVERY_MS = 30_000;
+// A send holds its row this long; if the machine stops mid-send the row comes due again afterwards.
+const LEASE_MS = 2 * 60_000;
+const MAX_ATTEMPTS = 3;
 
 // Tells people what a bid meant for them: the bidder who was outbid gets a toast at once and, a little later, an email;
 // every other bidder on an auction whose end time moved gets a toast. Nobody else is emailed. Runs after the bid is
@@ -75,7 +78,8 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.pendingOutbidEmail.deleteMany({ where: { userId: newBidderId, listingId } });
 
     if (result.extended) {
-      const bidders = await this.prisma.bid.findMany({ where: { listingId }, distinct: ["bidderId"], select: { bidderId: true } });
+      // A cap keeps a very long war from turning one bid into thousands of messages.
+      const bidders = await this.prisma.$queryRaw<{ bidderId: string }[]>`SELECT DISTINCT "bidderId" FROM "Bid" WHERE "listingId" = ${listingId} LIMIT 500`;
       const others = bidders.map((b) => b.bidderId).filter((id) => id !== newBidderId && id !== outbidId && id !== listing.sellerId);
       const notice: ExtendedNotice = {
         listingId,
@@ -104,16 +108,32 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
 
   private sweeping = false;
 
-  // Sends the outbid emails that are due. Safe to run on several machines at once: each row is claimed by deleting it.
+  // Sends the outbid emails that are due. Safe to run on several machines at once: a row is claimed by moving its due
+  // time out (a lease), and it is deleted only after the email has gone. A failed or interrupted send leaves it to come
+  // due again, up to MAX_ATTEMPTS times.
   async sweep() {
     if (this.sweeping) return;
     this.sweeping = true;
     try {
       const due = await this.prisma.pendingOutbidEmail.findMany({ where: { dueAt: { lte: new Date() } }, orderBy: { dueAt: "asc" }, take: 100 });
-      for (const pending of due) {
-        const { count } = await this.prisma.pendingOutbidEmail.deleteMany({ where: { id: pending.id } });
-        if (count === 0) continue;
-        await this.sendOutbidEmail(pending).catch((error) => this.log.error(`Could not email an outbid notice: ${(error as Error).message}`));
+      for (const candidate of due) {
+        const claimed = await this.prisma.$queryRaw<{ id: string; userId: string; listingId: string; attempts: number }[]>`
+          UPDATE "PendingOutbidEmail" SET "dueAt" = ${new Date(Date.now() + LEASE_MS)}, "attempts" = "attempts" + 1
+          WHERE "id" = ${candidate.id} AND "dueAt" <= ${new Date()}
+          RETURNING "id", "userId", "listingId", "attempts"`;
+        const pending = claimed[0];
+        if (!pending) continue; // another machine got it
+        if (pending.attempts > MAX_ATTEMPTS) {
+          this.log.error(`Giving up on an outbid email for ${pending.userId} on ${pending.listingId} after ${MAX_ATTEMPTS} tries`);
+          await this.prisma.pendingOutbidEmail.deleteMany({ where: { id: pending.id } });
+          continue;
+        }
+        try {
+          await this.sendOutbidEmail(pending);
+          await this.prisma.pendingOutbidEmail.deleteMany({ where: { id: pending.id } });
+        } catch (error) {
+          this.log.error(`Could not email an outbid notice (try ${pending.attempts} of ${MAX_ATTEMPTS}): ${(error as Error).message}`);
+        }
       }
     } catch (error) {
       this.log.error(`Could not sweep outbid emails: ${(error as Error).message}`);
@@ -122,7 +142,8 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async sendOutbidEmail({ userId, listingId }: { userId: string; listingId: string }) {
+  // Returns normally when the email was sent or was not needed; throws when it should be tried again.
+  private async sendOutbidEmail({ userId, listingId, attempts }: { userId: string; listingId: string; attempts: number }) {
     const [listing, user] = await Promise.all([
       this.prisma.listing.findUnique({
         where: { id: listingId },
@@ -133,7 +154,10 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     if (!listing || !user || listing.status !== "PUBLISHED" || !listing.endsAt) return;
     if (listing.highBidderId === userId) return; // back in front
     if (await this.gateway.isWatching(userId, listingId)) return; // sees it on the page
-    if (!(await this.limiter.allow(`rl:outbid-email:${userId}:${listingId}`, 1, outbidEmailQuietSeconds()))) return;
+    // A retry takes the slot again but is not stopped by it: an earlier try may have taken the slot and never sent.
+    const quietKey = `rl:outbid-email:${userId}:${listingId}`;
+    const allowed = await this.limiter.allow(quietKey, 1, outbidEmailQuietSeconds());
+    if (!allowed && attempts === 1) return;
 
     const current = listing.currentBidCents ?? listing.startingPriceCents;
     const ended = listing.endsAt.getTime() <= Date.now();
@@ -147,6 +171,11 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
           `Ends: ${utc(listing.endsAt)}`,
         ];
     lines.push("", `${webUrl()}/listings/${listingId}`);
-    await this.mail.send(user.email, ended ? `${listing.title} has ended` : `You've been outbid on ${listing.title}`, lines.join("\n"));
+    try {
+      await this.mail.send(user.email, ended ? `${listing.title} has ended` : `You've been outbid on ${listing.title}`, lines.join("\n"));
+    } catch (error) {
+      await this.limiter.reset(quietKey); // nothing was sent, so do not hold back the next one
+      throw error;
+    }
   }
 }

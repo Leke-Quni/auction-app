@@ -6,6 +6,8 @@ export const RATE_LIMITER = Symbol("RATE_LIMITER");
 export interface RateLimiter {
   // Counts one attempt against `key` and says whether it is within `limit` for the current `windowSeconds`.
   allow(key: string, limit: number, windowSeconds: number): Promise<boolean>;
+  // Forgets the count for `key`, for when the thing it was counting did not happen after all.
+  reset(key: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -20,6 +22,10 @@ export class MemoryRateLimiter implements RateLimiter {
     entry.count++;
     this.counts.set(key, entry);
     return entry.count <= limit;
+  }
+
+  async reset(key: string) {
+    this.counts.delete(key);
   }
 
   async close() {}
@@ -46,6 +52,10 @@ export class RedisRateLimiter implements RateLimiter {
       this.log.warn(`Not limiting ${key.split(":")[1]} while Redis is unavailable: ${(error as Error).message}`);
       return true;
     }
+  }
+
+  async reset(key: string) {
+    await this.client.del(key).catch(() => undefined);
   }
 
   async close() {

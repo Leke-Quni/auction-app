@@ -55,7 +55,7 @@ interface LockedListing {
 }
 
 export interface BidResult {
-  bid: { id: string; amountCents: number; createdAt: Date };
+  bid: { id: string; amountCents: number; createdAt: Date; bidder: { id: string; username: string } };
   listing: {
     id: string;
     currentBidCents: number;
@@ -92,7 +92,9 @@ export class BidsService {
     const attempt = { userId: bidderId, listingId, amountCents: input.amountCents, ip };
     let result: BidResult;
     try {
-      await this.checkRate(bidderId, ip);
+      // A retry of a bid that already went through is answered, not limited, so the bidder can always find out.
+      const earlier = await this.prisma.bid.findUnique({ where: { bidderId_idempotencyKey: { bidderId, idempotencyKey: input.idempotencyKey } }, select: { id: true } });
+      if (!earlier) await this.checkRate(bidderId, ip);
       result = await this.prisma.$transaction(
         async (tx) => {
           const [listing] = await tx.$queryRaw<LockedListing[]>`
@@ -103,6 +105,7 @@ export class BidsService {
           // A retry of a bid that went through gets the same answer, whatever has happened since.
           const earlier = await tx.bid.findUnique({
             where: { bidderId_idempotencyKey: { bidderId, idempotencyKey: input.idempotencyKey } },
+            include: { bidder: { select: { id: true, username: true } } },
           });
           if (earlier) {
             if (earlier.listingId !== listingId || earlier.amountCents !== input.amountCents) {
@@ -126,6 +129,7 @@ export class BidsService {
           const extensionCount = listing.extensionCount + (timing.extended ? 1 : 0);
           const bid = await tx.bid.create({
             data: { listingId, bidderId, amountCents: input.amountCents, idempotencyKey: input.idempotencyKey, ip },
+            include: { bidder: { select: { id: true, username: true } } },
           });
           await tx.bidAudit.create({ data: { ...attempt, outcome: "ACCEPTED" } });
           const updated = await tx.listing.update({
@@ -139,7 +143,7 @@ export class BidsService {
             },
           });
           return {
-            bid: { id: bid.id, amountCents: bid.amountCents, createdAt: bid.createdAt },
+            bid: { id: bid.id, amountCents: bid.amountCents, createdAt: bid.createdAt, bidder: bid.bidder },
             listing: {
               id: updated.id,
               currentBidCents: input.amountCents,
@@ -187,6 +191,8 @@ export class BidsService {
   private async auditRefusal(attempt: { userId: string; listingId: string; amountCents: number; ip: string | null }, failure: unknown) {
     const body = failure instanceof HttpException ? (failure.getResponse() as { code?: string }) : undefined;
     try {
+      // A flood that is already being limited would otherwise write a row for every request: record one a minute.
+      if (body?.code === "RATE_LIMITED" && !(await this.limiter.allow(`rl:audit-limited:${attempt.userId}`, 1, 60))) return;
       await this.prisma.bidAudit.create({ data: { ...attempt, outcome: "REFUSED", reason: body?.code ?? "ERROR" } });
     } catch (error) {
       this.log.error(`Could not record a refused bid: ${(error as Error).message}`);
@@ -208,11 +214,11 @@ export class BidsService {
 }
 
 function replayOf(
-  earlier: { id: string; amountCents: number; createdAt: Date },
+  earlier: { id: string; amountCents: number; createdAt: Date; bidder: { id: string; username: string } },
   listing: Pick<LockedListing, "id" | "currentBidCents" | "bidCount" | "startsAt" | "endsAt" | "durationDays" | "extensionCount" | "highBidderId" | "startingPriceCents">,
 ): BidResult {
   return {
-    bid: { id: earlier.id, amountCents: earlier.amountCents, createdAt: earlier.createdAt },
+    bid: { id: earlier.id, amountCents: earlier.amountCents, createdAt: earlier.createdAt, bidder: earlier.bidder },
     listing: {
       id: listing.id,
       currentBidCents: listing.currentBidCents ?? earlier.amountCents,

@@ -164,6 +164,41 @@ describe("bid rate limits and audit log", () => {
       }
     });
 
+    it("still answers a retry of a bid that went through when the user is over the limit", async () => {
+      process.env.BID_LIMIT_USER = "2";
+      process.env.BID_LIMIT_IP = "100000";
+      try {
+        const [anna] = await makePeople(1);
+        const listing = await makeListing();
+        const key = randomUUID();
+        await bid(anna, listing.id, 1000, { key }).expect(201);
+        await bid(anna, listing.id, 1100).expect(409); // refused (she already leads), but it counts
+        await bid(anna, listing.id, 1100).expect(429); // over the limit now
+        const retry = await bid(anna, listing.id, 1000, { key }).expect(200);
+        expect(retry.body.replayed).toBe(true);
+        expect(await prisma.bid.count({ where: { listingId: listing.id } })).toBe(1);
+      } finally {
+        process.env.BID_LIMIT_USER = saved.user;
+        process.env.BID_LIMIT_IP = saved.ip;
+      }
+    });
+
+    it("writes one audit row a minute for a flood that is being limited, not one per request", async () => {
+      process.env.BID_LIMIT_USER = "1";
+      process.env.BID_LIMIT_IP = "100000";
+      try {
+        const [anna] = await makePeople(1);
+        const listing = await makeListing();
+        await bid(anna, listing.id, 1).expect(422);
+        for (let i = 0; i < 5; i++) await bid(anna, listing.id, 1).expect(429);
+        const limited = (await audit(anna.id)).filter((row) => row.reason === "RATE_LIMITED");
+        expect(limited).toHaveLength(1);
+      } finally {
+        process.env.BID_LIMIT_USER = saved.user;
+        process.env.BID_LIMIT_IP = saved.ip;
+      }
+    });
+
     it("limits one address across different users, and not another address", async () => {
       process.env.BID_LIMIT_USER = "100000";
       process.env.BID_LIMIT_IP = "2";

@@ -6,7 +6,7 @@ import type { LiveFields, SearchIndex } from "../src/search/search-index";
 
 const endsAt = new Date("2026-11-05T10:00:00Z");
 const result = (over: Partial<BidResult["listing"]> = {}, extended = false, replayed = false): BidResult => ({
-  bid: { id: "b", amountCents: 1000, createdAt: new Date() },
+  bid: { id: "b", amountCents: 1000, createdAt: new Date(), bidder: { id: "u1", username: "anna" } },
   listing: {
     id: "L1",
     currentBidCents: 1000,

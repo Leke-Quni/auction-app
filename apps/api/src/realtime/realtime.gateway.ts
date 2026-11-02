@@ -1,19 +1,21 @@
 import {
+  AUCTION_ROOM_PREFIX,
   auctionRoom,
   SOCKET_EVENTS,
   userRoom,
   type AuctionExtendedEvent,
   type BidPlacedEvent,
 } from "@auction/shared";
-import { Inject, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ConnectedSocket, MessageBody, OnGatewayConnection, SubscribeMessage, WebSocketGateway, WebSocketServer } from "@nestjs/websockets";
 import type { Server, Socket } from "socket.io";
 import type { Subscription } from "rxjs";
 import { verifyToken } from "../auth/jwt-auth.guard";
 import { AuctionEvents, type AuctionEvent } from "../bids/auction-events";
-import { PRISMA, type Prisma } from "../db/db.module";
 
 const LISTING_ID = /^[\w-]{1,64}$/;
+// Enough for several tabs, far short of one client holding thousands of rooms.
+const MAX_AUCTIONS_WATCHED = 20;
 
 @WebSocketGateway()
 export class RealtimeGateway implements OnGatewayConnection, OnModuleInit, OnModuleDestroy {
@@ -21,15 +23,17 @@ export class RealtimeGateway implements OnGatewayConnection, OnModuleInit, OnMod
   private readonly log = new Logger(RealtimeGateway.name);
   private subscription?: Subscription;
 
-  constructor(
-    private readonly events: AuctionEvents,
-    @Inject(PRISMA) private readonly prisma: Prisma,
-  ) {}
+  constructor(private readonly events: AuctionEvents) {}
 
   onModuleInit() {
     this.subscription = this.events.stream.subscribe((event) => {
-      // A push that fails never touches the bid, which is already saved; viewers catch up when they next resync.
-      this.publish(event).catch((error) => this.log.error(`Could not push ${event.type}: ${(error as Error).message}`));
+      // Sent straight away, with nothing awaited in between, so events leave in the order the bids were saved. A push that
+      // fails never touches the bid, which is already saved; viewers catch up when they next resync.
+      try {
+        this.publish(event);
+      } catch (error) {
+        this.log.error(`Could not push ${event.type}: ${(error as Error).message}`);
+      }
     });
   }
 
@@ -54,6 +58,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnModuleInit, OnMod
   @SubscribeMessage(SOCKET_EVENTS.watch)
   async watch(@ConnectedSocket() client: Socket, @MessageBody() listingId: unknown) {
     if (typeof listingId !== "string" || !LISTING_ID.test(listingId)) return { ok: false };
+    const watching = [...client.rooms].filter((room) => room.startsWith(AUCTION_ROOM_PREFIX)).length;
+    if (watching >= MAX_AUCTIONS_WATCHED && !client.rooms.has(auctionRoom(listingId))) return { ok: false };
     await client.join(auctionRoom(listingId));
     return { ok: true };
   }
@@ -78,13 +84,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnModuleInit, OnMod
     this.server.to(userIds.map(userRoom)).emit(event, payload);
   }
 
-  private async publish(event: AuctionEvent) {
+  private publish(event: AuctionEvent) {
     const serverTime = new Date().toISOString();
     if (event.type === "BidPlaced") {
       const { result } = event;
       if (result.replayed) return;
-      const bidder = await this.prisma.user.findUnique({ where: { id: result.listing.highBidderId }, select: { id: true, username: true } });
-      if (!bidder) return;
+      const bidder = result.bid.bidder;
       const payload: BidPlacedEvent = {
         listingId: event.listingId,
         currentBidCents: result.listing.currentBidCents,

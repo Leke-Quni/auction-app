@@ -214,6 +214,39 @@ describe("realtime", () => {
     expect((await heard).listingId).toBe(listing.id);
   });
 
+  it("sends concurrent bids in the order they were saved, with the bidder's name", async () => {
+    const url = `http://localhost:${(apps[0].getHttpServer().address() as AddressInfo).port}`;
+    const people = await makePeople(6);
+    const listing = await makeListing();
+    const viewer = await open(url);
+    await watch(viewer, listing.id);
+    const seen: BidPlacedEvent[] = [];
+    viewer.on(SOCKET_EVENTS.bidPlaced, (event: BidPlacedEvent) => seen.push(event));
+
+    await Promise.all(people.map((person, i) => bid(url, person, listing.id, 1000 + i * 2000)));
+    await new Promise((resolve) => setTimeout(resolve, 600));
+
+    expect(seen.length).toBeGreaterThan(0);
+    const counts = seen.map((event) => event.bidCount);
+    expect(counts).toEqual([...counts].sort((a, b) => a - b));
+    expect(new Set(counts).size).toBe(counts.length);
+    for (const event of seen) {
+      const row = await prisma.user.findUniqueOrThrow({ where: { id: event.highBidder.id } });
+      expect(event.highBidder.username).toBe(row.username);
+      expect(event.bid.bidder.username).toBe(row.username);
+    }
+  });
+
+  it("lets one connection watch only so many auctions, and always lets it re-watch one it has", async () => {
+    const url = `http://localhost:${(apps[0].getHttpServer().address() as AddressInfo).port}`;
+    const socket = await open(url);
+    for (let i = 0; i < 20; i++) expect(await watch(socket, `cap-${i}`)).toEqual({ ok: true });
+    expect(await watch(socket, "cap-20")).toEqual({ ok: false });
+    expect(await watch(socket, "cap-3")).toEqual({ ok: true });
+    await socket.emitWithAck(SOCKET_EVENTS.unwatch, "cap-0");
+    expect(await watch(socket, "cap-20")).toEqual({ ok: true });
+  });
+
   it("is told nothing about auctions it stopped watching", async () => {
     const url = `http://localhost:${(apps[0].getHttpServer().address() as AddressInfo).port}`;
     const [bidder] = await makePeople(1);

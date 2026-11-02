@@ -178,6 +178,9 @@ model PendingOutbidEmail {
   userId      String
   listingId   String
   dueAt       DateTime
+  // How many times a send has been started. A send claims the row by moving dueAt out (a lease) and deletes it only
+  // once the email has gone, so a failed or interrupted send is tried again.
+  attempts    Int      @default(0)
   createdAt   DateTime @default(now())
 
   @@unique([userId, listingId])

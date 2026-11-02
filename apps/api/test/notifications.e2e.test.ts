@@ -387,6 +387,71 @@ describe("bid notifications", () => {
     });
   });
 
+  describe("a failed or interrupted outbid email", () => {
+    const outbidPair = async () => {
+      const [anna, ben] = await makePeople(2);
+      const listing = await makeListing();
+      await bid(anna, listing.id, 1000).expect(201);
+      await bid(ben, listing.id, 1100).expect(201);
+      await settle();
+      return { anna, listing };
+    };
+    const makeDue = (userId: string) =>
+      prisma.pendingOutbidEmail.updateMany({ where: { userId }, data: { dueAt: new Date(Date.now() - 1000) } });
+
+    it("stays queued when the send fails, is tried again, and is not held back by the quiet period", async () => {
+      const { anna, listing } = await outbidPair();
+      sent.length = 0;
+      mailFails = true;
+      try {
+        await makeDue(anna.id);
+        await app.get(NotificationsService).sweep();
+      } finally {
+        mailFails = false;
+      }
+      expect(sent).toHaveLength(0);
+      const row = await pending(anna.id, listing.id);
+      expect(row).not.toBeNull();
+      expect(row!.attempts).toBe(1);
+      expect(row!.dueAt.getTime()).toBeGreaterThan(Date.now()); // leased, so it is not retried this instant
+
+      await makeDue(anna.id);
+      await app.get(NotificationsService).sweep();
+      expect(sent.map((m) => m.to)).toEqual([anna.email]);
+      expect(await pending(anna.id, listing.id)).toBeNull();
+    });
+
+    it("gives up after three tries instead of retrying for ever", async () => {
+      const { anna, listing } = await outbidPair();
+      mailFails = true;
+      try {
+        for (let i = 0; i < 3; i++) {
+          await makeDue(anna.id);
+          await app.get(NotificationsService).sweep();
+          expect((await pending(anna.id, listing.id))?.attempts).toBe(i + 1);
+        }
+        await makeDue(anna.id);
+        await app.get(NotificationsService).sweep();
+      } finally {
+        mailFails = false;
+      }
+      expect(await pending(anna.id, listing.id)).toBeNull();
+    });
+
+    it("is not sent twice, and not lost, when the machine stopped mid-send: the lease runs out and it is sent once", async () => {
+      const { anna, listing } = await outbidPair();
+      // As if a machine claimed the row (attempt 1) and stopped before sending.
+      await prisma.pendingOutbidEmail.updateMany({ where: { userId: anna.id }, data: { attempts: 1, dueAt: new Date(Date.now() + 60_000) } });
+      sent.length = 0;
+      await app.get(NotificationsService).sweep();
+      expect(sent).toHaveLength(0); // still leased
+      await makeDue(anna.id);
+      await app.get(NotificationsService).sweep();
+      expect(sent.map((m) => m.to)).toEqual([anna.email]);
+      expect(await pending(anna.id, listing.id)).toBeNull();
+    });
+  });
+
   it("never lets a failing email break the bid or the toast", async () => {
     const [anna, ben] = await makePeople(2);
     const listing = await makeListing();
