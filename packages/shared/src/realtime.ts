@@ -9,6 +9,8 @@ export const SOCKET_EVENTS = {
   unwatch: "unwatch",
   bidPlaced: "bid:placed",
   auctionExtended: "auction:extended",
+  outbid: "notice:outbid",
+  extendedNotice: "notice:extended",
 } as const;
 
 export interface BidPlacedEvent {
@@ -30,4 +32,26 @@ export interface AuctionExtendedEvent {
   endsAt: string;
   extensionCount: number;
   serverTime: string;
+}
+
+// Private notices, sent only to the `user:<id>` room of the person concerned.
+export interface OutbidNotice {
+  listingId: string;
+  title: string;
+  currentBidCents: number;
+  minimumNextBidCents: number;
+  endsAt: string;
+  // True when the bid that outbid you also moved the end time.
+  extended: boolean;
+  extensionCount: number;
+}
+
+// For every other bidder on an auction whose end time just moved.
+export interface ExtendedNotice {
+  listingId: string;
+  title: string;
+  endsAt: string;
+  extensionCount: number;
+  // True for the second and last extension: the auction cannot be extended again.
+  final: boolean;
 }

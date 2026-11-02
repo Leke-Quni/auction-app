@@ -65,6 +65,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnModuleInit, OnMod
     return { ok: true };
   }
 
+  // Private notices go to each person's own room, which only the server ever puts a socket in.
+  emitToUsers(userIds: string[], event: string, payload: unknown) {
+    if (userIds.length === 0) return;
+    this.server.to(userIds.map(userRoom)).emit(event, payload);
+  }
+
   private async publish(event: AuctionEvent) {
     const serverTime = new Date().toISOString();
     if (event.type === "BidPlaced") {

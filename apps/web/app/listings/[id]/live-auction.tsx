@@ -4,9 +4,9 @@ import type { AuctionExtendedEvent, BidPlacedEvent } from "@auction/shared";
 import { SOCKET_EVENTS } from "@auction/shared";
 import { useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useState } from "react";
-import { io } from "socket.io-client";
 import { useStore } from "zustand";
 import { createStore, type StoreApi } from "zustand/vanilla";
+import { openRealtime } from "@/lib/realtime";
 import type { BidRow } from "./bid-history";
 
 const HISTORY_SHOWN = 20;
@@ -67,17 +67,6 @@ export function useLive<T>(select: (state: LiveState) => T): T {
   return useStore(store, select);
 }
 
-const apiUrl = () => process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
-
-async function realtimeToken(): Promise<string | null> {
-  try {
-    const res = await fetch("/api/realtime-token", { cache: "no-store" });
-    return res.ok ? ((await res.json()) as { token: string | null }).token : null;
-  } catch {
-    return null;
-  }
-}
-
 // Keeps the store current over a WebSocket. The API machine can stop at any time, so the page does not rely on the
 // connection: after every (re)connect and after any gap in the bids it asks the server for the whole picture again.
 export function LiveAuction({ listingId, snapshot, connect, children }: { listingId: string; snapshot: LiveSnapshot; connect: boolean; children: React.ReactNode }) {
@@ -90,19 +79,11 @@ export function LiveAuction({ listingId, snapshot, connect, children }: { listin
 
   useEffect(() => {
     if (!connect) return;
-    let retry: ReturnType<typeof setTimeout> | undefined;
-    const socket = io(apiUrl(), {
-      transports: ["websocket"],
-      auth: (give) => void realtimeToken().then((token) => give(token ? { token } : {})),
-    });
+    const { socket, close } = openRealtime();
     socket.on("connect", () => {
       socket.emit(SOCKET_EVENTS.watch, listingId);
       // Bids placed before this moment (while the page loaded or the connection was down) were never pushed to us.
       router.refresh();
-    });
-    // The server hangs up on a token it rejects; fetch a fresh one and join again.
-    socket.on("disconnect", (reason) => {
-      if (reason === "io server disconnect") retry = setTimeout(() => socket.connect(), 2000);
     });
     socket.on(SOCKET_EVENTS.bidPlaced, (event: BidPlacedEvent) => {
       if (event.listingId !== listingId) return;
@@ -113,10 +94,7 @@ export function LiveAuction({ listingId, snapshot, connect, children }: { listin
     socket.on(SOCKET_EVENTS.auctionExtended, (event: AuctionExtendedEvent) => {
       if (event.listingId === listingId) store.getState().applyExtended(event);
     });
-    return () => {
-      clearTimeout(retry);
-      socket.close();
-    };
+    return close;
   }, [connect, listingId, router, store]);
 
   return <LiveContext.Provider value={store}>{children}</LiveContext.Provider>;

@@ -1,6 +1,6 @@
 "use client";
 
-import { CONDITION_LABELS, formatDuration, formatEur, isFinalChance } from "@auction/shared";
+import { CONDITION_LABELS, formatDuration, formatEur } from "@auction/shared";
 import { Countdown } from "@/app/countdown";
 import { LocalTime } from "@/app/local-time";
 import { BidHistory } from "./bid-history";
@@ -67,11 +67,6 @@ export function LiveDetails({ listing, mode, viewerId }: { listing: DetailsListi
       {isLive && live.extensionCount > 0 && live.endsAt && (
         <p role="status" className="border border-l-4 border-time-warn border-l-time-warn bg-[#fff7e6] p-2 font-bold">
           The auction was extended by a late bid. It now ends at <LocalTime iso={live.endsAt} timeFirst />.
-        </p>
-      )}
-      {isLive && isFinalChance(live.extensionCount) && (
-        <p role="status" className="border border-l-4 border-urgent border-l-urgent bg-[#fef2f2] p-2 font-bold text-urgent">
-          Final chance to bid. This auction cannot be extended again.
         </p>
       )}
       <table className="w-full border-collapse bg-white">
