@@ -25,5 +25,19 @@ services:
       timeout: 3s
       retries: 10
 
+  typesense:
+    image: typesense/typesense:30.2
+    command: --data-dir /data --api-key=auction-dev-key --enable-cors
+    ports:
+      - "8108:8108"
+    volumes:
+      - typesense-data:/data
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8108 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ok <&3"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   postgres-data:
+  typesense-data:

@@ -3,16 +3,39 @@ import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { SignJWT } from "jose";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
 import { MAIL_SENDER, type MailSender } from "../src/email/mail-sender";
+import { ListingsService } from "../src/listings/listings.service";
+import { SEARCH_INDEX, type ListingDocument, type SearchIndex } from "../src/search/search-index";
 
 const sentCodes: string[] = [];
 const fakeMail: MailSender = {
   async send(_to, _subject, text) {
     sentCodes.push(/code is (\d{6})/.exec(text)![1]);
+  },
+};
+
+const indexed = new Map<string, ListingDocument>();
+let failSearch = false;
+const fakeSearch: SearchIndex = {
+  async ensureReady() {},
+  async upsert(doc) {
+    if (failSearch) throw new Error("search is down");
+    indexed.set(doc.id, doc);
+  },
+  async remove(id) {
+    if (failSearch) throw new Error("search is down");
+    indexed.delete(id);
+  },
+  async removeEnded(now) {
+    for (const [id, doc] of indexed) if (doc.ends_at <= now.getTime() / 1000) indexed.delete(id);
+  },
+  async replaceAll(docs) {
+    indexed.clear();
+    for (const doc of docs) indexed.set(doc.id, doc);
   },
 };
 
@@ -73,6 +96,8 @@ describe("listings", () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(MAIL_SENDER)
       .useValue(fakeMail)
+      .overrideProvider(SEARCH_INDEX)
+      .useValue(fakeSearch)
       .compile();
     app = moduleRef.createNestApplication();
     await app.init();
@@ -307,9 +332,16 @@ describe("listings", () => {
       expect(res.body.removedImageUrls).toEqual([image(sellerId, 1).url]);
     });
 
-    it("cannot be deleted, and others cannot change it (403, since it is public)", async () => {
+    it("can be removed by its seller, who gets the photos back to delete; others get 403 (since it is public)", async () => {
       const listing = await createPublished();
-      await api().delete(`/listings/${listing.id}`).set(as(seller)).expect(409);
+      await api().delete(`/listings/${listing.id}`).set(as(other)).expect(403);
+      const removed = await api().delete(`/listings/${listing.id}`).set(as(seller)).expect(200);
+      expect(removed.body.removedImageUrls).toEqual([image(sellerId, 1).url]);
+      await api().get(`/listings/${listing.id}`).expect(404);
+    });
+
+    it("cannot be changed by others (403, since it is public)", async () => {
+      const listing = await createPublished();
       await api().patch(`/listings/${listing.id}`).set(as(other)).send({ description: "Taking over this one" }).expect(403);
       await api().put(`/listings/${listing.id}/images`).set(as(other)).send({ images: [image(otherId, 1)] }).expect(403);
     });
@@ -386,6 +418,82 @@ describe("listings", () => {
       expect(await ids("upcoming")).toEqual([upcomingEarly.id, upcomingLate.id]);
       expect(later.id).toBeTruthy();
       await api().get("/listings?section=nonsense").expect(400);
+    });
+  });
+  describe("search index", () => {
+    beforeEach(() => {
+      indexed.clear();
+      failSearch = false;
+    });
+
+    it("never holds drafts, and holds a listing from the moment it is published", async () => {
+      const draft = await createDraft();
+      await api().put(`/listings/${draft.id}/images`).set(as(seller)).send({ images: [image(sellerId, 1)] }).expect(200);
+      await api().patch(`/listings/${draft.id}`).set(as(seller)).send({ title: "A draft title" }).expect(200);
+      expect(indexed.size).toBe(0);
+
+      await api().post(`/listings/${draft.id}/publish`).set(as(seller)).send({}).expect(200);
+      const doc = indexed.get(draft.id)!;
+      expect(doc).toMatchObject({
+        title: "A draft title",
+        category_slug: "watches-jewelry",
+        condition: "GOOD",
+        price_cents: 1000,
+        bid_count: 0,
+        cover_url: image(sellerId, 1).url,
+      });
+      expect(doc.ends_at - doc.starts_at).toBe(5 * 86_400);
+    });
+
+    it("follows description and photo changes on a published listing", async () => {
+      const listing = await createPublished();
+      await api().patch(`/listings/${listing.id}`).set(as(seller)).send({ description: "Now with a new strap." }).expect(200);
+      expect(indexed.get(listing.id)!.description).toBe("Now with a new strap.");
+      await api().put(`/listings/${listing.id}/images`).set(as(seller)).send({ images: [image(sellerId, 2), image(sellerId, 1)] }).expect(200);
+      expect(indexed.get(listing.id)!.cover_url).toBe(image(sellerId, 2).url);
+    });
+
+    it("leaves the index when the seller removes the listing, even if search is down for the removal", async () => {
+      const listing = await createPublished();
+      expect(indexed.has(listing.id)).toBe(true);
+      await api().delete(`/listings/${listing.id}`).set(as(seller)).expect(200);
+      expect(indexed.has(listing.id)).toBe(false);
+
+      const second = await createPublished();
+      failSearch = true;
+      await api().delete(`/listings/${second.id}`).set(as(seller)).expect(200);
+    });
+
+    it("indexes upcoming listings too", async () => {
+      const listing = await createPublished({}, { startsAt: new Date(Date.now() + 2 * DAY).toISOString() });
+      expect(indexed.has(listing.id)).toBe(true);
+    });
+
+    it("still saves the listing when search is down, and a reindex repairs the gap", async () => {
+      failSearch = true;
+      const listing = await createPublished();
+      expect(listing.status).toBe("PUBLISHED");
+      expect(indexed.size).toBe(0);
+
+      failSearch = false;
+      await app.get(ListingsService).reindexSearch();
+      expect(indexed.has(listing.id)).toBe(true);
+    });
+
+    it("reindexes only live and upcoming listings, and leaves out drafts and ended ones", async () => {
+      await prisma.listing.deleteMany({ where: { sellerId } });
+      const live = await createPublished({ title: "Live one" });
+      const upcoming = await createPublished({ title: "Upcoming one" }, { startsAt: new Date(Date.now() + DAY).toISOString() });
+      const ended = await createPublished({ title: "Ended one" });
+      await prisma.listing.update({ where: { id: ended.id }, data: { endsAt: new Date(Date.now() - 1000) } });
+      await createDraft({ title: "Draft one" });
+      indexed.set("stale", { id: "stale" } as ListingDocument);
+
+      const count = await app.get(ListingsService).reindexSearch();
+      const mine = [...indexed.keys()].filter((id) => [live.id, upcoming.id, ended.id].includes(id));
+      expect(mine.sort()).toEqual([live.id, upcoming.id].sort());
+      expect(indexed.has("stale")).toBe(false);
+      expect(count).toBe(indexed.size);
     });
   });
 });

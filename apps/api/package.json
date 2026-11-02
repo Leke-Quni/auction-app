@@ -6,6 +6,7 @@
     "build": "nest build",
     "dev": "nest start --watch",
     "start": "node dist/main.js",
+    "reindex": "nest build && node dist/search/reindex.js",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"

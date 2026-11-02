@@ -11,6 +11,7 @@ vi.mock("./actions", () => ({
   deleteListingAction: vi.fn(async () => ({})),
 }));
 
+import { deleteListingAction } from "./actions";
 import { ListingEditor } from "./listing-editor";
 import type { FormListing } from "./listing-form";
 
@@ -64,5 +65,23 @@ describe("ListingEditor", () => {
     const form = screen.getByRole("button", { name: "Save" }).closest("form")!;
     expect(form.contains(screen.getByRole("heading", { name: /Photos/ }))).toBe(false);
     expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+  });
+
+  it("published: can be removed after a confirmation, and a draft has no Remove listing button", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm");
+    render(<ListingEditor categories={categories} listing={{ ...listing, status: "PUBLISHED" }} userId="u1" initialPhotos={[url("a")]} />);
+
+    confirmSpy.mockReturnValueOnce(false);
+    fireEvent.click(screen.getByRole("button", { name: "Remove listing" }));
+    expect(deleteListingAction).not.toHaveBeenCalled();
+
+    confirmSpy.mockReturnValueOnce(true);
+    fireEvent.click(screen.getByRole("button", { name: "Remove listing" }));
+    await waitFor(() => expect(deleteListingAction).toHaveBeenCalledWith("L1"));
+
+    cleanup();
+    render(<ListingEditor categories={categories} listing={listing} userId="u1" initialPhotos={[url("a")]} />);
+    expect(screen.queryByRole("button", { name: "Remove listing" })).toBeNull();
+    confirmSpy.mockRestore();
   });
 });
