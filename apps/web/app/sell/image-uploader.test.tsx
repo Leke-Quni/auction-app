@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { upload, saveImagesAction } = vi.hoisted(() => ({ upload: vi.fn(), saveImagesAction: vi.fn() }));
-vi.mock("@vercel/blob/client", () => ({ upload }));
+vi.mock("@vercel/blob/client", () => ({ uploadPresigned: upload }));
 vi.mock("./actions", () => ({ saveImagesAction }));
 
 import { ImageUploader } from "./image-uploader";
@@ -20,7 +20,7 @@ afterEach(cleanup);
 
 const setup = (initial: string[] = [], onCountChange = vi.fn()) => {
   render(<ImageUploader listingId="L1" userId="u1" initial={initial} onCountChange={onCountChange} />);
-  const choose = (...files: File[]) => fireEvent.change(screen.getByLabelText("Add photos"), { target: { files } });
+  const choose = (...files: File[]) => fireEvent.change(screen.getByLabelText("Photo files"), { target: { files } });
   return { choose, onCountChange };
 };
 
@@ -31,6 +31,22 @@ describe("ImageUploader", () => {
     expect(screen.getAllByRole("img")).toHaveLength(2);
     expect(screen.getAllByText("Cover")).toHaveLength(1);
     expect(within(screen.getAllByRole("listitem")[0]).getByText("Cover")).toBeTruthy();
+  });
+
+  it("has a visible Add photos button that opens the file picker", () => {
+    const click = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+    setup();
+    const button = screen.getByRole("button", { name: "+ Add photos" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    expect(click).toHaveBeenCalledTimes(1);
+    click.mockRestore();
+  });
+
+  it("disables the button once there are 8 photos", () => {
+    setup(Array.from({ length: 8 }, (_, i) => blobUrl(`p${i}`)));
+    const button = screen.getByRole("button", { name: "Photo limit reached" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
   });
 
   it("uploads straight to Blob from the user's folder, then saves the new list", async () => {
@@ -66,7 +82,7 @@ describe("ImageUploader", () => {
     expect(upload).toHaveBeenCalledTimes(1);
     expect(saveImagesAction.mock.calls[0][1]).toHaveLength(8);
     expect(screen.getByText(/You can add 1 more photo \(up to 8\)/)).toBeTruthy();
-    await waitFor(() => expect((screen.getByLabelText("Add photos") as HTMLInputElement).disabled).toBe(true));
+    await waitFor(() => expect((screen.getByLabelText("Photo files") as HTMLInputElement).disabled).toBe(true));
   });
 
   it("removes a photo and saves the rest", async () => {
@@ -103,5 +119,50 @@ describe("ImageUploader", () => {
     await waitFor(() => expect(screen.getByText("Upload failed: Network down")).toBeTruthy());
     expect(saveImagesAction).not.toHaveBeenCalled();
     expect(screen.getByText("Photos (1/8)")).toBeTruthy();
+  });
+
+  describe("on the new-listing form, before a listing exists", () => {
+    const setupLocal = (initial: string[] = []) => {
+      const onCountChange = vi.fn();
+      const { container } = render(<ImageUploader userId="u1" initial={initial} onCountChange={onCountChange} />);
+      const choose = (...files: File[]) => fireEvent.change(screen.getByLabelText("Photo files"), { target: { files } });
+      const hidden = () => JSON.parse((container.querySelector('input[name="photos"]') as HTMLInputElement).value) as string[];
+      return { choose, hidden, onCountChange };
+    };
+
+    it("starts with an empty hidden photos field and explains when photos are saved", () => {
+      const { hidden } = setupLocal();
+      expect(hidden()).toEqual([]);
+      expect(screen.getByText(/saved when you create the draft/)).toBeTruthy();
+    });
+
+    it("uploads to Blob right away but saves nothing to the server; the URLs go in the hidden field", async () => {
+      upload.mockResolvedValueOnce({ url: blobUrl("one") }).mockResolvedValueOnce({ url: blobUrl("two") });
+      const { choose, hidden, onCountChange } = setupLocal();
+      choose(file("1.jpg"), file("2.png", "image/png"));
+
+      await waitFor(() => expect(hidden()).toEqual([blobUrl("one"), blobUrl("two")]));
+      expect(upload).toHaveBeenCalledTimes(2);
+      expect(saveImagesAction).not.toHaveBeenCalled();
+      expect(onCountChange).toHaveBeenLastCalledWith(2);
+      expect(screen.getByText("Photos (2/8)")).toBeTruthy();
+    });
+
+    it("removes and reorders in the hidden field without calling the server", async () => {
+      const { hidden } = setupLocal([blobUrl("a"), blobUrl("b"), blobUrl("c")]);
+      fireEvent.click(screen.getByRole("button", { name: "Move photo 2 earlier" }));
+      await waitFor(() => expect(hidden()).toEqual([blobUrl("b"), blobUrl("a"), blobUrl("c")]));
+      fireEvent.click(screen.getByRole("button", { name: "Remove photo 1" }));
+      await waitFor(() => expect(hidden()).toEqual([blobUrl("a"), blobUrl("c")]));
+      expect(saveImagesAction).not.toHaveBeenCalled();
+    });
+
+    it("still refuses wrong types and oversize files", async () => {
+      const { choose, hidden } = setupLocal();
+      choose(file("anim.gif", "image/gif"));
+      await waitFor(() => expect(screen.getByText(/only JPG, PNG, and WebP/)).toBeTruthy());
+      expect(upload).not.toHaveBeenCalled();
+      expect(hidden()).toEqual([]);
+    });
   });
 });

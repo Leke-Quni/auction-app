@@ -27,6 +27,17 @@ yarn workspace @auction/admin dev   # http://localhost:3001
 
 In development the API prints emails (the 6-digit sign-in codes) to its log instead of sending them. Set `RESEND_API_KEY` (and optionally `MAIL_FROM`) to send real email through Resend. In production the API refuses to start without `RESEND_API_KEY`.
 
+## Photos (Vercel Blob)
+
+Photo uploads use Vercel Blob with OIDC, so there is no secret to copy. Once, with a Vercel account that owns the Blob store:
+
+```sh
+npx vercel link                              # choose the auction-web project
+npx vercel env pull apps/web/.env.local      # BLOB_STORE_ID, BLOB_WEBHOOK_PUBLIC_KEY, VERCEL_OIDC_TOKEN
+```
+
+The OIDC token lasts 12 hours; the SDK refreshes it using your Vercel CLI login, or run the pull again. Restart the web server after pulling.
+
 ## Checks
 
 ```sh

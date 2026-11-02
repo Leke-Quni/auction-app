@@ -1,6 +1,7 @@
 import { CONDITION_LABELS, formatDuration, formatEur } from "@auction/shared";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Countdown } from "@/app/countdown";
 import { Gallery } from "@/app/gallery";
 import { LocalTime } from "@/app/local-time";
 import { auth } from "@/auth";
@@ -25,7 +26,13 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
     ["Seller", listing.seller.username],
     ["Duration", formatDuration(listing.durationDays)],
     ...(listing.startsAt ? ([["Starts", <LocalTime key="s" iso={listing.startsAt} />]] as [string, React.ReactNode][]) : []),
-    ...(listing.endsAt ? ([["Ends", <LocalTime key="e" iso={listing.endsAt} />]] as [string, React.ReactNode][]) : []),
+    ...(listing.endsAt
+      ? ([
+          listing.phase === "live" && listing.startsAt
+            ? ["Time left", <Countdown key="e" iso={listing.endsAt} startIso={listing.startsAt} />]
+            : ["Ends", <LocalTime key="e" iso={listing.endsAt} />],
+        ] as [string, React.ReactNode][])
+      : []),
     ["Status", PHASE_LABELS[listing.phase as keyof typeof PHASE_LABELS]],
   ];
 
@@ -40,7 +47,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
         </p>
       )}
       <h1 className="border border-line bg-white p-2 text-lg font-bold">{listing.title}</h1>
-      <div className="grid gap-3 sm:grid-cols-[2fr_3fr]">
+      <div className="grid gap-3 sm:grid-cols-[1fr_2fr]">
         <Gallery images={listing.images} alt={listing.title} />
         <div className="space-y-3">
           <table className="w-full border-collapse bg-white">

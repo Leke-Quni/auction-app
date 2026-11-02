@@ -1,24 +1,23 @@
 "use client";
 
 import { IMAGE_TYPES, MAX_IMAGES, MAX_IMAGE_BYTES } from "@auction/shared";
-import { upload } from "@vercel/blob/client";
+import { uploadPresigned } from "@vercel/blob/client";
 import { useRef, useState } from "react";
 import { saveImagesAction } from "./actions";
 
 const EXTENSIONS: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 const small = "cursor-pointer border border-[#888] bg-white px-1.5 text-xs disabled:opacity-40";
 
-export interface PhotoState {
-  count: number;
-}
-
+// With a listingId, every change is saved to that listing straight away. Without one (the new-listing form),
+// photos still upload to Blob immediately but only travel along in the form, as a hidden JSON field, and are
+// attached when the draft is created.
 export function ImageUploader({
   listingId,
   userId,
   initial,
   onCountChange,
 }: {
-  listingId: string;
+  listingId?: string;
   userId: string;
   initial: string[];
   onCountChange?: (count: number) => void;
@@ -31,6 +30,11 @@ export function ImageUploader({
 
   // Saves the whole ordered list; on failure the screen goes back to what was last saved.
   const persist = async (next: string[], previous: string[]) => {
+    if (!listingId) {
+      setUrls(next);
+      onCountChange?.(next.length);
+      return true;
+    }
     setStatus("Saving…");
     const result = await saveImagesAction(listingId, next);
     if (result.error) {
@@ -66,7 +70,7 @@ export function ImageUploader({
     try {
       for (const [i, file] of toUpload.entries()) {
         setStatus(`Uploading ${i + 1} of ${toUpload.length}…`);
-        const blob = await upload(`listings/${userId}/${crypto.randomUUID()}.${EXTENSIONS[file.type]}`, file, {
+        const blob = await uploadPresigned(`listings/${userId}/${crypto.randomUUID()}.${EXTENSIONS[file.type]}`, file, {
           access: "public",
           handleUploadUrl: "/api/uploads",
           contentType: file.type,
@@ -105,7 +109,11 @@ export function ImageUploader({
           {status}
         </span>
       </div>
-      <p className="text-xs text-muted">JPG, PNG, or WebP, up to 5 MB each. The first photo is the cover.</p>
+      <p className="text-xs text-muted">
+        JPG, PNG, or WebP, up to 5 MB each. The first photo is the cover.
+        {!listingId && " Photos upload as you pick them and are saved when you create the draft."}
+      </p>
+      {!listingId && <input type="hidden" name="photos" value={JSON.stringify(urls)} />}
 
       {urls.length > 0 && (
         <ul className="grid grid-cols-4 gap-2">
@@ -136,11 +144,20 @@ export function ImageUploader({
         type="file"
         multiple
         accept={IMAGE_TYPES.join(",")}
-        aria-label="Add photos"
+        aria-label="Photo files"
+        tabIndex={-1}
         disabled={busy || urls.length >= MAX_IMAGES}
         onChange={(e) => addFiles(Array.from(e.target.files ?? []))}
-        className="block w-full text-sm"
+        className="sr-only"
       />
+      <button
+        type="button"
+        disabled={busy || urls.length >= MAX_IMAGES}
+        onClick={() => fileInput.current?.click()}
+        className="cursor-pointer bg-brand px-4 py-2 font-bold text-white hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {busy ? "Working…" : urls.length >= MAX_IMAGES ? "Photo limit reached" : "+ Add photos"}
+      </button>
       {error && <p className="text-urgent">{error}</p>}
     </div>
   );

@@ -2,11 +2,17 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { apiFetch, authedApiFetch } from "@/lib/api";
-import { ListingForm } from "../../listing-form";
-import { ListingMedia } from "../../listing-media";
+import { ListingEditor } from "../../listing-editor";
 
-export default async function EditListingPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function EditListingPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ photosFailed?: string }>;
+}) {
   const { id } = await params;
+  const { photosFailed } = await searchParams;
   const session = await auth();
   if (!session) redirect("/sign-in");
 
@@ -25,8 +31,15 @@ export default async function EditListingPage({ params }: { params: Promise<{ id
           View listing
         </Link>
       </div>
-      <ListingForm
+      {photosFailed && (
+        <p className="border border-urgent bg-white p-2 text-urgent">
+          Your draft was created, but the photos could not be saved. Add them again below.
+        </p>
+      )}
+      <ListingEditor
         categories={categories}
+        userId={session.user.id}
+        initialPhotos={listing.images.map((i: { url: string }) => i.url)}
         listing={{
           id: listing.id,
           title: listing.title,
@@ -38,13 +51,6 @@ export default async function EditListingPage({ params }: { params: Promise<{ id
           durationDays: listing.durationDays,
           status: listing.status,
         }}
-      />
-      <ListingMedia
-        listingId={listing.id}
-        userId={session.user.id}
-        initial={listing.images.map((i: { url: string }) => i.url)}
-        canPublish={listing.status === "DRAFT"}
-        durationDays={listing.durationDays}
       />
     </div>
   );

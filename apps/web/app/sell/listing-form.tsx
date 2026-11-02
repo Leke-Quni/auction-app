@@ -1,7 +1,7 @@
 "use client";
 
 import { AUCTION_DURATIONS, CONDITION_LABELS, LISTING_CONDITIONS, formatDuration, formatEur } from "@auction/shared";
-import { useActionState } from "react";
+import { useActionState, type ReactNode } from "react";
 import { saveListingAction } from "./actions";
 
 export interface FormListing {
@@ -21,23 +21,42 @@ const label = "text-xs text-muted";
 
 const euros = (cents: number | null) => (cents == null ? "" : (cents / 100).toFixed(2));
 
+// Order for a draft: details, photos, then price. `photos` is the photo block, rendered between them
+// (inside the form, so the new-listing page can send the uploaded photos along with the rest).
 export function ListingForm({
   categories,
   listing,
+  photos,
 }: {
   categories: { id: string; name: string }[];
   listing?: FormListing;
+  photos?: ReactNode;
 }) {
   const [state, formAction, pending] = useActionState(saveListingAction, {});
   const published = listing?.status === "PUBLISHED";
 
+  const description = (
+    <label className="block">
+      <span className={label}>Description</span>
+      <textarea
+        name="description"
+        required
+        minLength={10}
+        maxLength={4000}
+        rows={6}
+        defaultValue={listing?.description}
+        className={input}
+      />
+    </label>
+  );
+
   return (
-    <form action={formAction} className="space-y-3 border border-line bg-white p-3">
-      <h2 className="text-sm font-bold">{listing ? "Details" : "New listing"}</h2>
+    <form action={formAction} className="space-y-3">
       {listing && <input type="hidden" name="listingId" value={listing.id} />}
 
       {published ? (
-        <>
+        <div className="space-y-3 border border-line bg-white p-3">
+          <h2 className="text-sm font-bold">Details</h2>
           <p className="text-xs text-muted">Once published, only the description can change.</p>
           <table className="w-full border-collapse text-sm">
             <tbody>
@@ -56,99 +75,99 @@ export function ListingForm({
               ))}
             </tbody>
           </table>
-        </>
+          {description}
+        </div>
       ) : (
         <>
-          <label className="block">
-            <span className={label}>Title</span>
-            <input name="title" required minLength={5} maxLength={80} defaultValue={listing?.title} className={input} />
-          </label>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-3 border border-line bg-white p-3">
+            <h2 className="text-sm font-bold">{listing ? "Details" : "New listing"}</h2>
             <label className="block">
-              <span className={label}>Category</span>
-              <select name="categoryId" required defaultValue={listing?.categoryId ?? ""} className={input}>
-                <option value="" disabled>
-                  Choose…
-                </option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+              <span className={label}>Title</span>
+              <input name="title" required minLength={5} maxLength={80} defaultValue={listing?.title} className={input} />
             </label>
-            <label className="block">
-              <span className={label}>Condition</span>
-              <select name="condition" required defaultValue={listing?.condition ?? ""} className={input}>
-                <option value="" disabled>
-                  Choose…
-                </option>
-                {LISTING_CONDITIONS.map((c) => (
-                  <option key={c} value={c}>
-                    {CONDITION_LABELS[c]}
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block">
+                <span className={label}>Category</span>
+                <select name="categoryId" required defaultValue={listing?.categoryId ?? ""} className={input}>
+                  <option value="" disabled>
+                    Choose…
                   </option>
-                ))}
-              </select>
-            </label>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className={label}>Condition</span>
+                <select name="condition" required defaultValue={listing?.condition ?? ""} className={input}>
+                  <option value="" disabled>
+                    Choose…
+                  </option>
+                  {LISTING_CONDITIONS.map((c) => (
+                    <option key={c} value={c}>
+                      {CONDITION_LABELS[c]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {description}
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            <label className="block">
-              <span className={label}>Starting price (€)</span>
-              <input
-                name="startingPrice"
-                required
-                inputMode="decimal"
-                placeholder="25.00"
-                defaultValue={euros(listing?.startingPriceCents ?? null)}
-                className={input}
-              />
-            </label>
-            <label className="block">
-              <span className={label}>Reserve price (€, optional)</span>
-              <input
-                name="reservePrice"
-                inputMode="decimal"
-                placeholder="none"
-                defaultValue={euros(listing?.reservePriceCents ?? null)}
-                className={input}
-              />
-            </label>
-            <label className="block">
-              <span className={label}>Duration</span>
-              <select name="durationDays" required defaultValue={listing?.durationDays ?? 7} className={input}>
-                {AUCTION_DURATIONS.map((d) => (
-                  <option key={d} value={d}>
-                    {formatDuration(d)}
-                  </option>
-                ))}
-              </select>
-            </label>
+
+          {photos}
+
+          <div className="space-y-3 border border-line bg-white p-3">
+            <h2 className="text-sm font-bold">Price and duration</h2>
+            <div className="grid grid-cols-3 gap-2">
+              <label className="block">
+                <span className={label}>Starting price (€)</span>
+                <input
+                  name="startingPrice"
+                  required
+                  inputMode="decimal"
+                  placeholder="25.00"
+                  defaultValue={euros(listing?.startingPriceCents ?? null)}
+                  className={input}
+                />
+              </label>
+              <label className="block">
+                <span className={label}>Reserve price (€, optional)</span>
+                <input
+                  name="reservePrice"
+                  inputMode="decimal"
+                  placeholder="none"
+                  defaultValue={euros(listing?.reservePriceCents ?? null)}
+                  className={input}
+                />
+              </label>
+              <label className="block">
+                <span className={label}>Duration</span>
+                <select name="durationDays" required defaultValue={listing?.durationDays ?? 7} className={input}>
+                  {AUCTION_DURATIONS.map((d) => (
+                    <option key={d} value={d}>
+                      {formatDuration(d)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <p className="text-xs text-muted">The reserve price is shown to bidders. If it is not met, the item does not sell.</p>
           </div>
-          <p className="text-xs text-muted">The reserve price is shown to bidders. If it is not met, the item does not sell.</p>
         </>
       )}
 
-      <label className="block">
-        <span className={label}>Description</span>
-        <textarea
-          name="description"
-          required
-          minLength={10}
-          maxLength={4000}
-          rows={6}
-          defaultValue={listing?.description}
-          className={input}
-        />
-      </label>
-
-      {state.error && <p className="text-urgent">{state.error}</p>}
-      {state.ok && <p className="text-brand">{state.ok}</p>}
-      <button
-        disabled={pending}
-        className="cursor-pointer bg-brand px-3 py-1 font-bold text-white hover:bg-brand-dark disabled:opacity-60"
-      >
-        {pending ? "..." : listing ? "Save" : "Create draft"}
-      </button>
+      <div className="space-y-2 border border-line bg-white p-3">
+        {state.error && <p className="text-urgent">{state.error}</p>}
+        {state.ok && <p className="text-brand">{state.ok}</p>}
+        <button
+          disabled={pending}
+          className="cursor-pointer bg-brand px-3 py-1 font-bold text-white hover:bg-brand-dark disabled:opacity-60"
+        >
+          {pending ? "..." : listing ? "Save" : "Create draft"}
+        </button>
+      </div>
     </form>
   );
 }

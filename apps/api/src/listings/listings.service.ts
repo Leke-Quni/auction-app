@@ -16,7 +16,9 @@ import {
 } from "@nestjs/common";
 import type { Prisma as PrismaTypes } from "@auction/db";
 import { PRISMA, type Prisma } from "../db/db.module";
-import { IMAGE_STORAGE, isSellerImage, type ImageStorage } from "./image-storage";
+import { isSellerImage } from "./seller-image";
+
+const ENDING_SOON_MS = 24 * 60 * 60 * 1000;
 
 const listingInclude = {
   category: true,
@@ -48,7 +50,6 @@ const toDto = (l: ListingRow, now = new Date()) => ({
 export class ListingsService {
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
-    @Inject(IMAGE_STORAGE) private readonly storage: ImageStorage,
   ) {}
 
   categories() {
@@ -68,19 +69,31 @@ export class ListingsService {
     return toDto(listing);
   }
 
-  async list(page: number, pageSize: number) {
-    const where = { status: "PUBLISHED" as const, endsAt: { gt: new Date() } };
+  async list(page: number, pageSize: number, section?: "endingSoon" | "upcoming") {
+    const now = new Date();
+    const published = { status: "PUBLISHED" as const, endsAt: { gt: now } };
+    const where =
+      section === "upcoming"
+        ? { ...published, startsAt: { gt: now } }
+        : section === "endingSoon"
+          ? { status: "PUBLISHED" as const, startsAt: { lte: now }, endsAt: { gt: now, lte: new Date(now.getTime() + ENDING_SOON_MS) } }
+          : published;
+    const orderBy =
+      section === "upcoming"
+        ? [{ startsAt: "asc" as const }, { id: "asc" as const }]
+        : section === "endingSoon"
+          ? [{ endsAt: "asc" as const }, { id: "asc" as const }]
+          : [{ publishedAt: "desc" as const }, { id: "desc" as const }];
     const [items, total] = await Promise.all([
       this.prisma.listing.findMany({
         where,
         include: listingInclude,
-        orderBy: [{ publishedAt: "desc" }, { id: "desc" }],
+        orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
       this.prisma.listing.count({ where }),
     ]);
-    const now = new Date();
     return { items: items.map((l) => toDto(l, now)), total, page, pageSize };
   }
 
@@ -138,9 +151,11 @@ export class ListingsService {
       }),
     ]);
 
+    // The caller deletes these from Blob; this service has no Blob credentials.
     const kept = new Set(images.map((i) => i.url));
-    await this.storage.delete(listing.images.map((i) => i.url).filter((url) => !kept.has(url)));
-    return toDto(await this.prisma.listing.findUniqueOrThrow({ where: { id }, include: listingInclude }));
+    const removedImageUrls = listing.images.map((i) => i.url).filter((url) => !kept.has(url));
+    const updated = await this.prisma.listing.findUniqueOrThrow({ where: { id }, include: listingInclude });
+    return { ...toDto(updated), removedImageUrls };
   }
 
   async publish(sellerId: string, id: string, input: PublishListingInput) {
@@ -162,7 +177,7 @@ export class ListingsService {
     const listing = await this.getOwned(sellerId, id);
     if (listing.status === "PUBLISHED") throw new ConflictException("Only drafts can be deleted");
     await this.prisma.listing.delete({ where: { id } });
-    await this.storage.delete(listing.images.map((i) => i.url));
+    return { removedImageUrls: listing.images.map((i) => i.url) };
   }
 
   private async requireCategory(categoryId: string) {

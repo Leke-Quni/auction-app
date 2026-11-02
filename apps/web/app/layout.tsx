@@ -10,7 +10,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const session = await auth();
   return (
     <html lang="en">
-      <body>
+      <body className="flex min-h-screen flex-col">
         <header className="flex items-center gap-4 bg-brand px-4 py-2 text-white">
           <Link href="/" className="text-xl font-black italic">
             AUCTIONLY
@@ -31,7 +31,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </>
           )}
         </header>
-        <main className="mx-auto max-w-3xl p-3">{children}</main>
+        <main className="mx-auto w-full max-w-3xl flex-1 p-3">{children}</main>
+        <footer className="border-t border-line bg-white px-4 py-3">
+          <div className="mx-auto flex max-w-3xl items-center justify-between px-3">
+            <Link href="/sell/new" className="font-bold text-brand underline">
+              Sell something
+            </Link>
+          </div>
+        </footer>
       </body>
     </html>
   );

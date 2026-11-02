@@ -1,10 +1,22 @@
 "use server";
 
-import { createListingSchema, eurosToCents, updateListingSchema } from "@auction/shared";
+import { MAX_IMAGES, createListingSchema, eurosToCents, updateListingSchema } from "@auction/shared";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { auth } from "@/auth";
 import { authedApiFetch } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { deleteOwnBlobs } from "@/lib/blob";
+
+// The API reports which photos a change removed; the web app deletes them from Blob (the API has no Blob credentials).
+async function deleteRemovedPhotos(res: Response) {
+  const body = await res.json().catch(() => null);
+  const urls: unknown = body?.removedImageUrls;
+  const session = await auth();
+  if (session && Array.isArray(urls)) {
+    await deleteOwnBlobs(urls.filter((u): u is string => typeof u === "string"), session.user.id);
+  }
+}
 
 export interface SellFormState {
   error?: string;
@@ -43,10 +55,27 @@ export async function saveListingAction(_: SellFormState, formData: FormData): P
   if (!res.ok) return { error: await apiErrorMessage(res) };
   if (!id) {
     const created = await res.json();
+    // Photos picked in the new-listing form were already uploaded to Blob; attach them to the new draft.
+    const photos = readPhotoUrls(formData.get("photos"));
+    if (photos.length > 0) {
+      const saved = await saveImagesAction(created.id, photos);
+      if (saved.error) redirect(`/sell/${created.id}/edit?photosFailed=1`);
+    }
     redirect(`/sell/${created.id}/edit`);
   }
   revalidatePath(`/sell/${id}/edit`);
   return { ok: "Saved." };
+}
+
+// The new-listing form sends its uploaded photo URLs as JSON in a hidden field. The API checks every URL again.
+function readPhotoUrls(value: FormDataEntryValue | null): string[] {
+  try {
+    const parsed: unknown = JSON.parse(String(value ?? "[]"));
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((u): u is string => typeof u === "string").slice(0, MAX_IMAGES);
+  } catch {
+    return [];
+  }
 }
 
 export async function saveImagesAction(listingId: string, urls: string[]): Promise<{ error?: string }> {
@@ -54,6 +83,7 @@ export async function saveImagesAction(listingId: string, urls: string[]): Promi
   const images = urls.map((url) => ({ url, pathname: decodeURIComponent(new URL(url).pathname.slice(1)) }));
   const res = await authedApiFetch(`/listings/${listingId}/images`, { method: "PUT", body: JSON.stringify({ images }) });
   if (!res.ok) return { error: await apiErrorMessage(res) };
+  await deleteRemovedPhotos(res);
   revalidatePath(`/sell/${listingId}/edit`);
   return {};
 }
@@ -70,5 +100,6 @@ export async function publishListingAction(listingId: string, startsAt?: string)
 export async function deleteListingAction(listingId: string): Promise<{ error?: string }> {
   const res = await authedApiFetch(`/listings/${listingId}`, { method: "DELETE" });
   if (!res.ok) return { error: await apiErrorMessage(res) };
+  await deleteRemovedPhotos(res);
   redirect("/sell");
 }

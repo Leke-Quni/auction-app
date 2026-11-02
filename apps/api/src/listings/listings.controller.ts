@@ -19,6 +19,7 @@ type AuthedRequest = { user: AuthUser };
 const pageSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(50).default(24),
+  section: z.enum(["endingSoon", "upcoming"]).optional(),
 });
 
 const imagesBodySchema = z.object({ images: listingImagesSchema });
@@ -34,7 +35,7 @@ export class ListingsController {
 
   @Get("listings")
   list(@Query(new ZodValidationPipe(pageSchema)) query: z.infer<typeof pageSchema>) {
-    return this.listings.list(query.page, query.pageSize);
+    return this.listings.list(query.page, query.pageSize, query.section);
   }
 
   @Get("me/listings")
@@ -88,8 +89,8 @@ export class ListingsController {
 
   @Delete("listings/:id")
   @UseGuards(JwtAuthGuard)
-  @HttpCode(204)
-  async remove(@Req() req: AuthedRequest, @Param("id") id: string) {
-    await this.listings.remove(req.user.id, id);
+  @HttpCode(200)
+  remove(@Req() req: AuthedRequest, @Param("id") id: string) {
+    return this.listings.remove(req.user.id, id);
   }
 }

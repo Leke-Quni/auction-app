@@ -35,6 +35,7 @@ Status: design agreed with the owner in a grilling session on 2026-10-30. No cod
 - Listings with up to 8 images (under 5 MB each), uploaded straight from the browser to Vercel Blob via signed tokens, so large files never pass through our server.
 - Search: Typesense Cloud with typo tolerance, filters (category, condition, price range, ending soon), and sorting (ending soonest, newest, most bids, price). Possible later: geo search, autocomplete, synonyms, semantic search.
 - Fixed list of about 10 seeded categories.
+- Main page (added 2026-11-02, slice 2): "Ending soon" (live auctions ending within 24 hours, soonest first) and "Upcoming" (not started yet, soonest start first) sections of 4 cards each sit above the full list on page 1. A section with no auctions is hidden. `GET /listings` takes an optional `section=endingSoon|upcoming` for this. Slice 3 search may replace it.
 - Watchlist with "ending soon" emails.
 - Seller profiles with post-sale ratings from the buyer.
 - Users have a first name, last name, and username. The username is the public handle (header, later listings and bids); real names stay private. Usernames are 3-20 characters that may contain lowercase letters, numbers, and underscores (none required), unique, with a few reserved names (such as `admin`) blocked, and can be changed any time. Sign-in is by email, not username.
@@ -73,7 +74,8 @@ Data flow and rules:
 - Dense, information-first layout in the style of Yahoo Auctions Japan: facts in tables (price, bids, watchers, time left, auto-extension, minimum next bid), compact spacing, and a prominent bid input with a place-bid button.
 - Brand accent: teal `#0f766e`, used for the header, links, buttons, and tags.
 - Urgency (ending soon, final minutes) uses its own red/orange colour, separate from the brand accent, so it stays distinct whatever the brand colour is.
-- The countdown is one shared timer synced to the server, so the listing page and bid history never disagree.
+- The countdown is one shared timer synced to the server, so the listing page and bid history never disagree. Until slice 4 it counts from the browser clock.
+- Countdown colour (added 2026-11-02): green while more than 50% of the auction's total time is left, orange from 50% down to 10%, and the urgency red at 10% or less. On the main page's cards it shows alone; on the listing page it is a "Time left" row for live auctions.
 - Each app still has its own theme tokens (section 5). The admin theme is not chosen yet.
 
 ## 6. Quality and process
@@ -97,7 +99,7 @@ Data flow and rules:
 - Anti-sniping parameters (window length and extension length).
 - Reserve price: **the amount is visible to everyone** on the listing (decided 2026-10-30, slice 2). If it is not met when the auction closes there is no sale and the seller can relist (applied in slice 5).
 - Listing lifecycle: a seller saves a draft, adds photos, then publishes either now or at a start time up to 30 days ahead; the end time is fixed at publish (`startsAt` plus the duration). Drafts are private to the seller and fully editable. After publishing, only the description and photos can change (at least one photo must stay). Only drafts can be deleted. (Decided 2026-10-30, slice 2.)
-- Images: a **public** Vercel Blob store. The browser uploads straight to Blob using a token from `apps/web/app/api/uploads` (sign-in required, own folder `listings/<userId>/`, JPG/PNG/WebP, 5 MB). The API accepts only photo URLs on a `*.public.blob.vercel-storage.com` host inside the seller's own folder, and deletes removed photos from Blob. Needs `BLOB_READ_WRITE_TOKEN`.
+- Images: a **public** Vercel Blob store, used with OIDC and **presigned uploads** (no long-lived read-write token exists; decided 2026-10-30). The browser uploads straight to Blob using a short-lived upload URL from `apps/web/app/api/uploads` (sign-in required, own folder `listings/<userId>/`, JPG/PNG/WebP, 5 MB, 10-minute lifetime). The API accepts only photo URLs on a `*.public.blob.vercel-storage.com` host inside the seller's own folder, and reports which photos a change removed; the **web app** deletes them from Blob, because OIDC only works on Vercel and the API runs on Fly. Locally, `npx vercel link` and `npx vercel env pull apps/web/.env.local` provide `BLOB_STORE_ID`, `BLOB_WEBHOOK_PUBLIC_KEY` and a 12-hour `VERCEL_OIDC_TOKEN`.
 - Platform fee percentage and the delay before seller payout.
 - Exact definition of the "strike" lifecycle (expiry, appeals).
 

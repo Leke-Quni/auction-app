@@ -8,18 +8,11 @@ import { AppModule } from "../src/app.module";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
 import { MAIL_SENDER, type MailSender } from "../src/email/mail-sender";
-import { IMAGE_STORAGE, type ImageStorage } from "../src/listings/image-storage";
 
 const sentCodes: string[] = [];
 const fakeMail: MailSender = {
   async send(_to, _subject, text) {
     sentCodes.push(/code is (\d{6})/.exec(text)![1]);
-  },
-};
-const deleted: string[] = [];
-const fakeStorage: ImageStorage = {
-  async delete(urls) {
-    deleted.push(...urls);
   },
 };
 
@@ -80,8 +73,6 @@ describe("listings", () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(MAIL_SENDER)
       .useValue(fakeMail)
-      .overrideProvider(IMAGE_STORAGE)
-      .useValue(fakeStorage)
       .compile();
     app = moduleRef.createNestApplication();
     await app.init();
@@ -190,7 +181,7 @@ describe("listings", () => {
   });
 
   describe("photos", () => {
-    it("are saved in order, replaced as a set, and removed ones are deleted from storage", async () => {
+    it("are saved in order, replaced as a set, and the removed ones are reported so the web app can delete them", async () => {
       const draft = await createDraft();
       const put = (images: object[]) => api().put(`/listings/${draft.id}/images`).set(as(seller)).send({ images });
 
@@ -200,11 +191,15 @@ describe("listings", () => {
         [1, "photo-2.jpg"],
         [2, "photo-3.jpg"],
       ]);
+      expect(first.body.removedImageUrls).toEqual([]);
 
-      deleted.length = 0;
       const reordered = await put([image(sellerId, 3), image(sellerId, 1)]).expect(200);
       expect(reordered.body.images.map((i: { url: string }) => i.url.split("/").pop())).toEqual(["photo-3.jpg", "photo-1.jpg"]);
-      expect(deleted).toEqual([image(sellerId, 2).url]);
+      expect(reordered.body.removedImageUrls).toEqual([image(sellerId, 2).url]);
+
+      // Reordering alone removes nothing.
+      const swapped = await put([image(sellerId, 1), image(sellerId, 3)]).expect(200);
+      expect(swapped.body.removedImageUrls).toEqual([]);
     });
 
     it("must be on our Blob host, in the seller's own folder, and match their URL", async () => {
@@ -307,10 +302,9 @@ describe("listings", () => {
       const listing = await createPublished();
       const put = (images: object[]) => api().put(`/listings/${listing.id}/images`).set(as(seller)).send({ images });
       await put([]).expect(400);
-      deleted.length = 0;
       const res = await put([image(sellerId, 2)]).expect(200);
       expect(res.body.images).toHaveLength(1);
-      expect(deleted).toEqual([image(sellerId, 1).url]);
+      expect(res.body.removedImageUrls).toEqual([image(sellerId, 1).url]);
     });
 
     it("cannot be deleted, and others cannot change it (403, since it is public)", async () => {
@@ -322,13 +316,12 @@ describe("listings", () => {
   });
 
   describe("deleting a draft", () => {
-    it("removes it and its photos", async () => {
+    it("removes it and reports its photos so the web app can delete them", async () => {
       const draft = await createDraft();
       await api().put(`/listings/${draft.id}/images`).set(as(seller)).send({ images: [image(sellerId, 4)] }).expect(200);
-      deleted.length = 0;
       await api().delete(`/listings/${draft.id}`).set(as(other)).expect(404);
-      await api().delete(`/listings/${draft.id}`).set(as(seller)).expect(204);
-      expect(deleted).toEqual([image(sellerId, 4).url]);
+      const res = await api().delete(`/listings/${draft.id}`).set(as(seller)).expect(200);
+      expect(res.body).toEqual({ removedImageUrls: [image(sellerId, 4).url] });
       await api().get(`/listings/${draft.id}`).set(as(seller)).expect(404);
       expect(await prisma.listingImage.count({ where: { listingId: draft.id } })).toBe(0);
     });
@@ -371,6 +364,28 @@ describe("listings", () => {
       const theirs = await api().get("/me/listings").set(as(other)).expect(200);
       expect(theirs.body).toEqual([]);
       await api().get("/me/listings").expect(401);
+    });
+
+    it("can list just the upcoming auctions (soonest start first) or those ending within a day (soonest end first)", async () => {
+      await prisma.listing.deleteMany({ where: { sellerId } });
+      const soon = await createPublished({ title: "Ends in two hours" });
+      await prisma.listing.update({ where: { id: soon.id }, data: { endsAt: new Date(Date.now() + 2 * 3600_000) } });
+      const sooner = await createPublished({ title: "Ends in ten minutes" });
+      await prisma.listing.update({ where: { id: sooner.id }, data: { endsAt: new Date(Date.now() + 600_000) } });
+      const later = await createPublished({ title: "Ends in three days", durationDays: 3 });
+      const upcomingLate = await createPublished({ title: "Starts in five days" }, { startsAt: new Date(Date.now() + 5 * DAY).toISOString() });
+      const upcomingEarly = await createPublished({ title: "Starts in two days" }, { startsAt: new Date(Date.now() + 2 * DAY).toISOString() });
+      const ended = await createPublished({ title: "Already ended" });
+      await prisma.listing.update({ where: { id: ended.id }, data: { endsAt: new Date(Date.now() - 1000) } });
+
+      const ids = async (section: string) =>
+        (await api().get(`/listings?pageSize=50&section=${section}`).expect(200)).body.items
+          .filter((l: { seller: { id: string } }) => l.seller.id === sellerId)
+          .map((l: { id: string }) => l.id);
+      expect(await ids("endingSoon")).toEqual([sooner.id, soon.id]);
+      expect(await ids("upcoming")).toEqual([upcomingEarly.id, upcomingLate.id]);
+      expect(later.id).toBeTruthy();
+      await api().get("/listings?section=nonsense").expect(400);
     });
   });
 });

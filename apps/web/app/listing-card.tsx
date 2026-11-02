@@ -1,5 +1,6 @@
 import { formatEur } from "@auction/shared";
 import Link from "next/link";
+import { Countdown } from "./countdown";
 import { LocalTime } from "./local-time";
 
 export interface ListingSummary {
@@ -31,11 +32,16 @@ export function ListingCard({ listing }: { listing: ListingSummary }) {
             Starts <LocalTime iso={listing.startsAt} />
           </p>
         ) : (
-          listing.endsAt && (
+          listing.endsAt &&
+          (listing.phase === "live" && listing.startsAt ? (
+            <p className="text-xs">
+              <Countdown iso={listing.endsAt} startIso={listing.startsAt} />
+            </p>
+          ) : (
             <p className="text-xs text-muted">
               Ends <LocalTime iso={listing.endsAt} />
             </p>
-          )
+          ))
         )}
       </div>
     </Link>

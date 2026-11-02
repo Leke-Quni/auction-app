@@ -71,4 +71,26 @@ describe("ListingForm", () => {
       expect(screen.getByText(text)).toBeTruthy();
     }
   });
+
+  it("puts the photos between the details and the price on a draft, and on the new-listing form", () => {
+    const before = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    for (const props of [{}, { listing }]) {
+      cleanup();
+      render(<ListingForm categories={categories} {...props} photos={<div data-testid="photos">photos</div>} />);
+      const title = field("title")!;
+      const descriptionField = field("description")!;
+      const photos = screen.getByTestId("photos");
+      const price = field("startingPrice")!;
+      expect(before(title, descriptionField)).toBe(true);
+      expect(before(descriptionField, photos)).toBe(true);
+      expect(before(photos, price)).toBe(true);
+      expect(before(photos, field("reservePrice")!)).toBe(true);
+      expect(before(photos, field("durationDays")!)).toBe(true);
+    }
+  });
+
+  it("does not render the photo slot inside the locked form of a published listing", () => {
+    render(<ListingForm categories={categories} listing={{ ...listing, status: "PUBLISHED" }} photos={<div data-testid="photos">photos</div>} />);
+    expect(screen.queryByTestId("photos")).toBeNull();
+  });
 });
