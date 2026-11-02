@@ -44,7 +44,7 @@ State of the dev database: 20,003 listings from the seed (sample sellers have em
 - Tests: two socket clients receive the same event; reconnect resyncs; a spectator cannot join a user room.
 
 ### Step 5. Outbid and extension notifications
-- Outbid email through the existing `MAIL_SENDER` (`apps/api/src/email/`; with no `RESEND_API_KEY` it prints to the API log; the Resend sandbox sender only delivers to the account owner's own address). Include the new end time when the bid extended the auction.
+- Outbid email through the existing `MAIL_SENDER` (`apps/api/src/email/`; with no `RESEND_API_KEY` it prints to the API log; the Resend sandbox sender only delivers to the account owner's own address). The email now waits (3 minutes, or at once near the end) and is sent by a sweeper from the `PendingOutbidEmail` table; see `DESIGN.md` section 7, "Outbid email timing".
 - In-app toast on `user:<id>` ("You've been outbid") with a **one-click bid action** (bids the current minimum through `placeBidAction`); a toast for other signed-in bidders on an extension ("Final chance to bid" on the second). There is no toast component yet. **No** email to the top 10 or to all bidders.
 
 ### Step 6. Rate limits, audit log, login-code cooldown
@@ -54,7 +54,7 @@ State of the dev database: 20,003 listings from the seed (sample sellers have em
 - The cooldown on requesting login codes that `DESIGN.md` flagged "add with the slice 4 rate limits" (`apps/api/src/auth/auth.service.ts`).
 
 ### Step 7. Keep the search index current
-- On each bid update the Typesense document (`price_cents`, `bid_count`, `extension_count`, `ends_at`); `toDocument` in `apps/api/src/listings/listings.service.ts` already builds them from the listing, but `syncSearch` is private and only runs on listing edits. The design says to throttle price refreshes to every few seconds per auction, **but an extension must update `ends_at` immediately**: otherwise the 5-minute sweep (`removeEnded`) and the `ends_at > now` search filter drop a still-live extended auction from search after its original end time.
+- On each bid update the Typesense document (`price_cents`, `bid_count`, `final_chance`, `ends_at`); `toDocument` in `apps/api/src/listings/listings.service.ts` already builds them from the listing, but `syncSearch` is private and only runs on listing edits. The design says to throttle price refreshes to every few seconds per auction, **but an extension must update `ends_at` immediately**: otherwise the 5-minute sweep (`removeEnded`) and the `ends_at > now` search filter drop a still-live extended auction from search after its original end time.
 - "Most bids" sorting becomes meaningful here.
 
 ### Step 8. Seed and bot

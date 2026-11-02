@@ -65,6 +65,13 @@ export class RealtimeGateway implements OnGatewayConnection, OnModuleInit, OnMod
     return { ok: true };
   }
 
+  // True when any of this person's sockets, on any API machine, is on this auction's page right now.
+  async isWatching(userId: string, listingId: string) {
+    const sockets = await this.server.in(userRoom(userId)).fetchSockets();
+    const room = auctionRoom(listingId);
+    return sockets.some((socket) => socket.rooms.has(room));
+  }
+
   // Private notices go to each person's own room, which only the server ever puts a socket in.
   emitToUsers(userIds: string[], event: string, payload: unknown) {
     if (userIds.length === 0) return;

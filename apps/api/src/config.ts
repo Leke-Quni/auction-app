@@ -26,3 +26,7 @@ export const trustedProxies = () => intFromEnv("TRUST_PROXY", 0);
 
 export const loginCodeCooldownSeconds = () => intFromEnv("LOGIN_CODE_COOLDOWN_SECONDS", 30);
 
+// How long an outbid email waits before it is sent (so a bidding war can collapse into one), and how long after one
+// is sent before another for the same person and auction.
+export const outbidEmailDelaySeconds = () => intFromEnv("OUTBID_EMAIL_DELAY_SECONDS", 180);
+export const outbidEmailQuietSeconds = () => intFromEnv("OUTBID_EMAIL_QUIET_SECONDS", 900);

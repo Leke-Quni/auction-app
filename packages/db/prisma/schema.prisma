@@ -170,3 +170,16 @@ model BidAudit {
   @@index([listingId, createdAt])
   @@index([ip, createdAt])
 }
+
+// An outbid email waiting to be sent, one per person and auction. Waiting lets a bidding war collapse into one email
+// (or none, if they bid again or are watching); bidding again deletes the row. Plain ids and no relations, like BidAudit; a sweeper sends what is due.
+model PendingOutbidEmail {
+  id          String   @id @default(cuid())
+  userId      String
+  listingId   String
+  dueAt       DateTime
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, listingId])
+  @@index([dueAt])
+}

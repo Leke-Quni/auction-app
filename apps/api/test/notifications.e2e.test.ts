@@ -7,11 +7,12 @@ import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { io as connect, type Socket } from "socket.io-client";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
 import { MAIL_SENDER, type MailSender } from "../src/email/mail-sender";
+import { NotificationsService } from "../src/realtime/notifications.service";
 import { RealtimeAdapter } from "../src/realtime/realtime.adapter";
 import { NoopSearchIndex, SEARCH_INDEX } from "../src/search/search-index";
 
@@ -105,6 +106,21 @@ describe("bid notifications", () => {
     return got;
   };
   const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
+  // Makes every waiting outbid email of this test run due, then sends what is due, as the sweeper would.
+  // Only the rows made by the current test, so one test's leftovers cannot be sent by another.
+  let testStart = new Date();
+  beforeEach(() => {
+    testStart = new Date();
+  });
+  const flushEmails = async () => {
+    await settle(); // the queueing happens just after the bid's answer
+    await prisma.pendingOutbidEmail.updateMany({
+      where: { userId: { startsWith: `nt_${stamp}_` }, createdAt: { gte: testStart } },
+      data: { dueAt: new Date(Date.now() - 1000) },
+    });
+    await app.get(NotificationsService).sweep();
+  };
+  const pending = (userId: string, listingId: string) => prisma.pendingOutbidEmail.findFirst({ where: { userId, listingId } });
 
   const bid = (person: Person, listingId: string, amountCents: number, key: string = randomUUID()) =>
     request(url).post(`/listings/${listingId}/bids`).set("Authorization", `Bearer ${person.token}`).send({ amountCents, idempotencyKey: key });
@@ -128,6 +144,7 @@ describe("bid notifications", () => {
   afterAll(async () => {
     for (const socket of sockets) socket.close();
     const mine = { email: { startsWith: "nt-", endsWith: `-${stamp}@example.com` } };
+    await prisma.pendingOutbidEmail.deleteMany({ where: { userId: { startsWith: `nt_${stamp}_` } } });
     await prisma.bid.deleteMany({ where: { listing: { seller: mine } } });
     await prisma.listing.deleteMany({ where: { seller: mine } });
     await prisma.user.deleteMany({ where: mine });
@@ -157,6 +174,11 @@ describe("bid notifications", () => {
     });
     expect(others.every((got) => got.length === 0)).toBe(true);
 
+    // The email waits, so a bidding war can collapse into one.
+    expect(sent).toHaveLength(0);
+    expect(await pending(anna.id, listing.id)).not.toBeNull();
+    await flushEmails();
+
     expect(sent).toHaveLength(1);
     expect(sent[0].to).toBe(anna.email);
     expect(sent[0].subject).toContain("outbid");
@@ -178,6 +200,7 @@ describe("bid notifications", () => {
     await bid(ben, listing.id, 1100, key).expect(200); // replay
     await bid(ben, listing.id, 1200).expect(409); // ben already leads
     await settle();
+    await flushEmails();
 
     expect(got).toHaveLength(1);
     expect(sent).toHaveLength(1);
@@ -217,7 +240,7 @@ describe("bid notifications", () => {
     expect(quiet.every((got) => got.length === 0)).toBe(true);
 
     expect(sent.map((m) => m.to)).toEqual([cara.email]);
-    expect(sent[0].text).toContain("extended");
+    expect(sent[0].text).toContain("Ends:");
   });
 
   it("marks the extension that reaches the ceiling as final, and sends no more extension notices after it", async () => {
@@ -245,6 +268,125 @@ describe("bid notifications", () => {
     expect(got).toHaveLength(1);
   });
 
+  describe("the outbid email wait", () => {
+    it("is dropped when the person bids again before it is due", async () => {
+      const [anna, ben] = await makePeople(2);
+      const listing = await makeListing();
+      await bid(anna, listing.id, 1000).expect(201);
+      await bid(ben, listing.id, 1100).expect(201);
+      await settle();
+      expect(await pending(anna.id, listing.id)).not.toBeNull();
+      await bid(anna, listing.id, 1300).expect(201);
+      await settle();
+      expect(await pending(anna.id, listing.id)).toBeNull();
+      sent.length = 0;
+      await flushEmails();
+      expect(sent.filter((m) => m.to === anna.email)).toHaveLength(0);
+    });
+
+    it("is dropped when the person is back in front", async () => {
+      const [anna, ben] = await makePeople(2);
+      const listing = await makeListing();
+      await bid(anna, listing.id, 1000).expect(201);
+      await bid(ben, listing.id, 1100).expect(201);
+      await prisma.listing.update({ where: { id: listing.id }, data: { highBidderId: anna.id } });
+      sent.length = 0;
+      await flushEmails();
+      expect(sent.filter((m) => m.to === anna.email)).toHaveLength(0);
+    });
+
+    it("is dropped when the person has the auction page open, but not when they only have another page open", async () => {
+      const [anna, ben, cara] = await makePeople(3);
+      const listing = await makeListing();
+      await bid(anna, listing.id, 1000).expect(201);
+      await bid(cara, listing.id, 1100).expect(201);
+      const [annaSocket, benSocket] = await Promise.all([open(anna), open(ben)]);
+      await annaSocket.emitWithAck(SOCKET_EVENTS.watch, listing.id);
+      await bid(ben, listing.id, 1300).expect(201); // outbids cara
+      await bid(cara, listing.id, 1500).expect(201); // outbids ben
+      await benSocket.emitWithAck(SOCKET_EVENTS.watch, "some-other-listing");
+      expect(await pending(anna.id, listing.id)).not.toBeNull(); // still waiting, and then skipped because she is watching
+      sent.length = 0;
+      await flushEmails();
+      expect(sent.map((m) => m.to)).toEqual([ben.email]);
+    });
+
+    it("emails at once when the auction ends before the wait would be over, and once only for the rest of that war", async () => {
+      const [anna, ben] = await makePeople(2);
+      const listing = await makeListing({ endsAt: new Date(Date.now() + 90_000) });
+      sent.length = 0;
+      await bid(anna, listing.id, 1000).expect(201);
+      await bid(ben, listing.id, 1200).expect(201); // outbids anna, in the last 2 minutes
+      await settle();
+      expect(sent.map((m) => m.to)).toEqual([anna.email]); // no flush: it went out by itself
+
+      await bid(anna, listing.id, 1400).expect(201);
+      await bid(ben, listing.id, 1600).expect(201); // outbids anna again, but she was just emailed
+      await flushEmails();
+      expect(sent.filter((m) => m.to === anna.email)).toHaveLength(1); // ben, outbid by anna's bid, was emailed too
+    });
+
+    it("sends the second email once the quiet period is over", async () => {
+      const quiet = process.env.OUTBID_EMAIL_QUIET_SECONDS;
+      process.env.OUTBID_EMAIL_QUIET_SECONDS = "1";
+      try {
+        const [anna, ben] = await makePeople(2);
+        const listing = await makeListing();
+        await bid(anna, listing.id, 1000).expect(201);
+        await bid(ben, listing.id, 1100).expect(201);
+        sent.length = 0;
+        await flushEmails();
+        expect(sent).toHaveLength(1);
+        await bid(anna, listing.id, 1300).expect(201);
+        await bid(ben, listing.id, 1500).expect(201);
+        await new Promise((resolve) => setTimeout(resolve, 2100));
+        await flushEmails();
+        expect(sent).toHaveLength(2);
+      } finally {
+        process.env.OUTBID_EMAIL_QUIET_SECONDS = quiet;
+      }
+    });
+
+    it("still sends after the auction ended, and says so with the final price", async () => {
+      const [anna, ben] = await makePeople(2);
+      const listing = await makeListing();
+      await bid(anna, listing.id, 1000).expect(201);
+      await bid(ben, listing.id, 1200).expect(201);
+      await prisma.listing.update({ where: { id: listing.id }, data: { endsAt: new Date(Date.now() - 1000) } });
+      sent.length = 0;
+      await flushEmails();
+      expect(sent).toHaveLength(1);
+      expect(sent[0].subject).toContain("has ended");
+      expect(sent[0].text).toContain("€12.00");
+    });
+
+    it("is kept in the database, so another API machine sends it after a restart", async () => {
+      const [anna, ben] = await makePeople(2);
+      const listing = await makeListing();
+      await bid(anna, listing.id, 1000).expect(201);
+      await bid(ben, listing.id, 1100).expect(201);
+      await settle();
+      await prisma.pendingOutbidEmail.updateMany({ where: { userId: anna.id }, data: { dueAt: new Date(Date.now() - 1000) } });
+      sent.length = 0;
+      const second = await Test.createTestingModule({ imports: [AppModule] })
+        .overrideProvider(SEARCH_INDEX)
+        .useValue(new NoopSearchIndex())
+        .overrideProvider(MAIL_SENDER)
+        .useValue(mail)
+        .compile();
+      const other = second.createNestApplication();
+      other.useWebSocketAdapter(new RealtimeAdapter(other));
+      await other.listen(0);
+      try {
+        await other.get(NotificationsService).sweep();
+        await app.get(NotificationsService).sweep();
+        expect(sent.map((m) => m.to)).toEqual([anna.email]); // sent once, by whichever got there first
+      } finally {
+        await other.close();
+      }
+    });
+  });
+
   it("never lets a failing email break the bid or the toast", async () => {
     const [anna, ben] = await makePeople(2);
     const listing = await makeListing();
@@ -255,6 +397,7 @@ describe("bid notifications", () => {
     try {
       await bid(ben, listing.id, 1100).expect(201);
       await settle();
+      await flushEmails();
     } finally {
       mailFails = false;
     }
