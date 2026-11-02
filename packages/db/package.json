@@ -11,6 +11,7 @@
     "typecheck": "prisma generate && tsc -p tsconfig.json --noEmit",
     "migrate:dev": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
+    "seed": "tsc -p tsconfig.json && node dist/src/seed.js",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { resolveSearchSort, type SearchQuery } from "@auction/shared";
 import type { ListingDocument, SearchParams } from "../src/search/search-index";
-import { TypesenseSearchIndex } from "../src/search/typesense-search-index";
+import { TypesenseSearchIndex, normalizeQuery } from "../src/search/typesense-search-index";
 
 const url = process.env.TYPESENSE_URL ?? "http://localhost:8108";
 const apiKey = process.env.TYPESENSE_API_KEY ?? "auction-dev-key";
@@ -149,5 +149,48 @@ describe("TypesenseSearchIndex.search", () => {
     expect(first.titles).toHaveLength(3);
     expect(second.titles).toHaveLength(1);
     expect(second.titles[0]).not.toBe(first.titles[0]);
+  });
+});
+
+describe("normalizeQuery", () => {
+  it("cuts three or more of the same letter in a row to two, and leaves everything else alone", () => {
+    expect(normalizeQuery("jjjjeans")).toBe("jjeans");
+    expect(normalizeQuery("JJJeans")).toBe("JJeans");
+    expect(normalizeQuery("heeeello woorld")).toBe("heello woorld");
+    expect(normalizeQuery("balloon coffee")).toBe("balloon coffee");
+    expect(normalizeQuery("1000000 euros")).toBe("1000000 euros");
+    expect(normalizeQuery("")).toBe("");
+  });
+});
+
+describe("TypesenseSearchIndex.search typo tolerance", () => {
+  const typoIndex = new TypesenseSearchIndex(url, apiKey, `listings_typo_test_${Date.now()}`);
+  const find = async (q: string) =>
+    (await typoIndex.search({ q, page: 1, pageSize: 10, sort: "relevance", endingSoon: false, now: new Date() })).documents.map((d) => d.title);
+
+  beforeAll(async () => {
+    await typoIndex.replaceAll([
+      doc("jeans", { title: "Denim jeans", description: "Size M" }),
+      doc("painting", { title: "Oil painting", description: "Framed" }),
+    ]);
+  });
+
+  afterAll(async () => {
+    await fetch(`${url}/collections/${typoIndex.collection}`, { method: "DELETE", headers: { "X-TYPESENSE-API-KEY": apiKey } });
+  });
+
+  it("finds a word with extra repeated letters, however many", async () => {
+    expect(await find("jjjjeans")).toEqual(["Denim jeans"]);
+    expect(await find("jjjjjjeans")).toEqual(["Denim jeans"]);
+  });
+
+  it("allows one typo in a short word and two in a word of six or more letters", async () => {
+    expect(await find("jeanz")).toEqual(["Denim jeans"]);
+    expect(await find("jeanzz")).toEqual(["Denim jeans"]);
+    expect(await find("xxinting")).toEqual(["Oil painting"]);
+  });
+
+  it("does not allow two typos in a five-letter word, which would match unrelated words", async () => {
+    expect(await find("jxanz")).toEqual([]);
   });
 });

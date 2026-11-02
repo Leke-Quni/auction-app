@@ -26,6 +26,15 @@ const SORT_BY: Record<SearchSort, string> = {
   priceDesc: "price_cents:desc",
 };
 
+// Typesense allows at most 2 typos in a word, so "jjjjeans" (three extra letters) can never match "jeans". Three or more of
+// the same letter in a row are cut to two ("jjeans"), which is one typo away. Real words almost never repeat a letter 3 times.
+export function normalizeQuery(q: string) {
+  return q.replace(/(\p{L})\1{2,}/giu, "$1$1");
+}
+
+// Words of 4 or more letters may have 1 typo (Typesense's default) and words of 6 or more may have 2 (default is 7).
+const MIN_LENGTH_FOR_TWO_TYPOS = "6";
+
 // Values reaching these filters were validated by searchQuerySchema (slug characters, a fixed list of conditions, integers).
 export function buildFilter(params: Pick<SearchParams, "category" | "condition" | "minPriceCents" | "maxPriceCents" | "endingSoon" | "now">) {
   const now = seconds(params.now);
@@ -92,8 +101,9 @@ export class TypesenseSearchIndex implements SearchIndex {
   async search(params: SearchParams) {
     await this.ensureReady();
     const query = new URLSearchParams({
-      q: params.q || "*",
+      q: normalizeQuery(params.q) || "*",
       query_by: "title,description",
+      min_len_2typo: MIN_LENGTH_FOR_TWO_TYPOS,
       query_by_weights: "3,1",
       filter_by: buildFilter(params),
       sort_by: SORT_BY[params.sort],

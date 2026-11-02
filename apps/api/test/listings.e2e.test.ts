@@ -413,10 +413,15 @@ describe("listings", () => {
       const ended = await createPublished({ title: "Already ended" });
       await prisma.listing.update({ where: { id: ended.id }, data: { endsAt: new Date(Date.now() - 1000) } });
 
-      const ids = async (section: string) =>
-        (await api().get(`/listings?pageSize=50&section=${section}`).expect(200)).body.items
-          .filter((l: { seller: { id: string } }) => l.seller.id === sellerId)
-          .map((l: { id: string }) => l.id);
+      // The database may hold other listings too (for example sample data), so walk every page and keep this seller's.
+      const ids = async (section: string) => {
+        const found: string[] = [];
+        for (let page = 1; ; page++) {
+          const { items, total } = (await api().get(`/listings?pageSize=50&page=${page}&section=${section}`).expect(200)).body;
+          found.push(...items.filter((l: { seller: { id: string } }) => l.seller.id === sellerId).map((l: { id: string }) => l.id));
+          if (page * 50 >= total) return found;
+        }
+      };
       expect(await ids("endingSoon")).toEqual([sooner.id, soon.id]);
       expect(await ids("upcoming")).toEqual([upcomingEarly.id, upcomingLate.id]);
       expect(later.id).toBeTruthy();
