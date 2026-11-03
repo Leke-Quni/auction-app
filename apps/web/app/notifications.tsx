@@ -1,6 +1,6 @@
 "use client";
 
-import { formatEur, SOCKET_EVENTS, type ExtendedNotice, type OutbidNotice, type UnreadEvent } from "@auction/shared";
+import { formatEur, SOCKET_EVENTS, type ExtendedNotice, type OutbidNotice, type QuestionNotice, type UnreadEvent } from "@auction/shared";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -11,7 +11,8 @@ import { placeBidAction } from "./listings/[id]/bid-actions";
 
 type Toast =
   | { id: string; v: number; kind: "outbid"; notice: OutbidNotice; state: "idle" | "confirm" | "pending" | "placed"; error: string }
-  | { id: string; v: number; kind: "extended"; notice: ExtendedNotice };
+  | { id: string; v: number; kind: "extended"; notice: ExtendedNotice }
+  | { id: string; v: number; kind: "question" | "answer"; notice: QuestionNotice };
 type OutbidToast = Extract<Toast, { kind: "outbid" }>;
 
 const TOAST_MS = 5_000;
@@ -58,6 +59,12 @@ export function Notifications() {
     socket.on(SOCKET_EVENTS.extendedNotice, (notice: ExtendedNotice) => {
       if (pathRef.current.startsWith(`/listings/${notice.listingId}`)) return;
       show({ id: `extended:${notice.listingId}`, v: 0, kind: "extended", notice });
+    });
+    socket.on(SOCKET_EVENTS.questionNotice, (notice: QuestionNotice) => {
+      show({ id: `question:${notice.questionId}`, v: 0, kind: "question", notice });
+    });
+    socket.on(SOCKET_EVENTS.answerNotice, (notice: QuestionNotice) => {
+      show({ id: `answer:${notice.questionId}`, v: 0, kind: "answer", notice });
     });
     // Each live notice is also saved; the server says how many are unread, and the bell shows it.
     socket.on(SOCKET_EVENTS.unread, (event: UnreadEvent) => useNotificationStore.getState().setUnread(event.unreadCount));
@@ -117,7 +124,7 @@ export function Notifications() {
                 </span>
               )}
               <div className="min-w-0 flex-1">
-                {toast.kind === "outbid" ? <OutbidBody toast={toast} onAsk={() => ask(toast)} onCancel={() => cancel(toast)} onConfirm={() => bidNow(toast)} /> : <ExtendedBody notice={toast.notice} />}
+                {toast.kind === "outbid" ? <OutbidBody toast={toast} onAsk={() => ask(toast)} onCancel={() => cancel(toast)} onConfirm={() => bidNow(toast)} /> : toast.kind === "extended" ? <ExtendedBody notice={toast.notice} /> : <QuestionBody kind={toast.kind} notice={toast.notice} />}
               </div>
             </div>
             <button type="button" aria-label="Dismiss" onClick={() => dismiss(toast.id)} className="absolute right-2 top-1 cursor-pointer text-muted hover:text-black">
@@ -194,6 +201,21 @@ function OutbidBody({ toast, onAsk, onCancel, onConfirm }: { toast: OutbidToast;
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function QuestionBody({ kind, notice }: { kind: "question" | "answer"; notice: QuestionNotice }) {
+  return (
+    <div className="space-y-0.5">
+      <p className="font-bold">{kind === "question" ? "New question" : "Your question was answered"}</p>
+      <p className="text-muted">
+        {notice.from} {kind === "question" ? "asked on" : "answered on"}{" "}
+        <Link href={`/listings/${notice.listingId}`} className={link}>
+          {notice.title}
+        </Link>
+        : &ldquo;{notice.excerpt}&rdquo;
+      </p>
     </div>
   );
 }

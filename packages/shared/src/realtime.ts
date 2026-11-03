@@ -11,6 +11,8 @@ export const SOCKET_EVENTS = {
   auctionExtended: "auction:extended",
   outbid: "notice:outbid",
   extendedNotice: "notice:extended",
+  questionNotice: "notice:question",
+  answerNotice: "notice:answer",
   unread: "notifications:unread",
 } as const;
 
@@ -57,6 +59,16 @@ export interface ExtendedNotice {
   final: boolean;
 }
 
+// For the seller when someone asks a question on their listing (`notice:question`), and for the asker when the seller
+// answers it (`notice:answer`). `from` is the username of the other person; `excerpt` is the start of the text.
+export interface QuestionNotice {
+  listingId: string;
+  questionId: string;
+  title: string;
+  from: string;
+  excerpt: string;
+}
+
 // Sent to `user:<id>` after the person's saved notifications change, so the bell can show the count without asking.
 export interface UnreadEvent {
   unreadCount: number;
@@ -76,7 +88,9 @@ interface NotificationBase {
 
 export type NotificationItem =
   | (NotificationBase & { type: "OUTBID"; data: OutbidNotice })
-  | (NotificationBase & { type: "AUCTION_EXTENDED"; data: ExtendedNotice });
+  | (NotificationBase & { type: "AUCTION_EXTENDED"; data: ExtendedNotice })
+  | (NotificationBase & { type: "QUESTION_ASKED"; data: QuestionNotice })
+  | (NotificationBase & { type: "QUESTION_ANSWERED"; data: QuestionNotice });
 
 export interface NotificationList {
   items: NotificationItem[];

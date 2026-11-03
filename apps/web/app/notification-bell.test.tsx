@@ -110,6 +110,12 @@ describe("helpers", () => {
   it("words each kind of notification", () => {
     expect(describeItem(extended(false))).toEqual({ heading: "Auction extended", text: "Blue vase was extended by a late bid." });
   });
+  it("words question and answer notifications", () => {
+    const data = { listingId: "l1", questionId: "q1", title: "Old watch", from: "sam", excerpt: "Does it run?" };
+    const base = { id: "n3", listingId: "l1", title: "Old watch", readAt: null, createdAt: "2026-11-03T11:59:00.000Z" };
+    expect(describeItem({ ...base, type: "QUESTION_ASKED", data })).toEqual({ heading: "New question", text: 'sam asked on Old watch: "Does it run?"' });
+    expect(describeItem({ ...base, type: "QUESTION_ANSWERED", data })).toEqual({ heading: "Your question was answered", text: 'sam answered on Old watch: "Does it run?"' });
+  });
   it("says how long ago", () => {
     const now = Date.parse("2026-11-03T12:00:00Z");
     const ago = (ms: number) => timeAgo(new Date(now - ms).toISOString(), now);

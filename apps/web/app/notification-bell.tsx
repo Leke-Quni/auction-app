@@ -21,6 +21,8 @@ export function describe(item: NotificationItem): { heading: string; text: strin
   if (item.type === "OUTBID") {
     return { heading: "You've been outbid", text: `${item.title} is now at ${formatEur(item.data.currentBidCents)}.` };
   }
+  if (item.type === "QUESTION_ASKED") return { heading: "New question", text: `${item.data.from} asked on ${item.title}: "${item.data.excerpt}"` };
+  if (item.type === "QUESTION_ANSWERED") return { heading: "Your question was answered", text: `${item.data.from} answered on ${item.title}: "${item.data.excerpt}"` };
   return item.data.final
     ? { heading: "Final chance to bid", text: `${item.title} was extended and cannot be extended again.` }
     : { heading: "Auction extended", text: `${item.title} was extended by a late bid.` };
@@ -99,7 +101,7 @@ export function NotificationBell({ initial }: { initial: NotificationList | null
           {loading && items.length === 0 ? (
             <p className="px-3 py-3 text-muted">Loading...</p>
           ) : items.length === 0 ? (
-            <p className="px-3 py-3 text-muted">Nothing yet. Outbid and extended-auction notices show up here for 14 days.</p>
+            <p className="px-3 py-3 text-muted">Nothing yet. Outbid, extended-auction, question and answer notices show up here for 14 days.</p>
           ) : (
             <ul className="max-h-96 overflow-y-auto">
               {items.map((item) => {

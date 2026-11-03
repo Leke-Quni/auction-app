@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "NotificationType" ADD VALUE 'QUESTION_ASKED';
+ALTER TYPE "NotificationType" ADD VALUE 'QUESTION_ANSWERED';
