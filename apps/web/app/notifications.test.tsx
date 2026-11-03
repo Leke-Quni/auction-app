@@ -14,6 +14,7 @@ vi.mock("@/lib/realtime", () => ({
 vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
 vi.mock("./listings/[id]/bid-actions", () => ({ placeBidAction: (...args: unknown[]) => placeBidAction(...args) }));
 
+import { useNotificationStore } from "@/lib/notification-store";
 import { Notifications } from "./notifications";
 
 const outbid: OutbidNotice = {
@@ -193,5 +194,12 @@ describe("Notifications", () => {
     render(<Notifications />);
     push("notice:extended", extended);
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("tells the bell the unread count when the server announces it", () => {
+    render(<Notifications />);
+    push("notifications:unread", { unreadCount: 4 });
+    expect(useNotificationStore.getState().unreadCount).toBe(4);
+    expect(useNotificationStore.getState().stale).toBe(true);
   });
 });

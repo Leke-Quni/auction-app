@@ -1,9 +1,10 @@
 "use client";
 
-import { formatEur, SOCKET_EVENTS, type ExtendedNotice, type OutbidNotice } from "@auction/shared";
+import { formatEur, SOCKET_EVENTS, type ExtendedNotice, type OutbidNotice, type UnreadEvent } from "@auction/shared";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { useNotificationStore } from "@/lib/notification-store";
 import { openRealtime } from "@/lib/realtime";
 import { LocalTime } from "./local-time";
 import { placeBidAction } from "./listings/[id]/bid-actions";
@@ -58,6 +59,8 @@ export function Notifications() {
       if (pathRef.current.startsWith(`/listings/${notice.listingId}`)) return;
       show({ id: `extended:${notice.listingId}`, v: 0, kind: "extended", notice });
     });
+    // Each live notice is also saved; the server says how many are unread, and the bell shows it.
+    socket.on(SOCKET_EVENTS.unread, (event: UnreadEvent) => useNotificationStore.getState().setUnread(event.unreadCount));
     return () => {
       close();
       pending.forEach(clearTimeout);
