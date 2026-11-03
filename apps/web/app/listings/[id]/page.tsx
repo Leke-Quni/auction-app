@@ -1,13 +1,12 @@
-import { CONDITION_LABELS, formatDuration, formatEur } from "@auction/shared";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Countdown } from "@/app/countdown";
 import { Gallery } from "@/app/gallery";
-import { LocalTime } from "@/app/local-time";
 import { auth } from "@/auth";
 import { apiFetch, authedApiFetch } from "@/lib/api";
-
-const PHASE_LABELS = { draft: "Draft", upcoming: "Upcoming", live: "Live", ended: "Ended" } as const;
+import type { BidRow } from "./bid-history";
+import type { BidMode } from "./bid-panel";
+import { LiveAuction, type LiveSnapshot } from "./live-auction";
+import { LiveDetails, LiveHistory } from "./live-details";
 
 export default async function ListingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -17,24 +16,32 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
   if (!res.ok) throw new Error(`API /listings/${id} failed: ${res.status}`);
   const listing = await res.json();
   const isOwner = session?.user.id === listing.seller.id;
+  const viewerId = session?.user.id;
 
-  const rows: [string, React.ReactNode][] = [
-    ["Starting price", formatEur(listing.startingPriceCents)],
-    ["Reserve price", listing.reservePriceCents == null ? "None" : formatEur(listing.reservePriceCents)],
-    ["Condition", CONDITION_LABELS[listing.condition as keyof typeof CONDITION_LABELS]],
-    ["Category", listing.category.name],
-    ["Seller", listing.seller.username],
-    ["Duration", formatDuration(listing.durationDays)],
-    ...(listing.startsAt ? ([["Starts", <LocalTime key="s" iso={listing.startsAt} />]] as [string, React.ReactNode][]) : []),
-    ...(listing.endsAt
-      ? ([
-          listing.phase === "live" && listing.startsAt
-            ? ["Time left", <Countdown key="e" iso={listing.endsAt} startIso={listing.startsAt} />]
-            : ["Ends", <LocalTime key="e" iso={listing.endsAt} />],
-        ] as [string, React.ReactNode][])
-      : []),
-    ["Status", PHASE_LABELS[listing.phase as keyof typeof PHASE_LABELS]],
-  ];
+  const published = listing.status === "PUBLISHED";
+  const historyRes = published ? await apiFetch(`/listings/${id}/bids?limit=20`) : null;
+  const history: { items: BidRow[]; total: number } = historyRes?.ok ? await historyRes.json() : { items: [], total: 0 };
+
+  // What the viewer sees once the auction is open. The page works out upcoming, live and ended itself as time passes.
+  const openMode: BidMode | null = !published
+    ? null
+    : !session
+      ? "signed-out"
+      : isOwner
+        ? "owner"
+        : listing.highBidder?.id === viewerId
+          ? "highest"
+          : "live";
+  const snapshot: LiveSnapshot = {
+    currentBidCents: listing.currentBidCents ?? null,
+    bidCount: listing.bidCount,
+    highBidder: listing.highBidder ?? null,
+    minimumNextBidCents: listing.minimumNextBidCents,
+    endsAt: listing.endsAt ?? null,
+    extensionCount: listing.extensionCount,
+    serverTime: listing.serverTime,
+    bids: history.items,
+  };
 
   return (
     <div className="space-y-3">
@@ -47,22 +54,18 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
         </p>
       )}
       <h1 className="border border-line bg-white p-2 text-lg font-bold">{listing.title}</h1>
-      <div className="grid gap-3 sm:grid-cols-[1fr_2fr]">
-        <Gallery images={listing.images} alt={listing.title} />
-        <div className="space-y-3">
-          <table className="w-full border-collapse bg-white">
-            <tbody>
-              {rows.map(([label, value]) => (
-                <tr key={label}>
-                  <th className="w-36 border border-line bg-[#f0f0f0] p-1.5 text-left font-normal text-muted">{label}</th>
-                  <td className="border border-line p-1.5">{value}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="border border-line bg-white p-2 text-muted">Bidding is not available yet.</p>
+      <LiveAuction listingId={listing.id} snapshot={snapshot} connect={published && listing.phase !== "ended"}>
+        {/* items-start: the photo is a square, and stretching it to the taller details column would widen its column. */}
+        <div className="grid items-start gap-3 sm:grid-cols-[1fr_2fr]">
+          <div className="min-w-0">
+            <Gallery images={listing.images} alt={listing.title} />
+          </div>
+          <div className="min-w-0 space-y-3">
+            <LiveDetails listing={listing} openMode={openMode} viewerId={viewerId} />
+          </div>
         </div>
-      </div>
+        {published && <LiveHistory viewerId={viewerId} />}
+      </LiveAuction>
       <div className="border border-line bg-white p-3">
         <h2 className="mb-1 text-sm font-bold">Description</h2>
         <p className="whitespace-pre-wrap">{listing.description}</p>

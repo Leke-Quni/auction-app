@@ -7,6 +7,7 @@
     "dev": "nest start --watch",
     "start": "node dist/main.js",
     "reindex": "nest build && node dist/search/reindex.js",
+    "bot": "nest build && node dist/dev/bot-bidder.js",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
@@ -17,11 +18,16 @@
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/platform-socket.io": "^11",
+    "@nestjs/websockets": "^11",
+    "@socket.io/redis-adapter": "^8.3.0",
     "bcryptjs": "^3.0.0",
     "dotenv": "^16.4.0",
     "jose": "^6.0.0",
+    "redis": "^6.3.1",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
+    "socket.io": "^4.8.4",
     "zod": "^3.24.0"
   },
   "devDependencies": {
@@ -33,6 +39,7 @@
     "@types/node": "^22.0.0",
     "@types/supertest": "^6.0.0",
     "eslint": "^9.0.0",
+    "socket.io-client": "^4.8.4",
     "supertest": "^7.0.0",
     "typescript": "^5.8.0",
     "unplugin-swc": "^1.5.0",

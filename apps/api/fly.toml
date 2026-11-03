@@ -9,6 +9,8 @@ kill_signal = "SIGTERM"
 
 [env]
   PORT = "8080"
+  # Fly's proxy is the one hop in front of the API, so its word about the caller's address can be believed.
+  TRUST_PROXY = "1"
 
 [http_service]
   internal_port = 8080

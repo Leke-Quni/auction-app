@@ -11,21 +11,36 @@ export interface ListingSummary {
   startsAt: string | null;
   endsAt: string | null;
   images: { id: string; url: string }[];
+  finalChance?: boolean;
+  currentBidCents?: number | null;
+  bidCount?: number;
 }
 
 export function ListingCard({ listing }: { listing: ListingSummary }) {
   const cover = listing.images[0];
   return (
     <Link href={`/listings/${listing.id}`} className="block border border-line bg-white hover:border-brand">
-      {cover ? (
-        <img src={cover.url} alt="" className="aspect-square w-full bg-[#ddd] object-cover" loading="lazy" />
-      ) : (
-        <div className="flex aspect-square items-center justify-center bg-[#ddd] text-muted">No photo</div>
-      )}
+      <div className="relative">
+        {cover ? (
+          <img src={cover.url} alt="" className="aspect-square w-full bg-[#ddd] object-cover" loading="lazy" />
+        ) : (
+          <div className="flex aspect-square items-center justify-center bg-[#ddd] text-muted">No photo</div>
+        )}
+        {listing.phase === "live" && listing.finalChance && (
+          <span className="absolute left-1.5 top-1.5 rounded-md bg-[#fef08a]/80 px-2 py-0.5 text-xs font-bold text-[#422006] backdrop-blur-[2px]">Final chance to bid</span>
+        )}
+      </div>
       <div className="space-y-0.5 p-2">
         <p className="line-clamp-2 font-bold">{listing.title}</p>
         <p>
-          {formatEur(listing.startingPriceCents)} <span className="text-xs text-muted">starting</span>
+          {formatEur(listing.currentBidCents ?? listing.startingPriceCents)}{" "}
+          <span className="text-xs text-muted">{listing.currentBidCents != null ? "current bid" : "starting"}</span>
+          {(listing.bidCount ?? 0) > 0 && (
+            <span className="text-xs text-muted">
+              {" "}
+              · {listing.bidCount} {listing.bidCount === 1 ? "bid" : "bids"}
+            </span>
+          )}
         </p>
         {listing.phase === "upcoming" && listing.startsAt ? (
           <p className="text-xs text-muted">

@@ -59,6 +59,22 @@ describe("TypesenseSearchIndex (needs Typesense running: docker compose up -d ty
     expect((await raw("/documents/b")).status).toBe(404);
   });
 
+  it("updates the live fields of a document and leaves the rest, and does not mind a missing one", async () => {
+    await index.upsert(doc("u", { title: "Keep this title", price_cents: 1000, bid_count: 0 }));
+    await index.update("u", { price_cents: 1500, bid_count: 2, final_chance: true, ends_at: now + 7200 });
+    const stored = await (await raw("/documents/u")).json();
+    expect(stored).toMatchObject({ title: "Keep this title", price_cents: 1500, bid_count: 2, final_chance: true, ends_at: now + 7200, seller_username: "seller" });
+    await expect(index.update("no-such-document", { price_cents: 1, bid_count: 1, final_chance: false, ends_at: now + 60 })).resolves.toBeUndefined();
+    expect((await raw("/documents/no-such-document")).status).toBe(404);
+  });
+
+  it("keeps an auction in the index after an update moved its end past now, where the sweep would have removed it", async () => {
+    await index.upsert(doc("extended", { ends_at: now + 5 }));
+    await index.update("extended", { price_cents: 1000, bid_count: 1, final_chance: false, ends_at: now + 600 });
+    await index.removeEnded(new Date((now + 30) * 1000));
+    expect(await storedIds()).toContain("extended");
+  });
+
   it("removes ended auctions only", async () => {
     await index.upsert(doc("ended", { ends_at: now - 10 }));
     await index.upsert(doc("live", { ends_at: now + 600 }));

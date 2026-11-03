@@ -48,3 +48,24 @@ describe("timeColor", () => {
     expect(timeColor(0, 100)).toBe("text-urgent");
   });
 });
+
+describe("Countdown on the server's clock", () => {
+  it("follows the server's time when the viewer's clock is wrong", () => {
+    vi.useFakeTimers();
+    // The viewer's computer is an hour fast; the server says it is 12:00:00 and the auction ends at 12:05:00.
+    vi.setSystemTime(new Date("2026-01-01T13:00:00Z"));
+    render(<Countdown iso="2026-01-01T12:05:00Z" startIso="2026-01-01T11:00:00Z" serverNowIso="2026-01-01T12:00:00Z" />);
+    expect(screen.getByText("5m 0s")).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(screen.getByText("4m 57s")).toBeTruthy();
+  });
+
+  it("uses the viewer's clock when it is given no server time", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T12:00:00Z"));
+    render(<Countdown iso="2026-01-01T12:05:00Z" startIso="2026-01-01T11:00:00Z" />);
+    expect(screen.getByText("5m 0s")).toBeTruthy();
+  });
+});

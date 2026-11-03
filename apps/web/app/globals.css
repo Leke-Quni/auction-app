@@ -16,3 +16,12 @@ body {
   color: #222;
   font: 13px/1.5 "Hiragino Sans", Arial, sans-serif;
 }
+
+@keyframes toast-timer {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0;
+  }
+}

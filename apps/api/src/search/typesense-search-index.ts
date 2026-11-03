@@ -1,6 +1,6 @@
 import { ENDING_SOON_HOURS, type SearchSort } from "@auction/shared";
 import { Logger } from "@nestjs/common";
-import type { ListingDocument, SearchIndex, SearchParams } from "./search-index";
+import type { ListingDocument, LiveFields, SearchIndex, SearchParams } from "./search-index";
 import { LISTING_SYNONYMS, SYNONYM_SET } from "./synonyms";
 
 const SCHEMA_FIELDS = [
@@ -10,6 +10,7 @@ const SCHEMA_FIELDS = [
   { name: "condition", type: "string", facet: true },
   { name: "price_cents", type: "int32" },
   { name: "bid_count", type: "int32" },
+  { name: "final_chance", type: "bool", index: false, optional: true },
   { name: "starts_at", type: "int64" },
   { name: "ends_at", type: "int64" },
   { name: "published_at", type: "int64" },
@@ -71,6 +72,11 @@ export class TypesenseSearchIndex implements SearchIndex {
   async upsert(doc: ListingDocument) {
     await this.ensureReady();
     await this.call(`/collections/${this.collection}/documents?action=upsert`, { method: "POST", body: JSON.stringify(doc) });
+  }
+
+  async update(id: string, fields: LiveFields) {
+    await this.ensureReady();
+    await this.call(`/collections/${this.collection}/documents/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(fields), allow: [404] });
   }
 
   async remove(id: string) {

@@ -27,7 +27,9 @@ model User {
   loginCodes          LoginCode[]
   passwordResetTokens PasswordResetToken[]
   emailChange         EmailChange?
-  listings            Listing[]
+  listings            Listing[]            @relation("ListingSeller")
+  leadingListings     Listing[]            @relation("ListingHighBidder")
+  bids                Bid[]
 }
 
 model LoginCode {
@@ -87,7 +89,7 @@ model Category {
 model Listing {
   id                 String           @id @default(cuid())
   sellerId           String
-  seller             User             @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  seller             User             @relation("ListingSeller", fields: [sellerId], references: [id], onDelete: Cascade)
   title              String
   description        String
   categoryId         String
@@ -100,13 +102,22 @@ model Listing {
   startsAt           DateTime?
   endsAt             DateTime?
   publishedAt        DateTime?
+  // Kept in step with the bids by the bid transaction, so a page never has to add them up.
+  currentBidCents    Int?
+  bidCount           Int              @default(0)
+  // How many times a late bid has extended this auction (see ANTI_SNIPING in packages/shared).
+  extensionCount     Int              @default(0)
+  highBidderId       String?
+  highBidder         User?            @relation("ListingHighBidder", fields: [highBidderId], references: [id], onDelete: Restrict)
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
   images             ListingImage[]
+  bids               Bid[]
 
   @@index([status, endsAt])
   @@index([sellerId])
   @@index([categoryId])
+  @@index([highBidderId])
 }
 
 model ListingImage {
@@ -119,4 +130,59 @@ model ListingImage {
   createdAt DateTime @default(now())
 
   @@unique([listingId, position])
+}
+
+// Every accepted bid. The unique key makes a retry harmless: the same bidder and key never place two bids.
+model Bid {
+  id             String   @id @default(cuid())
+  listingId      String
+  listing        Listing  @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  bidderId       String
+  bidder         User     @relation(fields: [bidderId], references: [id], onDelete: Restrict)
+  amountCents    Int
+  idempotencyKey String
+  ip             String?
+  createdAt      DateTime @default(now())
+
+  @@unique([bidderId, idempotencyKey])
+  @@index([listingId, amountCents(sort: Desc)])
+  @@index([bidderId])
+}
+
+enum BidOutcome {
+  ACCEPTED
+  REFUSED
+}
+
+// One row per bid attempt, accepted or refused, with who and from where. Plain ids and no relations, so deleting a
+// listing or an account never erases the record.
+model BidAudit {
+  id          String     @id @default(cuid())
+  userId      String?
+  listingId   String?
+  amountCents Int?
+  ip          String?
+  outcome     BidOutcome
+  reason      String?
+  createdAt   DateTime   @default(now())
+
+  @@index([userId, createdAt])
+  @@index([listingId, createdAt])
+  @@index([ip, createdAt])
+}
+
+// An outbid email waiting to be sent, one per person and auction. Waiting lets a bidding war collapse into one email
+// (or none, if they bid again or are watching); bidding again deletes the row. Plain ids and no relations, like BidAudit; a sweeper sends what is due.
+model PendingOutbidEmail {
+  id          String   @id @default(cuid())
+  userId      String
+  listingId   String
+  dueAt       DateTime
+  // How many times a send has been started. A send claims the row by moving dueAt out (a lease) and deletes it only
+  // once the email has gone, so a failed or interrupted send is tried again.
+  attempts    Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, listingId])
+  @@index([dueAt])
 }

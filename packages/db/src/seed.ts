@@ -1,10 +1,11 @@
 // Fills the development database with sample sellers and listings in every state, so lists, search and countdowns can
 // be tried with realistic volume. Run it with `yarn workspace @auction/db seed [count]` (default 1000; 0 only removes
 // the sample data). Everything it creates belongs to users whose email ends in @seed.local, so running it again
-// replaces its own data and nothing else. It refuses to run unless the database is local. Run `yarn workspace @auction/api reindex` afterwards to update search.
+// replaces its own data and nothing else (the sample sellers also bid on each other's live and ended listings). It refuses to run unless the database is local. Run `yarn workspace @auction/api reindex` afterwards to update search.
 import { config } from "dotenv";
 import { resolve } from "node:path";
 import { createPrismaClient } from "./index";
+import { generateBids, type SeedBid } from "./seed-bids";
 import { assertSafeToSeed } from "./seed-guard";
 
 config({ path: resolve(__dirname, "../../../../.env") });
@@ -24,6 +25,8 @@ function mulberry32(seed: number) {
   };
 }
 const random = mulberry32(20261102);
+// Bids have their own stream, so adding them did not change which listings a given count produces.
+const bidRandom = mulberry32(20261103);
 const between = (min: number, max: number) => min + random() * (max - min);
 const pick = <T>(items: readonly T[]) => items[Math.floor(random() * items.length)];
 const weighted = <T>(choices: readonly (readonly [T, number])[]) => {
@@ -129,8 +132,28 @@ async function main() {
     const unknown = Object.keys(CATALOG).filter((slug) => !categories.some((c) => c.slug === slug));
     if (unknown.length > 0) throw new Error(`Missing categories: ${unknown.join(", ")}. Run the migrations first.`);
 
-    const removed = await prisma.user.deleteMany({ where: { email: { endsWith: SEED_EMAIL_DOMAIN } } });
+    // A listing or an account that has bids cannot be deleted, so the order matters: sample bids go first (including
+    // theirs on real listings, which are then worked out again from the bids that remain), then the sample listings,
+    // then the sample accounts.
+    const sample = { email: { endsWith: SEED_EMAIL_DOMAIN } };
+    const realListingsBidOn = await prisma.bid.findMany({
+      where: { bidder: sample, listing: { seller: { email: { not: { endsWith: SEED_EMAIL_DOMAIN } } } } },
+      distinct: ["listingId"],
+      select: { listingId: true },
+    });
+    await prisma.bid.deleteMany({ where: { OR: [{ bidder: sample }, { listing: { seller: sample } }] } });
+    for (const { listingId } of realListingsBidOn) {
+      const top = await prisma.bid.findFirst({ where: { listingId }, orderBy: [{ amountCents: "desc" }, { id: "desc" }] });
+      const bidCount = await prisma.bid.count({ where: { listingId } });
+      await prisma.listing.update({
+        where: { id: listingId },
+        data: { currentBidCents: top?.amountCents ?? null, bidCount, highBidderId: top?.bidderId ?? null },
+      });
+    }
+    await prisma.listing.deleteMany({ where: { seller: sample } });
+    const removed = await prisma.user.deleteMany({ where: sample });
     console.log(`Removed ${removed.count} earlier sample sellers (and their listings).`);
+    if (realListingsBidOn.length > 0) console.log(`Took sample bids off ${realListingsBidOn.length} other listings.`);
 
     const now = Date.now();
     const sellers = Array.from({ length: SELLERS }, (_, i) => {
@@ -150,6 +173,9 @@ async function main() {
     });
     await prisma.user.createMany({ data: sellers });
 
+    const bidderIds = sellers.map((seller) => seller.id);
+    const bids: SeedBid[] = [];
+    const finalChance = (when: { state: string }, i: number) => (when.state === "live" || when.state === "endingSoon") && i % 40 === 0;
     const listings = [];
     const images = [];
     const tally: Record<string, number> = {};
@@ -163,9 +189,13 @@ async function main() {
       const startingPriceCents = price();
       const when = schedule(now);
       tally[when.state] = (tally[when.state] ?? 0) + 1;
+      const endsAt = finalChance(when, i) ? new Date(when.endsAt.getTime() + DAY) : when.endsAt;
+      const sellerId = pick(sellers).id;
+      const placed = generateBids({ id, sellerId, startingPriceCents, startsAt: when.startsAt, endsAt }, bidderIds, now, bidRandom);
+      bids.push(...placed.bids);
       listings.push({
         id,
-        sellerId: pick(sellers).id,
+        sellerId,
         title,
         description: [pick(CONDITION_NOTES[condition]), `A ${mod} ${noun}.`, pick(EXTRA_NOTES), pick(EXTRA_NOTES)].join(" "),
         categoryId: categories.find((c) => c.slug === slug)!.id,
@@ -173,9 +203,14 @@ async function main() {
         startingPriceCents,
         reservePriceCents: random() < 0.35 ? Math.round((startingPriceCents * between(1.2, 3)) / 100) * 100 : null,
         durationDays: when.days,
+        // A few live auctions that have been extended right up to the ceiling, so the "Final chance to bid" tag has data.
+        extensionCount: finalChance(when, i) ? 30 : 0,
         status: "PUBLISHED" as const,
         startsAt: when.startsAt,
-        endsAt: when.endsAt,
+        endsAt,
+        currentBidCents: placed.currentBidCents,
+        bidCount: placed.bidCount,
+        highBidderId: placed.highBidderId,
         publishedAt: when.publishedAt,
         createdAt: new Date(Math.min(when.publishedAt.getTime(), now) - between(3_600_000, 2 * DAY)),
       });
@@ -186,7 +221,8 @@ async function main() {
     }
     for (const batch of chunks(listings, 250)) await prisma.listing.createMany({ data: batch });
     for (const batch of chunks(images, 500)) await prisma.listingImage.createMany({ data: batch });
-    console.log(`Created ${sellers.length} sellers, ${listings.length} listings and ${images.length} photos.`);
+    for (const batch of chunks(bids, 500)) await prisma.bid.createMany({ data: batch });
+    console.log(`Created ${sellers.length} sellers, ${listings.length} listings, ${images.length} photos and ${bids.length} bids.`);
     console.log("By state:", JSON.stringify(tally));
   } finally {
     await prisma.$disconnect();

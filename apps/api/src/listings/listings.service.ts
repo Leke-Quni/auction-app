@@ -1,6 +1,9 @@
 import {
   createListingSchema,
+  extensionCeiling,
+  isFinalChance,
   listingPhase,
+  minimumNextBidCents,
   type CreateListingInput,
   type ListingImageInput,
   type PublishListingInput,
@@ -28,10 +31,14 @@ const SEARCH_SWEEP_MS = 5 * 60 * 1000;
 const listingInclude = {
   category: true,
   seller: { select: { id: true, username: true } },
+  highBidder: { select: { id: true, username: true } },
   images: { orderBy: { position: "asc" } },
 } satisfies PrismaTypes.ListingInclude;
 
 type ListingRow = PrismaTypes.ListingGetPayload<{ include: typeof listingInclude }>;
+
+// True once a published auction's end has reached its ceiling and cannot move again.
+const isFinal = (l: ListingRow) => (l.startsAt && l.endsAt ? isFinalChance(l.endsAt, extensionCeiling(l.startsAt, l.durationDays)) : false);
 
 const toDto = (l: ListingRow, now = new Date()) => ({
   id: l.id,
@@ -44,6 +51,14 @@ const toDto = (l: ListingRow, now = new Date()) => ({
   durationDays: l.durationDays,
   status: l.status,
   phase: listingPhase(l, now),
+  // The server's clock when this was sent, so a countdown can follow it instead of the viewer's clock.
+  serverTime: now.toISOString(),
+  extensionCount: l.extensionCount,
+  finalChance: isFinal(l),
+  currentBidCents: l.currentBidCents,
+  bidCount: l.bidCount,
+  minimumNextBidCents: minimumNextBidCents(l),
+  highBidder: l.highBidder,
   startsAt: l.startsAt,
   endsAt: l.endsAt,
   publishedAt: l.publishedAt,
@@ -60,8 +75,9 @@ const toDocument = (l: ListingRow, now = new Date()): ListingDocument | null => 
     description: l.description,
     category_slug: l.category.slug,
     condition: l.condition,
-    price_cents: l.startingPriceCents,
-    bid_count: 0,
+    price_cents: l.currentBidCents ?? l.startingPriceCents,
+    bid_count: l.bidCount,
+    final_chance: isFinal(l),
     starts_at: Math.floor(l.startsAt.getTime() / 1000),
     ends_at: Math.floor(l.endsAt.getTime() / 1000),
     published_at: Math.floor(l.publishedAt.getTime() / 1000),
@@ -201,7 +217,14 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
       if (input.categoryId) await this.requireCategory(input.categoryId);
     }
 
-    const updated = await this.prisma.listing.update({ where: { id }, data: input, include: listingInclude });
+    // The draft or published state was read a moment ago. If the listing was published since, its terms (price, reserve,
+    // duration) must not change under bidders, so a draft's details are written only while it is still a draft.
+    const written = await this.prisma.listing.updateMany({
+      where: listing.status === "DRAFT" ? { id, status: "DRAFT" } : { id },
+      data: input,
+    });
+    if (written.count === 0) throw new ConflictException("This listing was just published, so those details can no longer change.");
+    const updated = await this.prisma.listing.findUniqueOrThrow({ where: { id }, include: listingInclude });
     await this.syncSearch(updated);
     return toDto(updated);
   }
@@ -248,8 +271,10 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
 
   async remove(sellerId: string, id: string) {
     const listing = await this.getOwned(sellerId, id);
-    // Slice 4: refuse here once the listing has bids.
-    await this.prisma.listing.delete({ where: { id } });
+    // One statement checks and deletes, so a bid that lands at the same moment cannot be deleted with the listing: the
+    // bid transaction holds the row's lock, this waits for it, then sees the bid count and deletes nothing.
+    const deleted = await this.prisma.listing.deleteMany({ where: { id, bidCount: 0 } });
+    if (deleted.count === 0) throw new ConflictException("A listing that has bids cannot be removed");
     if (listing.status === "PUBLISHED") {
       try {
         await this.search.remove(id);

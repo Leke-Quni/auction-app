@@ -21,22 +21,25 @@ export function timeColor(remainingMs: number, totalMs: number) {
   return "text-urgent";
 }
 
-// The server cannot know the viewer's clock, so it renders a dash and the browser starts the count.
-export function Countdown({ iso, startIso }: { iso: string; startIso: string }) {
+// The server cannot know the viewer's clock, so it renders a dash and the browser starts the count. With the server's own
+// time (`serverNowIso`) the count follows the server's clock, so every viewer sees the same time left whatever their
+// computer says.
+export function Countdown({ iso, startIso, serverNowIso }: { iso: string; startIso: string; serverNowIso?: string }) {
   const [text, setText] = useState("—");
   const [color, setColor] = useState("");
   useEffect(() => {
     const end = new Date(iso).getTime();
     const total = end - new Date(startIso).getTime();
+    const offset = serverNowIso ? new Date(serverNowIso).getTime() - Date.now() : 0;
     const tick = () => {
-      const remaining = end - Date.now();
+      const remaining = end - (Date.now() + offset);
       setText(formatRemaining(remaining));
       setColor(timeColor(remaining, total));
     };
     tick();
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [iso, startIso]);
+  }, [iso, startIso, serverNowIso]);
   return (
     <time dateTime={iso} className={`whitespace-nowrap font-bold ${color}`}>
       {text}

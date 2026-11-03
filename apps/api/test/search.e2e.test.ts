@@ -29,6 +29,7 @@ let lastParams: SearchParams | undefined;
 const fakeSearch: SearchIndex = {
   async ensureReady() {},
   async upsert() {},
+  async update() {},
   async remove() {},
   async removeEnded() {},
   async replaceAll() {},
@@ -62,6 +63,8 @@ describe("GET /search", () => {
       title: "Vintage wristwatch",
       startingPriceCents: 2500,
       bidCount: 3,
+      currentBidCents: 2500,
+      finalChance: false,
       phase: "live",
       startsAt: new Date((now - 3600) * 1000).toISOString(),
       endsAt: new Date((now + 3600) * 1000).toISOString(),

@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { auth, signOut } from "@/auth";
 import { loadCategories } from "@/lib/categories";
 import "./globals.css";
+import { Notifications } from "./notifications";
 import { SearchBox } from "./search-box";
 import { UserMenu } from "./user-menu";
 
@@ -38,6 +39,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             )}
           </div>
         </header>
+        {session && <Notifications />}
         <main className="mx-auto w-full max-w-3xl flex-1 p-3">{children}</main>
         <footer className="border-t border-line bg-white px-4 py-3">
           <div className="mx-auto flex max-w-3xl items-center justify-between px-3">

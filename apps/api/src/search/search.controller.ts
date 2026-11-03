@@ -12,6 +12,9 @@ const toSummary = (doc: ListingDocument, now: Date) => {
     title: doc.title,
     startingPriceCents: doc.price_cents,
     bidCount: doc.bid_count,
+    // The indexed price is the current bid once there are bids, so a card can say "current bid" instead of "starting".
+    currentBidCents: doc.bid_count > 0 ? doc.price_cents : null,
+    finalChance: doc.final_chance ?? false,
     phase: listingPhase({ status: "PUBLISHED", startsAt, endsAt }, now),
     startsAt,
     endsAt,
