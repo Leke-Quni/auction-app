@@ -1,10 +1,10 @@
 "use client";
 
-import { ANSWER_MAX_LENGTH, QUESTION_MAX_LENGTH, type QuestionItem, type VoteSummary, type VoteTarget, type VoteValue } from "@auction/shared";
+import { ANSWER_MAX_LENGTH, QUESTION_MAX_LENGTH, REPORT_REASON_LABELS, REPORT_REASONS, type QuestionItem, type ReportReason, type VoteSummary, type VoteTarget, type VoteValue } from "@auction/shared";
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { LocalTime } from "@/app/local-time";
-import { answerQuestionAction, askQuestionAction, deleteAnswerAction, deleteQuestionAction, editAnswerAction, editQuestionAction, voteAction, type QuestionActionResult } from "./question-actions";
+import { answerQuestionAction, askQuestionAction, deleteAnswerAction, deleteQuestionAction, editAnswerAction, editQuestionAction, reportAction, voteAction, type QuestionActionResult } from "./question-actions";
 
 function Thumb({ down }: { down?: boolean }) {
   return (
@@ -124,15 +124,18 @@ function Votes({ listingId, questionId, target, votes, canVote, signedIn }: { li
 
 // Three dots that open a small menu of what you can do with a post.
 // An item with `confirm` does not act at once: the menu turns into a light red question with "Yes, delete" and "Cancel".
+// An item with `report` asks why first, with a list of reasons.
 interface MenuItem {
   label: string;
   onSelect?: () => void;
   confirm?: { text: string; onConfirm: () => void };
+  report?: { onReport: (reason: ReportReason) => void };
 }
 
 function MoreMenu({ label, items, disabled }: { label: string; items: MenuItem[]; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
   const [asking, setAsking] = useState<MenuItem | null>(null);
+  const [reason, setReason] = useState<ReportReason>("SPAM");
   const close = () => {
     setOpen(false);
     setAsking(null);
@@ -192,6 +195,37 @@ function MoreMenu({ label, items, disabled }: { label: string; items: MenuItem[]
           </div>
         </div>
       )}
+      {open && asking?.report && (
+        <div role="dialog" aria-label={asking.label} className="absolute right-0 z-10 mt-1 w-56 space-y-2 border border-line bg-white p-2 text-xs shadow-md">
+          <label className="block space-y-1">
+            <span>Why are you reporting this?</span>
+            <select value={reason} onChange={(e) => setReason(e.target.value as ReportReason)} className="block w-full border border-[#888] bg-white p-1">
+              {REPORT_REASONS.map((value) => (
+                <option key={value} value={value}>
+                  {REPORT_REASON_LABELS[value]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                const { onReport } = asking.report!;
+                const chosen = reason;
+                close();
+                onReport(chosen);
+              }}
+              className={primaryButton}
+            >
+              Send report
+            </button>
+            <button type="button" onClick={close} className={plainButton}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       {open && !asking && (
         <div role="menu" className="absolute right-0 z-10 mt-1 min-w-36 border border-line bg-white py-1 text-xs shadow-md">
           {items.map((item) => (
@@ -200,7 +234,7 @@ function MoreMenu({ label, items, disabled }: { label: string; items: MenuItem[]
               type="button"
               role="menuitem"
               onClick={() => {
-                if (item.confirm) setAsking(item);
+                if (item.confirm || item.report) setAsking(item);
                 else {
                   close();
                   item.onSelect?.();
@@ -220,12 +254,39 @@ function MoreMenu({ label, items, disabled }: { label: string; items: MenuItem[]
 function Row({ question, listingId, viewerId, isSeller, open }: { question: QuestionItem; listingId: string; viewerId?: string; isSeller: boolean; open: boolean }) {
   const { pending, error, run } = useAction();
   const [answering, setAnswering] = useState(false);
-    const [editing, setEditing] = useState<"question" | "answer" | null>(null);
+  const [editing, setEditing] = useState<"question" | "answer" | null>(null);
+  const [notice, setNotice] = useState("");
 
   const mine = question.asker !== null && question.asker.id === viewerId;
   // Changing or deleting a post is open only while the auction has not ended.
   const canChangeQuestion = mine && open;
   const canChangeAnswer = isSeller && question.answer !== null && open;
+  // Anyone signed in may report what someone else wrote.
+  const reportItem = (target: "QUESTION" | "ANSWER"): MenuItem => ({
+    label: "Report",
+    report: {
+      onReport: (reason) => {
+        setNotice("");
+        run(() => reportAction(listingId, question.id, target, reason), () => setNotice("Thanks, we'll take a look."));
+      },
+    },
+  });
+  const questionItems: MenuItem[] = canChangeQuestion
+    ? [
+        { label: "Edit question", onSelect: () => setEditing("question") },
+        { label: "Delete question", confirm: { text: "Delete this question? This cannot be undone.", onConfirm: () => run(() => deleteQuestionAction(listingId, question.id)) } },
+      ]
+    : viewerId !== undefined && !mine && question.body !== null
+      ? [reportItem("QUESTION")]
+      : [];
+  const answerItems: MenuItem[] = canChangeAnswer
+    ? [
+        { label: "Edit answer", onSelect: () => setEditing("answer") },
+        { label: "Delete answer", confirm: { text: "Delete this answer? This cannot be undone.", onConfirm: () => run(() => deleteAnswerAction(listingId, question.id)) } },
+      ]
+    : viewerId !== undefined && !isSeller && question.answer !== null
+      ? [reportItem("ANSWER")]
+      : [];
 
   return (
     <li className="space-y-1.5 border-t border-line p-3">
@@ -257,7 +318,7 @@ function Row({ question, listingId, viewerId, isSeller, open }: { question: Ques
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Votes listingId={listingId} questionId={question.id} target="QUESTION" votes={question.votes.question} canVote={viewerId !== undefined && !mine && !isSeller} signedIn={viewerId !== undefined} />
-          <MoreMenu label="Question actions" disabled={pending} items={canChangeQuestion ? [{ label: "Edit question", onSelect: () => setEditing("question") }, { label: "Delete question", confirm: { text: "Delete this question? This cannot be undone.", onConfirm: () => run(() => deleteQuestionAction(listingId, question.id)) } }] : []} />
+          <MoreMenu label="Question actions" disabled={pending} items={questionItems} />
         </div>
       </div>
       {question.answer && (
@@ -287,7 +348,7 @@ function Row({ question, listingId, viewerId, isSeller, open }: { question: Ques
             </div>
             <div className="flex shrink-0 items-center gap-1">
               <Votes listingId={listingId} questionId={question.id} target="ANSWER" votes={question.votes.answer} canVote={viewerId !== undefined && !isSeller} signedIn={viewerId !== undefined} />
-              <MoreMenu label="Answer actions" disabled={pending} items={canChangeAnswer ? [{ label: "Edit answer", onSelect: () => setEditing("answer") }, { label: "Delete answer", confirm: { text: "Delete this answer? This cannot be undone.", onConfirm: () => run(() => deleteAnswerAction(listingId, question.id)) } }] : []} />
+              <MoreMenu label="Answer actions" disabled={pending} items={answerItems} />
             </div>
           </div>
         </div>
@@ -309,6 +370,11 @@ function Row({ question, listingId, viewerId, isSeller, open }: { question: Ques
       {error && (
         <p role="alert" className="text-urgent">
           {error}
+        </p>
+      )}
+      {notice && (
+        <p role="status" className="text-xs text-muted">
+          {notice}
         </p>
       )}
       {isSeller && !question.answer && answering && (

@@ -245,6 +245,39 @@ model Question {
   @@index([askerId])
 }
 
+enum ReportReason {
+  SPAM
+  ABUSE
+  CONTACT_DETAILS
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  HANDLED
+}
+
+// A question or answer someone reported, or that the site flagged itself for sharing an email address or phone number.
+// It keeps the words as they were and has no foreign keys, so it outlives the post, the listing and the accounts until a
+// moderator has dealt with it. The admin app (slice 6) works through the OPEN ones.
+model Report {
+  id         String       @id @default(cuid())
+  questionId String
+  listingId  String
+  target     VoteTarget
+  // Null for a report the site raised itself.
+  reporterId String?
+  reason     ReportReason
+  body       String
+  status     ReportStatus @default(OPEN)
+  createdAt  DateTime     @default(now())
+  handledAt  DateTime?
+
+  @@unique([questionId, target, reporterId])
+  @@index([status, createdAt])
+  @@index([listingId])
+}
+
 enum QuestionLogAction {
   CREATED
   EDITED

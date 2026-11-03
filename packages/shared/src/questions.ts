@@ -4,6 +4,12 @@ import { z } from "zod";
 export const QUESTION_MAX_LENGTH = 1000;
 export const ANSWER_MAX_LENGTH = 2000;
 
+// Asking is limited per person, and so is reporting, so neither can be used to flood the page or the moderators.
+export const QUESTION_RATE_LIMIT = { limit: 10, windowSeconds: 60 } as const;
+export const REPORT_RATE_LIMIT = { limit: 10, windowSeconds: 60 } as const;
+// The record of every question and answer is kept this long after the auction ends, for complaints.
+export const QUESTION_LOG_RETENTION_DAYS = 30;
+
 const text = (max: number, empty: string) =>
   z
     .string({ required_error: empty, invalid_type_error: empty })
@@ -34,6 +40,32 @@ export interface VoteSummary {
   mine: VoteValue | null;
 }
 
+// Why a post is reported. CONTACT_DETAILS is also what the site raises itself when a post seems to share an email address
+// or a phone number.
+export const REPORT_REASONS = ["SPAM", "ABUSE", "CONTACT_DETAILS", "OTHER"] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+export const REPORT_REASON_LABELS: Record<ReportReason, string> = {
+  SPAM: "Spam or advertising",
+  ABUSE: "Rude or abusive",
+  CONTACT_DETAILS: "Shares contact details",
+  OTHER: "Something else",
+};
+export const reportSchema = z.object({ target: z.enum(VOTE_TARGETS), reason: z.enum(REPORT_REASONS) });
+export type ReportInput = z.infer<typeof reportSchema>;
+
+// A light check, not a filter: true when the text seems to contain an email address or a phone number. It only flags the
+// post for the moderators and never blocks it. A phone number is 8 to 15 digits with the usual spaces, dots, dashes and
+// brackets; dates written 2026-11-03 and plain prices are not taken for one.
+export function containsContactDetails(input: string): boolean {
+  if (/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/.test(input)) return true;
+  const withoutDates = input.replace(/\b\d{4}-\d{2}-\d{2}\b/g, " ");
+  for (const match of withoutDates.matchAll(/(?:\+|00)?\d[\d\s().-]{6,}\d/g)) {
+    const digits = match[0].replace(/\D/g, "").length;
+    if (digits >= 8 && digits <= 15) return true;
+  }
+  return false;
+}
+
 // A question as the listing page shows it. A deleted one keeps its place but not its words.
 export interface QuestionItem {
   id: string;
@@ -47,7 +79,7 @@ export interface QuestionItem {
   votes: { question: VoteSummary; answer: VoteSummary };
 }
 
-export const QUESTION_REFUSALS = ["NOT_FOUND", "OWN_LISTING", "NOT_OPEN", "NOT_SELLER", "NOT_ALLOWED", "ALREADY_ANSWERED", "OWN_POST", "SELLER_VOTE"] as const;
+export const QUESTION_REFUSALS = ["NOT_FOUND", "OWN_LISTING", "NOT_OPEN", "NOT_SELLER", "NOT_ALLOWED", "ALREADY_ANSWERED", "OWN_POST", "SELLER_VOTE", "RATE_LIMITED", "SELF_REPORT", "ALREADY_REPORTED"] as const;
 export type QuestionRefusal = (typeof QUESTION_REFUSALS)[number];
 
 export const QUESTION_REFUSAL_MESSAGES: Record<QuestionRefusal, string> = {
@@ -59,4 +91,7 @@ export const QUESTION_REFUSAL_MESSAGES: Record<QuestionRefusal, string> = {
   ALREADY_ANSWERED: "This question already has an answer.",
   OWN_POST: "You cannot vote on your own post.",
   SELLER_VOTE: "The seller cannot vote on questions or answers.",
+  RATE_LIMITED: "You are doing that too fast. Wait a moment and try again.",
+  SELF_REPORT: "You cannot report your own post.",
+  ALREADY_REPORTED: "You already reported this.",
 };

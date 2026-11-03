@@ -10,6 +10,7 @@ import { AppModule } from "../src/app.module";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
 import { MAIL_SENDER } from "../src/email/mail-sender";
+import { QuestionRetentionService } from "../src/questions/question-retention.service";
 import { NoopSearchIndex, SEARCH_INDEX } from "../src/search/search-index";
 
 const stamp = Date.now();
@@ -92,6 +93,9 @@ describe("public questions and answers", () => {
   afterAll(async () => {
     const mine = { email: { startsWith: "qa-", endsWith: `-${stamp}@example.com` } };
     await prisma.questionLog.deleteMany({ where: { actorId: { startsWith: `qa_${stamp}_` } } });
+    const mineListings = (await prisma.listing.findMany({ where: { seller: mine }, select: { id: true } })).map((l) => l.id);
+    await prisma.report.deleteMany({ where: { listingId: { in: mineListings } } });
+    await prisma.questionLog.deleteMany({ where: { listingId: { in: mineListings } } });
     await prisma.listing.deleteMany({ where: { seller: mine } });
     await prisma.user.deleteMany({ where: mine });
     await app.close();
@@ -365,6 +369,163 @@ describe("public questions and answers", () => {
       expect((await readAs(ben, listing.id)).votes.answer).toEqual({ likes: 0, dislikes: 0, mine: null });
       await request(url).delete(`/questions/${q.id}`).set(as(anna)).expect(200);
       await vote(ben, q.id, "QUESTION", "LIKE").expect(404);
+    });
+  });
+
+  describe("reports", () => {
+    const report = (person: Person, id: string, target: unknown, reason: unknown) => request(url).post(`/questions/${id}/report`).set(as(person)).send({ target, reason });
+    const reportsFor = (listingId: string) => prisma.report.findMany({ where: { listingId }, orderBy: { createdAt: "asc" } });
+
+    it("saves a report with the words as they are, once per person and post, and changes nothing on the page", async () => {
+      const [anna, ben, cat] = await makePeople(3);
+      const listing = await makeListing();
+      const q = (await ask(anna, listing.id, "Buy my stuff at spam.example").expect(201)).body as QuestionItem;
+      await answer(seller, q.id, "Not interested").expect(201);
+
+      expect((await report(ben, q.id, "QUESTION", "SPAM").expect(201)).body).toEqual({ ok: true });
+      expect((await report(ben, q.id, "QUESTION", "ABUSE").expect(409)).body.code).toBe("ALREADY_REPORTED");
+      await report(ben, q.id, "ANSWER", "OTHER").expect(201); // the answer is a separate post
+      await report(cat, q.id, "QUESTION", "SPAM").expect(201);
+      await report(seller, q.id, "QUESTION", "SPAM").expect(201); // the seller may report a buyer's question
+
+      const rows = await reportsFor(listing.id);
+      expect(rows.map((r) => [r.target, r.reason, r.reporterId, r.status, r.body])).toEqual([
+        ["QUESTION", "SPAM", ben.id, "OPEN", "Buy my stuff at spam.example"],
+        ["ANSWER", "OTHER", ben.id, "OPEN", "Not interested"],
+        ["QUESTION", "SPAM", cat.id, "OPEN", "Buy my stuff at spam.example"],
+        ["QUESTION", "SPAM", seller.id, "OPEN", "Buy my stuff at spam.example"],
+      ]);
+      expect((await items(listing.id)).items[0]).toMatchObject({ body: "Buy my stuff at spam.example", answer: { body: "Not interested" } });
+    });
+
+    it("refuses reports of your own post, missing posts, signed-out visitors and bad input", async () => {
+      const [anna, ben] = await makePeople(2);
+      const listing = await makeListing();
+      const q = (await ask(anna, listing.id).expect(201)).body as QuestionItem;
+      expect((await report(anna, q.id, "QUESTION", "SPAM").expect(403)).body.code).toBe("SELF_REPORT");
+      expect((await report(ben, q.id, "ANSWER", "SPAM").expect(404)).body.code).toBe("NOT_FOUND"); // no answer yet
+      await answer(seller, q.id).expect(201);
+      expect((await report(seller, q.id, "ANSWER", "SPAM").expect(403)).body.code).toBe("SELF_REPORT");
+      await report(anna, q.id, "ANSWER", "OTHER").expect(201); // the asker may report the answer
+      await request(url).post(`/questions/${q.id}/report`).send({ target: "QUESTION", reason: "SPAM" }).expect(401);
+      await report(ben, q.id, "OTHER", "SPAM").expect(400);
+      await report(ben, q.id, "QUESTION", "BORING").expect(400);
+      await report(ben, "nope", "QUESTION", "SPAM").expect(404);
+      await request(url).delete(`/questions/${q.id}`).set(as(anna)).expect(200);
+      await report(ben, q.id, "QUESTION", "SPAM").expect(404); // a deleted question cannot be reported
+      expect((await reportsFor(listing.id)).map((r) => r.reporterId)).toEqual([anna.id]);
+    });
+
+    it("allows 10 reports a minute from one person", async () => {
+      const [anna, ben] = await makePeople(2);
+      const listing = await makeListing();
+      const q = (await ask(anna, listing.id).expect(201)).body as QuestionItem;
+      await answer(seller, q.id).expect(201);
+      const others = await makePeople(10);
+      // Ten different questions to report, so no report is turned away as a repeat.
+      const posts: QuestionItem[] = [];
+      for (let i = 0; i < 11; i++) posts.push((await ask(others[i % 10], listing.id, `Question ${i}`).expect(201)).body as QuestionItem);
+      for (let i = 0; i < 10; i++) await report(ben, posts[i].id, "QUESTION", "SPAM").expect(201);
+      expect((await report(ben, posts[10].id, "QUESTION", "SPAM").expect(429)).body.code).toBe("RATE_LIMITED");
+    });
+  });
+
+  describe("contact details", () => {
+    const flagged = (listingId: string) => prisma.report.findMany({ where: { listingId, reporterId: null }, orderBy: { createdAt: "asc" } });
+
+    it("reports a question or answer with an email address or phone number, without blocking it", async () => {
+      const [anna, ben] = await makePeople(2);
+      const listing = await makeListing();
+      const clean = (await ask(anna, listing.id, "Is it 100% genuine, bought 2026-11-03 for 1,500 euros?").expect(201)).body as QuestionItem;
+      expect(await flagged(listing.id)).toEqual([]);
+      const asked = (await ask(ben, listing.id, "Mail me at ben@example.com").expect(201)).body as QuestionItem;
+      expect(asked.body).toBe("Mail me at ben@example.com"); // still published
+      await answer(seller, asked.id, "Call me on +383 44 123 456").expect(201);
+      await answer(seller, clean.id, "Yes it is.").expect(201);
+
+      const rows = await flagged(listing.id);
+      expect(rows.map((r) => [r.target, r.reason, r.status, r.body])).toEqual([
+        ["QUESTION", "CONTACT_DETAILS", "OPEN", "Mail me at ben@example.com"],
+        ["ANSWER", "CONTACT_DETAILS", "OPEN", "Call me on +383 44 123 456"],
+      ]);
+    });
+
+    it("checks edits too, keeping one open report per post and updating its words", async () => {
+      const [anna] = await makePeople(1);
+      const listing = await makeListing();
+      const q = (await ask(anna, listing.id, "A harmless question").expect(201)).body as QuestionItem;
+      await request(url).patch(`/questions/${q.id}`).set(as(anna)).send({ body: "Text me 044 123 456 78" }).expect(200);
+      await request(url).patch(`/questions/${q.id}`).set(as(anna)).send({ body: "Text me 044 123 456 79 now" }).expect(200);
+      const rows = await flagged(listing.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].body).toBe("Text me 044 123 456 79 now");
+      await answer(seller, q.id, "Write to shop@example.org").expect(201);
+      await request(url).patch(`/questions/${q.id}/answer`).set(as(seller)).send({ body: "Visit our site instead" }).expect(200);
+      expect((await flagged(listing.id)).map((r) => r.target)).toEqual(["QUESTION", "ANSWER"]);
+    });
+  });
+
+  describe("asking too fast", () => {
+    it("allows 10 questions a minute from one person, then answers 429, and other people are not held back", async () => {
+      const [anna, ben] = await makePeople(2);
+      const listing = await makeListing();
+      for (let i = 0; i < 10; i++) await ask(anna, listing.id, `Question ${i}`).expect(201);
+      const refused = await ask(anna, listing.id, "One too many").expect(429);
+      expect(refused.body.code).toBe("RATE_LIMITED");
+      expect((await items(listing.id)).total).toBe(10);
+      await ask(ben, listing.id, "Still fine").expect(201);
+    });
+
+    it("does not count a refused question against the limit", async () => {
+      const [anna] = await makePeople(1);
+      const ended = await makeListing({ startsAt: new Date(Date.now() - 2 * DAY), endsAt: new Date(Date.now() - 1000) });
+      const live = await makeListing();
+      for (let i = 0; i < 12; i++) await ask(anna, ended.id).expect(409);
+      await ask(anna, live.id).expect(201);
+    });
+  });
+
+  describe("keeping the record for a month", () => {
+    const retention = () => app.get(QuestionRetentionService);
+    const endedAgo = (days: number) => makeListing({ startsAt: new Date(Date.now() - (days + 3) * DAY), endsAt: new Date(Date.now() - days * DAY) });
+
+    it("removes the log of an auction that ended over 30 days ago, and what its askers deleted, but keeps newer ones and all reports", async () => {
+      const [anna] = await makePeople(1);
+      const old = await endedAgo(31);
+      const recent = await endedAgo(29);
+      const live = await makeListing();
+      const mk = async (listingId: string, body: string, deleted = false) => {
+        const q = await prisma.question.create({ data: { listingId, askerId: anna.id, body, deletedAt: deleted ? new Date() : null } });
+        await prisma.questionLog.create({ data: { questionId: q.id, listingId, target: "QUESTION", action: "CREATED", actorId: anna.id, body } });
+        return q;
+      };
+      const oldKept = await mk(old.id, "old and shown");
+      const oldDeleted = await mk(old.id, "old and deleted", true);
+      const recentDeleted = await mk(recent.id, "recent and deleted", true);
+      const liveDeleted = await mk(live.id, "live and deleted", true);
+      await prisma.report.create({ data: { questionId: oldKept.id, listingId: old.id, target: "QUESTION", reporterId: anna.id, reason: "SPAM", body: "old and shown" } });
+
+      await retention().purge();
+
+      const logged = async (listingId: string) => (await prisma.questionLog.findMany({ where: { listingId } })).length;
+      expect([await logged(old.id), await logged(recent.id), await logged(live.id)]).toEqual([0, 1, 1]);
+      expect(await prisma.question.findUnique({ where: { id: oldDeleted.id } })).toBeNull();
+      expect(await prisma.question.findUnique({ where: { id: oldKept.id } })).not.toBeNull(); // still on the page
+      expect(await prisma.question.findUnique({ where: { id: recentDeleted.id } })).not.toBeNull();
+      expect(await prisma.question.findUnique({ where: { id: liveDeleted.id } })).not.toBeNull();
+      expect(await prisma.report.count({ where: { listingId: old.id } })).toBe(1);
+    });
+
+    it("counts log entries whose listing is gone from when they were written", async () => {
+      const gone = `gone_${stamp}`;
+      await prisma.questionLog.createMany({
+        data: [
+          { questionId: "q-old", listingId: gone, target: "QUESTION", action: "CREATED", actorId: `qa_${stamp}_x`, body: "old", createdAt: new Date(Date.now() - 31 * DAY) },
+          { questionId: "q-new", listingId: gone, target: "QUESTION", action: "CREATED", actorId: `qa_${stamp}_x`, body: "new", createdAt: new Date(Date.now() - 5 * DAY) },
+        ],
+      });
+      await retention().purge();
+      expect((await prisma.questionLog.findMany({ where: { listingId: gone } })).map((r) => r.body)).toEqual(["new"]);
     });
   });
 });

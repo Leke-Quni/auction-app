@@ -1,4 +1,4 @@
-import { answerSchema, questionSchema, voteSchema, type AnswerInput, type QuestionInput, type VoteInput } from "@auction/shared";
+import { answerSchema, questionSchema, reportSchema, voteSchema, type AnswerInput, type QuestionInput, type ReportInput, type VoteInput } from "@auction/shared";
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req, UseGuards } from "@nestjs/common";
 import { z } from "zod";
 import { JwtAuthGuard, OptionalJwtAuthGuard, type AuthUser } from "../auth/jwt-auth.guard";
@@ -39,6 +39,12 @@ export class QuestionsController {
   @UseGuards(JwtAuthGuard)
   editAnswer(@Param("id") id: string, @Req() req: { user: AuthUser }, @Body(new ZodValidationPipe(answerSchema)) body: AnswerInput) {
     return this.questions.editAnswer(req.user.id, id, body.body);
+  }
+
+  @Post("questions/:id/report")
+  @UseGuards(JwtAuthGuard)
+  report(@Param("id") id: string, @Req() req: { user: AuthUser }, @Body(new ZodValidationPipe(reportSchema)) body: ReportInput) {
+    return this.questions.report(req.user.id, id, body.target, body.reason);
   }
 
   @Put("questions/:id/vote")

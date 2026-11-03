@@ -1,6 +1,7 @@
-import { QUESTION_REFUSAL_MESSAGES, type QuestionItem, type QuestionRefusal, type VoteSummary, type VoteTarget, type VoteValue } from "@auction/shared";
+import { containsContactDetails, QUESTION_RATE_LIMIT, QUESTION_REFUSAL_MESSAGES, REPORT_RATE_LIMIT, type QuestionItem, type QuestionRefusal, type VoteSummary, type ReportReason, type VoteTarget, type VoteValue } from "@auction/shared";
 import { HttpException, HttpStatus, Inject, Injectable } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { RATE_LIMITER, type RateLimiter } from "../rate-limit/rate-limiter";
 import { QuestionEvents } from "./question-events";
 
 const STATUS: Record<QuestionRefusal, HttpStatus> = {
@@ -12,6 +13,9 @@ const STATUS: Record<QuestionRefusal, HttpStatus> = {
   ALREADY_ANSWERED: HttpStatus.CONFLICT,
   OWN_POST: HttpStatus.FORBIDDEN,
   SELLER_VOTE: HttpStatus.FORBIDDEN,
+  RATE_LIMITED: HttpStatus.TOO_MANY_REQUESTS,
+  SELF_REPORT: HttpStatus.FORBIDDEN,
+  ALREADY_REPORTED: HttpStatus.CONFLICT,
 };
 
 const refuse = (code: QuestionRefusal) => new HttpException({ code, message: QUESTION_REFUSAL_MESSAGES[code] }, STATUS[code]);
@@ -49,6 +53,7 @@ export class QuestionsService {
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
     private readonly events: QuestionEvents,
+    @Inject(RATE_LIMITER) private readonly limiter: RateLimiter,
   ) {}
 
   async list(listingId: string, limit: number, viewerId?: string) {
@@ -67,9 +72,11 @@ export class QuestionsService {
     if (!listing || listing.status !== "PUBLISHED" || !listing.endsAt) throw refuse("NOT_FOUND");
     if (listing.sellerId === userId) throw refuse("OWN_LISTING");
     if (listing.endsAt.getTime() <= Date.now()) throw refuse("NOT_OPEN");
+    if (!(await this.limiter.allow(`rl:question:${userId}`, QUESTION_RATE_LIMIT.limit, QUESTION_RATE_LIMIT.windowSeconds))) throw refuse("RATE_LIMITED");
     const row = await this.prisma.$transaction(async (tx) => {
       const created = await tx.question.create({ data: { listingId, askerId: userId, body }, include });
       await tx.questionLog.create({ data: { questionId: created.id, listingId, target: "QUESTION", action: "CREATED", actorId: userId, body } });
+      await this.flagContactDetails(tx, { questionId: created.id, listingId, target: "QUESTION", body });
       return created;
     });
     this.events.publish({ type: "QuestionAsked", questionId: row.id, listingId, askerId: userId, body });
@@ -83,7 +90,10 @@ export class QuestionsService {
     // Only the first of two answers at the same moment is saved.
     const saved = await this.prisma.$transaction(async (tx) => {
       const result = await tx.question.updateMany({ where: { id: questionId, answer: null, deletedAt: null }, data: { answer: body, answeredAt: new Date(), answerEditedAt: null } });
-      if (result.count === 1) await tx.questionLog.create({ data: { questionId, listingId: question.listingId, target: "ANSWER", action: "CREATED", actorId: userId, body } });
+      if (result.count === 1) {
+        await tx.questionLog.create({ data: { questionId, listingId: question.listingId, target: "ANSWER", action: "CREATED", actorId: userId, body } });
+        await this.flagContactDetails(tx, { questionId, listingId: question.listingId, target: "ANSWER", body });
+      }
       return result.count;
     });
     if (saved === 0) throw refuse("ALREADY_ANSWERED");
@@ -138,7 +148,10 @@ export class QuestionsService {
     if (body !== question.body) {
       const saved = await this.prisma.$transaction(async (tx) => {
         const result = await tx.question.updateMany({ where: { id: questionId, deletedAt: null }, data: { body, editedAt: new Date() } });
-        if (result.count === 1) await tx.questionLog.create({ data: { questionId, listingId: question.listingId, target: "QUESTION", action: "EDITED", actorId: userId, body, previousBody: question.body } });
+        if (result.count === 1) {
+          await tx.questionLog.create({ data: { questionId, listingId: question.listingId, target: "QUESTION", action: "EDITED", actorId: userId, body, previousBody: question.body } });
+          await this.flagContactDetails(tx, { questionId, listingId: question.listingId, target: "QUESTION", body });
+        }
         return result.count;
       });
       if (saved === 0) throw refuse("NOT_FOUND");
@@ -166,7 +179,10 @@ export class QuestionsService {
     if (body !== question.answer) {
       const saved = await this.prisma.$transaction(async (tx) => {
         const result = await tx.question.updateMany({ where: { id: questionId, answer: { not: null } }, data: { answer: body, answerEditedAt: new Date() } });
-        if (result.count === 1) await tx.questionLog.create({ data: { questionId, listingId: question.listingId, target: "ANSWER", action: "EDITED", actorId: userId, body, previousBody: question.answer } });
+        if (result.count === 1) {
+          await tx.questionLog.create({ data: { questionId, listingId: question.listingId, target: "ANSWER", action: "EDITED", actorId: userId, body, previousBody: question.answer } });
+          await this.flagContactDetails(tx, { questionId, listingId: question.listingId, target: "ANSWER", body });
+        }
         return result.count;
       });
       if (saved === 0) throw refuse("NOT_FOUND");
@@ -189,6 +205,35 @@ export class QuestionsService {
       }
     });
     return { ok: true };
+  }
+
+  // Anyone signed in can report a question or an answer that is not their own, once each. The report keeps the words as they
+  // are now; nothing is hidden and nobody is told. Moderators work through the reports in the admin app (slice 6).
+  async report(userId: string, questionId: string, target: VoteTarget, reason: ReportReason) {
+    const question = await this.find(questionId);
+    const text = target === "QUESTION" ? (question.askerId ? question.body : null) : question.answer;
+    if (text === null) throw refuse("NOT_FOUND");
+    if ((target === "QUESTION" ? question.askerId : question.listing.sellerId) === userId) throw refuse("SELF_REPORT");
+    if (!(await this.limiter.allow(`rl:report:${userId}`, REPORT_RATE_LIMIT.limit, REPORT_RATE_LIMIT.windowSeconds))) throw refuse("RATE_LIMITED");
+    try {
+      await this.prisma.report.create({ data: { questionId, listingId: question.listingId, target, reporterId: userId, reason, body: text } });
+    } catch (error) {
+      if ((error as { code?: string }).code === "P2002") throw refuse("ALREADY_REPORTED");
+      throw error;
+    }
+    return { ok: true };
+  }
+
+  // A light check, never a block: a post that seems to share an email address or a phone number is reported by the site
+  // itself (no reporter) so a moderator can look. One open report per post; a later edit updates its words.
+  private async flagContactDetails(db: Pick<Prisma, "report">, post: { questionId: string; listingId: string; target: VoteTarget; body: string }) {
+    if (!containsContactDetails(post.body)) return;
+    const open = await db.report.findFirst({ where: { questionId: post.questionId, target: post.target, reporterId: null, reason: "CONTACT_DETAILS", status: "OPEN" } });
+    if (open) {
+      if (open.body !== post.body) await db.report.update({ where: { id: open.id }, data: { body: post.body } });
+      return;
+    }
+    await db.report.create({ data: { ...post, reporterId: null, reason: "CONTACT_DETAILS" } });
   }
 
   // Changes and deletions are only open until the auction ends (it may still be upcoming).

@@ -1,6 +1,6 @@
 "use server";
 
-import { QUESTION_REFUSAL_MESSAGES, QUESTION_REFUSALS, type QuestionRefusal, type VoteTarget, type VoteValue } from "@auction/shared";
+import { QUESTION_REFUSAL_MESSAGES, QUESTION_REFUSALS, type QuestionRefusal, type ReportReason, type VoteTarget, type VoteValue } from "@auction/shared";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { authedApiFetch } from "@/lib/api";
@@ -55,6 +55,10 @@ export async function deleteQuestionAction(listingId: string, questionId: string
 
 export async function deleteAnswerAction(listingId: string, questionId: string) {
   return send(listingId, `/questions/${encodeURIComponent(questionId)}/answer`, "DELETE");
+}
+
+export async function reportAction(listingId: string, questionId: string, target: VoteTarget, reason: ReportReason) {
+  return send(listingId, `/questions/${encodeURIComponent(questionId)}/report`, "POST", { target, reason });
 }
 
 export async function voteAction(listingId: string, questionId: string, target: VoteTarget, value: VoteValue | null) {

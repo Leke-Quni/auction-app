@@ -11,6 +11,7 @@ const actions = vi.hoisted(() => ({
   editAnswerAction: vi.fn(),
   deleteAnswerAction: vi.fn(),
   voteAction: vi.fn(),
+  reportAction: vi.fn(),
 }));
 vi.mock("./question-actions", () => actions);
 
@@ -149,7 +150,7 @@ describe("Questions", () => {
   it("lets the asker change and delete their own questions while the auction is open, not other people's", async () => {
     show({ items: [question({ id: "mine" }), question({ id: "old", createdAt: minutesAgo(600), body: "Old one" }), question({ id: "other", asker: { id: "ben", username: "ben" }, body: "Ben's" })] });
     const menus = screen.getAllByRole("button", { name: "Question actions" });
-    expect(menus).toHaveLength(2); // their own two, however old, but not Ben's
+    expect(menus).toHaveLength(3); // their own two, however old, and a Report menu on Ben's
     fireEvent.click(menus[0]);
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete question" }));
     expect(actions.deleteQuestionAction).not.toHaveBeenCalled(); // asks first
@@ -248,6 +249,58 @@ describe("Questions", () => {
     expect(screen.getByRole("button", { name: "Answer" })).toBeTruthy();
   });
 
+  describe("reporting", () => {
+    const answered = (over: Partial<QuestionItem> = {}) => question({ id: "q", asker: { id: "ben", username: "ben" }, answer: { body: "An answer.", answeredAt: minutesAgo(1), editedAt: null }, ...over });
+    const pickReport = (menuName: string) => {
+      fireEvent.click(screen.getByRole("button", { name: menuName }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Report" }));
+    };
+
+    it("lets a signed-in reader report someone else's question or answer, after choosing a reason, and thanks them", async () => {
+      show({ viewerId: "anna", items: [answered()] });
+      pickReport("Question actions");
+      expect(actions.reportAction).not.toHaveBeenCalled(); // asks why first
+      fireEvent.change(screen.getByLabelText("Why are you reporting this?"), { target: { value: "ABUSE" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send report" }));
+      await waitFor(() => expect(actions.reportAction).toHaveBeenCalledWith("L1", "q", "QUESTION", "ABUSE"), { timeout: 3000 });
+      expect((await screen.findByRole("status", {}, { timeout: 3000 })).textContent).toContain("Thanks");
+
+      pickReport("Answer actions");
+      fireEvent.click(screen.getByRole("button", { name: "Send report" }));
+      await waitFor(() => expect(actions.reportAction).toHaveBeenCalledWith("L1", "q", "ANSWER", "SPAM"), { timeout: 3000 }); // the first reason is the default
+    });
+
+    it("offers nothing to report on your own question, on the seller's own answer, or when signed out, and Cancel sends nothing", () => {
+      show({ viewerId: "ben", open: false, items: [answered()] });
+      expect(screen.queryByRole("button", { name: "Question actions" })).toBeNull(); // own question
+      expect(screen.getByRole("button", { name: "Answer actions" })).toBeTruthy(); // the asker may report the answer
+      cleanup();
+      show({ viewerId: "sam", isSeller: true, open: false, items: [answered()] });
+      expect(screen.getByRole("button", { name: "Question actions" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Answer actions" })).toBeNull(); // own answer
+      cleanup();
+      show({ viewerId: undefined, items: [answered()] });
+      expect(screen.queryByRole("button", { name: "Question actions" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Answer actions" })).toBeNull();
+      cleanup();
+      show({ viewerId: "anna", items: [answered()] });
+      pickReport("Question actions");
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(actions.reportAction).not.toHaveBeenCalled();
+    });
+
+    it("shows why a report was refused, and no report option on a question whose asker is gone", async () => {
+      actions.reportAction.mockResolvedValue({ error: "You already reported this." });
+      show({ viewerId: "anna", items: [answered()] });
+      pickReport("Question actions");
+      fireEvent.click(screen.getByRole("button", { name: "Send report" }));
+      expect((await screen.findByRole("alert")).textContent).toContain("already reported");
+      cleanup();
+      show({ viewerId: "anna", items: [answered({ asker: null, body: null })] });
+      expect(screen.queryByRole("button", { name: "Question actions" })).toBeNull();
+    });
+  });
+
   it("closes the menu on Escape", () => {
     show({ items: [question({ id: "mine" })] });
     fireEvent.click(screen.getByRole("button", { name: "Question actions" }));
@@ -276,7 +329,11 @@ describe("Questions", () => {
         question({ id: "stale", body: "Stale?", createdAt: minutesAgo(60), answer: { body: "Old answer", answeredAt: minutesAgo(20), editedAt: null } }),
       ],
     });
-    expect(screen.queryByRole("button", { name: "Question actions" })).toBeNull();
+    // The seller can only report the questions, not change or delete them.
+    fireEvent.click(screen.getAllByRole("button", { name: "Question actions" })[0]);
+    expect(screen.queryByRole("menuitem", { name: "Delete question" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Report" })).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
     const menus = screen.getAllByRole("button", { name: "Answer actions" });
     expect(menus).toHaveLength(2); // one on each answer, however old
     fireEvent.click(menus[0]);

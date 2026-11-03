@@ -5,7 +5,7 @@ vi.mock("@/auth", () => ({ auth }));
 vi.mock("@/lib/api", () => ({ authedApiFetch }));
 vi.mock("next/cache", () => ({ revalidatePath }));
 
-import { answerQuestionAction, askQuestionAction, deleteAnswerAction, deleteQuestionAction, editAnswerAction, editQuestionAction, voteAction } from "./question-actions";
+import { answerQuestionAction, askQuestionAction, deleteAnswerAction, deleteQuestionAction, editAnswerAction, editQuestionAction, reportAction, voteAction } from "./question-actions";
 
 const reply = (status: number, body: unknown = {}) => new Response(JSON.stringify(body), { status });
 
@@ -36,11 +36,20 @@ describe("question actions", () => {
     expect(authedApiFetch).toHaveBeenLastCalledWith("/questions/q1", { method: "PATCH", body: JSON.stringify({ body: "Better?" }) });
     await editAnswerAction("L1", "q1", "Better.");
     expect(authedApiFetch).toHaveBeenLastCalledWith("/questions/q1/answer", { method: "PATCH", body: JSON.stringify({ body: "Better." }) });
+    await reportAction("L1", "q1", "ANSWER", "SPAM");
+    expect(authedApiFetch).toHaveBeenLastCalledWith("/questions/q1/report", { method: "POST", body: JSON.stringify({ target: "ANSWER", reason: "SPAM" }) });
     await voteAction("L1", "q1", "ANSWER", "DISLIKE");
     expect(authedApiFetch).toHaveBeenLastCalledWith("/questions/q1/vote", { method: "PUT", body: JSON.stringify({ target: "ANSWER", value: "DISLIKE" }) });
     await voteAction("L1", "q1", "QUESTION", null);
     expect(authedApiFetch).toHaveBeenLastCalledWith("/questions/q1/vote", { method: "PUT", body: JSON.stringify({ target: "QUESTION", value: null }) });
     expect(revalidatePath).toHaveBeenCalledWith("/listings/L1");
+  });
+
+  it("explains a refused report and a rate limit", async () => {
+    authedApiFetch.mockResolvedValue(reply(409, { code: "ALREADY_REPORTED" }));
+    expect(await reportAction("L1", "q1", "QUESTION", "SPAM")).toEqual({ error: "You already reported this." });
+    authedApiFetch.mockResolvedValue(reply(429, { code: "RATE_LIMITED" }));
+    expect(await askQuestionAction("L1", "Hi")).toEqual({ error: "You are doing that too fast. Wait a moment and try again." });
   });
 
   it("explains a refused vote", async () => {
