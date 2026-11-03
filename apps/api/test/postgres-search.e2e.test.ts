@@ -63,7 +63,71 @@ describe("PostgresSearchIndex", () => {
 
   it("matches partial words and every word typed", async () => {
     expect(await find({ q: `${word.slice(0, -2)} PRICEY` })).toEqual([`${word} pricey new`]);
-    expect(await find({ q: "100%" })).toEqual([]);
+    // Characters that mean something to LIKE or to a regular expression are only ever plain text.
+    for (const q of ["%%%", "_", ".*", "(", "[a-z]+", "\\"]) expect(await find({ q })).toEqual([]);
+  });
+
+  describe("matches the way Typesense does", () => {
+    // These listings share a price nobody else has, so a search can be limited to them whatever else is in the database.
+    const PRICE = 7_654_321;
+    const extra: string[] = [];
+    beforeAll(async () => {
+      const categoryId = (await prisma.category.findFirstOrThrow()).id;
+      const make = async (title: string, description = "Plain description") => {
+        const listing = await prisma.listing.create({
+          data: { sellerId, title, description, categoryId, condition: "GOOD", startingPriceCents: PRICE, durationDays: 3, status: "PUBLISHED", startsAt: new Date(Date.now() - HOUR), endsAt: new Date(Date.now() + 48 * HOUR), publishedAt: new Date(Date.now() - HOUR) },
+        });
+        extra.push(listing.id);
+      };
+      await make("vintage brass lamp");
+      await make("leather sneakers");
+      await make("stringed instrument", "A violin");
+      await make("ring");
+      await make("board game");
+    });
+    const only = async (q: string) => (await find({ q, minPriceCents: PRICE, maxPriceCents: PRICE })).sort();
+
+    it("matches whole words and the start of the last word, not the middle of a word", async () => {
+      expect(await only("brass")).toEqual(["vintage brass lamp"]);
+      expect(await only("bra")).toEqual(["vintage brass lamp"]);
+      expect(await only("ring")).toEqual(["ring"]); // not "stringed"
+      expect(await only("atch")).toEqual([]);
+    });
+
+    it("forgives one typo from 4 letters and two from 6, but none in shorter words", async () => {
+      expect(await only("brasss")).toEqual(["vintage brass lamp"]); // one extra letter
+      expect(await only("vintge")).toEqual(["vintage brass lamp"]); // one missing
+      expect(await only("lether")).toEqual(["leather sneakers"]);
+      expect(await only("lxther")).toEqual(["leather sneakers"]);
+      expect(await only("lxxther")).toEqual(["leather sneakers"]); // two wrong, six letters
+      expect(await only("rxng")).toEqual(["ring"]); // four letters allow one typo
+      expect(await only("rxxg")).toEqual([]); // but not two
+      expect(await only("lxx")).toEqual([]); // and a three-letter word none
+    });
+
+    it("finds synonyms, one way only for a general word, and phrases", async () => {
+      expect(await only("shoes")).toEqual(["leather sneakers"]); // "shoes" finds sneakers
+      expect(await only("sneakers")).toEqual(["leather sneakers"]);
+      expect(await only("trainers")).toEqual(["leather sneakers"]); // sneakers and trainers mean the same
+      expect(await only("boardgame")).toEqual(["board game"]);
+      expect(await only("shoe")).toEqual(["leather sneakers"]);
+    });
+
+    it("keeps three or more repeated letters from defeating a search", async () => {
+      expect(await only("brasssss")).toEqual(["vintage brass lamp"]);
+    });
+
+    it("falls back to the listings that match the most words when none matches them all", async () => {
+      expect(await only("brass zzzzzzqq")).toEqual(["vintage brass lamp"]);
+      expect(await only("zzzzzzqq brass")).toEqual(["vintage brass lamp"]);
+      expect(await only("zzzzzzqq")).toEqual([]);
+      // Listings that match both words are all there is when some do.
+      expect(await only("vintage lamp")).toEqual(["vintage brass lamp"]);
+    });
+
+    it("ranks title matches first", async () => {
+      expect(await only("violin")).toEqual(["stringed instrument"]); // only the description has it
+    });
   });
 
   it("filters by condition, category, price (current bid once there are bids) and ending soon", async () => {
