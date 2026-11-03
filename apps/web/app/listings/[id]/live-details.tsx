@@ -1,6 +1,8 @@
 "use client";
 
 import { CONDITION_LABELS, formatDuration, formatEur } from "@auction/shared";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Countdown } from "@/app/countdown";
 import { LocalTime } from "@/app/local-time";
 import { BidHistory } from "./bid-history";
@@ -21,11 +23,52 @@ export interface DetailsListing {
   startsAt: string | null;
 }
 
-export function LiveDetails({ listing, mode, viewerId }: { listing: DetailsListing; mode: BidMode | null; viewerId?: string }) {
+// setTimeout cannot wait longer than this (about 24.8 days); a longer wait is split into several.
+const MAX_TIMEOUT_MS = 2 ** 31 - 1;
+
+// The auction's phase as time passes, measured on the server's clock, so an upcoming page goes live and a live page
+// ends without a reload. The page is refreshed when the auction starts to pick up its state.
+function usePhase(initial: DetailsListing["phase"], startsAt: string | null, endsAt: string | null, serverTime: string) {
+  const router = useRouter();
+  const [phase, setPhase] = useState(initial);
+  useEffect(() => {
+    if (initial === "draft" || initial === "ended" || !startsAt || !endsAt) return;
+    const offset = Date.parse(serverTime) - Date.now();
+    let timer: ReturnType<typeof setTimeout>;
+    const check = () => {
+      const now = Date.now() + offset;
+      const starts = Date.parse(startsAt);
+      const ends = Date.parse(endsAt);
+      const next = now >= ends ? "ended" : now >= starts ? "live" : "upcoming";
+      setPhase((current) => {
+        if (current === "upcoming" && next === "live") router.refresh();
+        return next;
+      });
+      if (next !== "ended") timer = setTimeout(check, Math.min((next === "live" ? ends : starts) - now + 50, MAX_TIMEOUT_MS));
+    };
+    check();
+    return () => clearTimeout(timer);
+  }, [initial, startsAt, endsAt, serverTime, router]);
+  return initial === "ended" ? "ended" : phase;
+}
+
+export function LiveDetails({ listing, openMode, viewerId }: { listing: DetailsListing; openMode: BidMode | null; viewerId?: string }) {
   const live = useLive((s) => s);
-  const isLive = listing.phase === "live";
-  // Being the high bidder changes as bids arrive; every other mode is settled by the server.
-  const bidMode: BidMode | null = mode === "live" || mode === "highest" ? (live.highBidder?.id === viewerId ? "highest" : "live") : mode;
+  const phase = usePhase(listing.phase, listing.startsAt, live.endsAt, live.serverTime);
+  const isLive = phase === "live";
+  // Being the high bidder changes as bids arrive; the rest is settled by the server and the clock.
+  const bidMode: BidMode | null =
+    openMode === null || phase === "draft"
+      ? null
+      : phase === "ended"
+        ? "ended"
+        : phase === "upcoming"
+          ? "upcoming"
+          : openMode === "live" || openMode === "highest"
+            ? live.highBidder?.id === viewerId
+              ? "highest"
+              : "live"
+            : openMode;
   const reserveNote =
     listing.reservePriceCents == null || live.bidCount === 0 || live.currentBidCents == null
       ? ""
@@ -59,7 +102,7 @@ export function LiveDetails({ listing, mode, viewerId }: { listing: DetailsListi
             : ["Ends", <LocalTime key="e" iso={live.endsAt} />],
         ] as [string, React.ReactNode][])
       : []),
-    ["Status", PHASE_LABELS[listing.phase]],
+    ["Status", PHASE_LABELS[phase]],
   ];
 
   return (

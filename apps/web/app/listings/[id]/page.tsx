@@ -22,19 +22,16 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
   const historyRes = published ? await apiFetch(`/listings/${id}/bids?limit=20`) : null;
   const history: { items: BidRow[]; total: number } = historyRes?.ok ? await historyRes.json() : { items: [], total: 0 };
 
-  const mode: BidMode | null = !published
+  // What the viewer sees once the auction is open. The page works out upcoming, live and ended itself as time passes.
+  const openMode: BidMode | null = !published
     ? null
-    : listing.phase === "ended"
-      ? "ended"
-      : listing.phase === "upcoming"
-        ? "upcoming"
-        : !session
-          ? "signed-out"
-          : isOwner
-            ? "owner"
-            : listing.highBidder?.id === viewerId
-              ? "highest"
-              : "live";
+    : !session
+      ? "signed-out"
+      : isOwner
+        ? "owner"
+        : listing.highBidder?.id === viewerId
+          ? "highest"
+          : "live";
   const snapshot: LiveSnapshot = {
     currentBidCents: listing.currentBidCents ?? null,
     bidCount: listing.bidCount,
@@ -57,14 +54,14 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
         </p>
       )}
       <h1 className="border border-line bg-white p-2 text-lg font-bold">{listing.title}</h1>
-      <LiveAuction listingId={listing.id} snapshot={snapshot} connect={listing.phase === "live"}>
+      <LiveAuction listingId={listing.id} snapshot={snapshot} connect={published && listing.phase !== "ended"}>
         {/* items-start: the photo is a square, and stretching it to the taller details column would widen its column. */}
         <div className="grid items-start gap-3 sm:grid-cols-[1fr_2fr]">
           <div className="min-w-0">
             <Gallery images={listing.images} alt={listing.title} />
           </div>
           <div className="min-w-0 space-y-3">
-            <LiveDetails listing={listing} mode={mode} viewerId={viewerId} />
+            <LiveDetails listing={listing} openMode={openMode} viewerId={viewerId} />
           </div>
         </div>
         {published && <LiveHistory viewerId={viewerId} />}
