@@ -268,12 +268,15 @@ model Report {
   // Null for a report the site raised itself.
   reporterId String?
   reason     ReportReason
+  // When the reported post was written (the question's creation, or the answer's answeredAt), so a replacement answer can be
+  // reported again by someone who reported the one before it.
+  postedAt   DateTime     @default(now())
   body       String
   status     ReportStatus @default(OPEN)
   createdAt  DateTime     @default(now())
   handledAt  DateTime?
 
-  @@unique([questionId, target, reporterId])
+  @@unique([questionId, target, reporterId, postedAt])
   @@index([status, createdAt])
   @@index([listingId])
 }

@@ -178,7 +178,7 @@ export class QuestionsService {
     this.ensureOpen(question.listing);
     if (body !== question.answer) {
       const saved = await this.prisma.$transaction(async (tx) => {
-        const result = await tx.question.updateMany({ where: { id: questionId, answer: { not: null } }, data: { answer: body, answerEditedAt: new Date() } });
+        const result = await tx.question.updateMany({ where: { id: questionId, deletedAt: null, answer: question.answer }, data: { answer: body, answerEditedAt: new Date() } });
         if (result.count === 1) {
           await tx.questionLog.create({ data: { questionId, listingId: question.listingId, target: "ANSWER", action: "EDITED", actorId: userId, body, previousBody: question.answer } });
           await this.flagContactDetails(tx, { questionId, listingId: question.listingId, target: "ANSWER", body });
@@ -216,7 +216,8 @@ export class QuestionsService {
     if ((target === "QUESTION" ? question.askerId : question.listing.sellerId) === userId) throw refuse("SELF_REPORT");
     if (!(await this.limiter.allow(`rl:report:${userId}`, REPORT_RATE_LIMIT.limit, REPORT_RATE_LIMIT.windowSeconds))) throw refuse("RATE_LIMITED");
     try {
-      await this.prisma.report.create({ data: { questionId, listingId: question.listingId, target, reporterId: userId, reason, body: text } });
+      const postedAt = target === "QUESTION" ? question.createdAt : question.answeredAt!;
+      await this.prisma.report.create({ data: { questionId, listingId: question.listingId, target, reporterId: userId, reason, body: text, postedAt } });
     } catch (error) {
       if ((error as { code?: string }).code === "P2002") throw refuse("ALREADY_REPORTED");
       throw error;
@@ -226,8 +227,10 @@ export class QuestionsService {
 
   // A light check, never a block: a post that seems to share an email address or a phone number is reported by the site
   // itself (no reporter) so a moderator can look. One open report per post; a later edit updates its words.
-  private async flagContactDetails(db: Pick<Prisma, "report">, post: { questionId: string; listingId: string; target: VoteTarget; body: string }) {
+  private async flagContactDetails(db: Pick<Prisma, "report" | "$executeRaw">, post: { questionId: string; listingId: string; target: VoteTarget; body: string }) {
     if (!containsContactDetails(post.body)) return;
+    // Two saves of one post at the same moment would each find no open report and add one; the lock makes the second wait.
+    await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`report:${post.questionId}:${post.target}`}))`;
     const open = await db.report.findFirst({ where: { questionId: post.questionId, target: post.target, reporterId: null, reason: "CONTACT_DETAILS", status: "OPEN" } });
     if (open) {
       if (open.body !== post.body) await db.report.update({ where: { id: open.id }, data: { body: post.body } });

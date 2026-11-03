@@ -376,6 +376,31 @@ describe("public questions and answers", () => {
     const report = (person: Person, id: string, target: unknown, reason: unknown) => request(url).post(`/questions/${id}/report`).set(as(person)).send({ target, reason });
     const reportsFor = (listingId: string) => prisma.report.findMany({ where: { listingId }, orderBy: { createdAt: "asc" } });
 
+    it("lets a person report a replacement answer after reporting the one it replaced", async () => {
+      const [anna, ben] = await makePeople(2);
+      const listing = await makeListing();
+      const q = (await ask(anna, listing.id, "Is it genuine?").expect(201)).body as QuestionItem;
+      await answer(seller, q.id, "First answer").expect(201);
+      await report(ben, q.id, "ANSWER", "SPAM").expect(201);
+      await request(url).delete(`/questions/${q.id}/answer`).set(as(seller)).expect(200);
+      await new Promise((r) => setTimeout(r, 5));
+      await answer(seller, q.id, "Second answer").expect(201);
+      await report(ben, q.id, "ANSWER", "SPAM").expect(201);
+      expect((await report(ben, q.id, "ANSWER", "SPAM").expect(409)).body.code).toBe("ALREADY_REPORTED");
+    });
+
+    it("raises one contact-details report when the same post is saved twice at once", async () => {
+      const [anna] = await makePeople(1);
+      const listing = await makeListing();
+      const q = (await ask(anna, listing.id, "Is it genuine?").expect(201)).body as QuestionItem;
+      await Promise.all([
+        request(url).patch(`/questions/${q.id}`).set(as(anna)).send({ body: "mail me at a@example.com" }),
+        request(url).patch(`/questions/${q.id}`).set(as(anna)).send({ body: "mail me at b@example.com" }),
+      ]);
+      const flags = (await reportsFor(listing.id)).filter((r) => r.reporterId === null);
+      expect(flags).toHaveLength(1);
+    });
+
     it("saves a report with the words as they are, once per person and post, and changes nothing on the page", async () => {
       const [anna, ben, cat] = await makePeople(3);
       const listing = await makeListing();

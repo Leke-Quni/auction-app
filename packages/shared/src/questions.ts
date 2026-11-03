@@ -55,11 +55,11 @@ export type ReportInput = z.infer<typeof reportSchema>;
 
 // A light check, not a filter: true when the text seems to contain an email address or a phone number. It only flags the
 // post for the moderators and never blocks it. A phone number is 8 to 15 digits with the usual spaces, dots, dashes and
-// brackets; dates written 2026-11-03 and plain prices are not taken for one.
+// brackets; dates written 2026-11-03 or 03.11.2026 and plain prices are not taken for one.
 export function containsContactDetails(input: string): boolean {
   if (/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/.test(input)) return true;
-  const withoutDates = input.replace(/\b\d{4}-\d{2}-\d{2}\b/g, " ");
-  for (const match of withoutDates.matchAll(/(?:\+|00)?\d[\d\s().-]{6,}\d/g)) {
+  const withoutDates = input.replace(/\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}([-./])\d{1,2}\1\d{2,4}\b/g, " ");
+  for (const match of withoutDates.matchAll(/(?:\+|00)?\d[\d\s()./-]{6,}\d/g)) {
     const digits = match[0].replace(/\D/g, "").length;
     if (digits >= 8 && digits <= 15) return true;
   }
