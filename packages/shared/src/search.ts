@@ -36,6 +36,12 @@ export const searchQuerySchema = z
 
 export type SearchQuery = z.infer<typeof searchQuerySchema>;
 
+// Suggestions while typing: a few listing titles that match the text so far. Shorter text matches too much to help.
+export const SUGGESTION_MIN_LENGTH = 2;
+export const SUGGESTION_COUNT = 5;
+export const suggestQuerySchema = z.object({ q: z.string().trim().min(SUGGESTION_MIN_LENGTH).max(100) });
+
+
 // Best match only means something when there is text to match; without text, newest first.
 export function resolveSearchSort(query: Pick<SearchQuery, "q" | "sort">): SearchSort {
   if (query.sort && !(query.sort === "relevance" && !query.q)) return query.sort;

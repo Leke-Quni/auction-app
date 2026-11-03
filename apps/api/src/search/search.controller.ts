@@ -1,4 +1,4 @@
-import { listingPhase, searchQuerySchema, resolveSearchSort, type SearchQuery } from "@auction/shared";
+import { listingPhase, searchQuerySchema, resolveSearchSort, SUGGESTION_COUNT, suggestQuerySchema, type SearchQuery } from "@auction/shared";
 import { Controller, Get, Inject, Logger, Query, ServiceUnavailableException } from "@nestjs/common";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { SEARCH_INDEX, type ListingDocument, type SearchIndex } from "./search-index";
@@ -41,6 +41,36 @@ export class SearchController {
       return { items: documents.map((doc) => toSummary(doc, now)), total, page: query.page, pageSize: query.pageSize };
     } catch (error) {
       this.logger.error(`Search failed: ${error instanceof Error ? error.message : error}`);
+      throw new ServiceUnavailableException("Search is unavailable right now");
+    }
+  }
+
+  // Titles of live and upcoming listings that match the text so far, best match first, each title once. It asks the same
+  // index as the search page, so Typesense gives typo tolerance and the Postgres fallback gives partial words.
+  @Get("search/suggest")
+  async suggest(@Query(new ZodValidationPipe(suggestQuerySchema)) query: { q: string }) {
+    try {
+      const { documents } = await this.search.search({
+        q: query.q,
+        sort: "relevance",
+        endingSoon: false,
+        page: 1,
+        // Several listings share a title, so ask for more than are shown.
+        pageSize: SUGGESTION_COUNT * 4,
+        now: new Date(),
+      });
+      const seen = new Set<string>();
+      const suggestions: string[] = [];
+      for (const { title } of documents) {
+        const key = title.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        suggestions.push(title);
+        if (suggestions.length === SUGGESTION_COUNT) break;
+      }
+      return { suggestions };
+    } catch (error) {
+      this.logger.error(`Suggestions failed: ${error instanceof Error ? error.message : error}`);
       throw new ServiceUnavailableException("Search is unavailable right now");
     }
   }
