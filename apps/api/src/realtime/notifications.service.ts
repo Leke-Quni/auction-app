@@ -6,12 +6,11 @@ import { AuctionEvents } from "../bids/auction-events";
 import type { BidResult } from "../bids/bids.service";
 import { outbidEmailDelaySeconds, outbidEmailQuietSeconds, webUrl } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { utc } from "../email/format";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
 import { SavedNotificationsService, type NewNotification } from "../notifications/saved-notifications.service";
 import { RATE_LIMITER, type RateLimiter } from "../rate-limit/rate-limiter";
 import { RealtimeGateway } from "./realtime.gateway";
-
-const utc = (date: Date) => `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 
 const SWEEP_EVERY_MS = 30_000;
 // A send holds its row this long; if the machine stops mid-send the row comes due again afterwards.

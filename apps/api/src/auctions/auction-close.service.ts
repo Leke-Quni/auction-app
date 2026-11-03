@@ -38,20 +38,35 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
     clearInterval(this.timer);
   }
 
-  // Returns true when this call closed the auction.
+  // Returns true when this call closed the auction. In the same transaction, everyone who bid and did not win is owed an
+  // "auction ended" email, any outbid email still waiting for this auction is dropped (that email covers it), and the
+  // auction's notifications expire (the latest "You've been outbid" of each loser stays).
   async close(listingId: string): Promise<boolean> {
-    const [row] = await this.prisma.$queryRaw<ClosedRow[]>`
-      UPDATE "Listing" SET
-        "closedAt" = clock_timestamp(),
-        "outcome" = CASE
-          WHEN "highBidderId" IS NULL THEN 'NO_BIDS'::"ListingOutcome"
-          WHEN "reservePriceCents" IS NOT NULL AND "currentBidCents" < "reservePriceCents" THEN 'NO_SALE'::"ListingOutcome"
-          ELSE 'SOLD'::"ListingOutcome"
-        END,
-        "winnerId" = CASE WHEN "highBidderId" IS NOT NULL AND ("reservePriceCents" IS NULL OR "currentBidCents" >= "reservePriceCents") THEN "highBidderId" END,
-        "finalPriceCents" = CASE WHEN "highBidderId" IS NOT NULL AND ("reservePriceCents" IS NULL OR "currentBidCents" >= "reservePriceCents") THEN "currentBidCents" END
-      WHERE "id" = ${listingId} AND "status" = 'PUBLISHED' AND "closedAt" IS NULL AND "endsAt" <= clock_timestamp()
-      RETURNING "id", "outcome", "winnerId", "finalPriceCents"`;
+    const row = await this.prisma.$transaction(async (tx) => {
+      const [closed] = await tx.$queryRaw<ClosedRow[]>`
+        UPDATE "Listing" SET
+          "closedAt" = clock_timestamp(),
+          "outcome" = CASE
+            WHEN "highBidderId" IS NULL THEN 'NO_BIDS'::"ListingOutcome"
+            WHEN "reservePriceCents" IS NOT NULL AND "currentBidCents" < "reservePriceCents" THEN 'NO_SALE'::"ListingOutcome"
+            ELSE 'SOLD'::"ListingOutcome"
+          END,
+          "winnerId" = CASE WHEN "highBidderId" IS NOT NULL AND ("reservePriceCents" IS NULL OR "currentBidCents" >= "reservePriceCents") THEN "highBidderId" END,
+          "finalPriceCents" = CASE WHEN "highBidderId" IS NOT NULL AND ("reservePriceCents" IS NULL OR "currentBidCents" >= "reservePriceCents") THEN "currentBidCents" END
+        WHERE "id" = ${listingId} AND "status" = 'PUBLISHED' AND "closedAt" IS NULL AND "endsAt" <= clock_timestamp()
+        RETURNING "id", "outcome", "winnerId", "finalPriceCents"`;
+      if (!closed) return null;
+      await tx.$executeRaw`
+        INSERT INTO "PendingEndEmail" ("id", "userId", "listingId")
+        SELECT gen_random_uuid()::text, b."bidderId", ${listingId} FROM (SELECT DISTINCT "bidderId" FROM "Bid" WHERE "listingId" = ${listingId}) b
+        WHERE b."bidderId" IS DISTINCT FROM ${closed.winnerId}
+        ON CONFLICT ("userId", "listingId") DO NOTHING`;
+      await tx.$executeRaw`DELETE FROM "PendingOutbidEmail" WHERE "listingId" = ${listingId}`;
+      await tx.$executeRaw`
+        UPDATE "Notification" SET "expiresAt" = LEAST("expiresAt", clock_timestamp())
+        WHERE "listingId" = ${listingId} AND ("type" <> 'OUTBID' OR "userId" IS NOT DISTINCT FROM ${closed.winnerId})`;
+      return closed;
+    });
     if (!row) return false;
     this.events.publish({ type: "AuctionClosed", listingId: row.id, outcome: row.outcome, winnerId: row.winnerId, finalPriceCents: row.finalPriceCents });
     return true;

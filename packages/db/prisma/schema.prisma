@@ -208,6 +208,21 @@ model PendingOutbidEmail {
   @@index([dueAt])
 }
 
+// The "auction ended, you did not win" email a bidder is owed, one per person and auction. It is written in the same
+// transaction that closes the auction, so closing and owing the emails cannot come apart, and a sweeper sends what is
+// due with the same lease as PendingOutbidEmail. Plain ids and no relations.
+model PendingEndEmail {
+  id        String   @id @default(cuid())
+  userId    String
+  listingId String
+  dueAt     DateTime @default(now())
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, listingId])
+  @@index([dueAt])
+}
+
 enum NotificationType {
   OUTBID
   AUCTION_EXTENDED
