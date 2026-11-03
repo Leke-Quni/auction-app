@@ -265,6 +265,8 @@ describe("Questions", () => {
       await waitFor(() => expect(actions.reportAction).toHaveBeenCalledWith("L1", "q", "QUESTION", "ABUSE"), { timeout: 3000 });
       expect((await screen.findByRole("status", {}, { timeout: 3000 })).textContent).toContain("Thanks");
 
+      // The menus stay disabled until the first report has finished.
+      await waitFor(() => expect((screen.getByRole("button", { name: "Answer actions" }) as HTMLButtonElement).disabled).toBe(false));
       pickReport("Answer actions");
       fireEvent.click(screen.getByRole("button", { name: "Send report" }));
       await waitFor(() => expect(actions.reportAction).toHaveBeenCalledWith("L1", "q", "ANSWER", "SPAM"), { timeout: 3000 }); // the first reason is the default
