@@ -1,15 +1,13 @@
 "use client";
 
 import type { AuctionExtendedEvent, BidPlacedEvent } from "@auction/shared";
-import { SOCKET_EVENTS } from "@auction/shared";
+import { BID_HISTORY_SHOWN, SOCKET_EVENTS } from "@auction/shared";
 import { useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useState } from "react";
 import { useStore } from "zustand";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { openRealtime } from "@/lib/realtime";
 import type { BidRow } from "./bid-history";
-
-const HISTORY_SHOWN = 20;
 
 export interface LiveSnapshot {
   currentBidCents: number | null;
@@ -48,7 +46,7 @@ export function createLiveStore(initial: LiveSnapshot): StoreApi<LiveState> {
         endsAt: event.endsAt,
         extensionCount: event.extensionCount,
         serverTime: event.serverTime,
-        bids: [row, ...state.bids.filter((b) => b.id !== row.id)].slice(0, HISTORY_SHOWN),
+        bids: [row, ...state.bids.filter((b) => b.id !== row.id)].slice(0, BID_HISTORY_SHOWN),
       });
     },
     applyExtended: (event) => {

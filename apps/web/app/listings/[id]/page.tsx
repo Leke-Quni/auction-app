@@ -1,3 +1,4 @@
+import { BID_HISTORY_SHOWN } from "@auction/shared";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Gallery } from "@/app/gallery";
@@ -19,7 +20,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
   const viewerId = session?.user.id;
 
   const published = listing.status === "PUBLISHED";
-  const historyRes = published ? await apiFetch(`/listings/${id}/bids?limit=20`) : null;
+  const historyRes = published ? await apiFetch(`/listings/${id}/bids?limit=${BID_HISTORY_SHOWN}`) : null;
   const history: { items: BidRow[]; total: number } = historyRes?.ok ? await historyRes.json() : { items: [], total: 0 };
 
   // What the viewer sees once the auction is open. The page works out upcoming, live and ended itself as time passes.
