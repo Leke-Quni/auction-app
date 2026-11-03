@@ -92,14 +92,10 @@ export class BidsService {
     const attempt = { userId: bidderId, listingId, amountCents: input.amountCents, ip };
     let result: BidResult;
     try {
-      try {
-        await this.checkRate(bidderId, ip);
-      } catch (error) {
-        // A retry of a bid that already went through is answered even over the limit, so the bidder can always find out.
-        const limited = error instanceof HttpException && (error.getResponse() as { code?: string }).code === "RATE_LIMITED";
-        const earlier = limited && (await this.prisma.bid.findUnique({ where: { bidderId_idempotencyKey: { bidderId, idempotencyKey: input.idempotencyKey } }, select: { id: true } }));
-        if (!earlier) throw error;
-      }
+      // A retry of a bid that already went through is answered without counting against the limits, so a bidder on a poor
+      // connection can always find out and a genuine new bid is not refused because of the retries.
+      const earlier = await this.prisma.bid.findUnique({ where: { bidderId_idempotencyKey: { bidderId, idempotencyKey: input.idempotencyKey } }, select: { id: true } });
+      if (!earlier) await this.checkRate(bidderId, ip);
       result = await this.prisma.$transaction(
         async (tx) => {
           const [listing] = await tx.$queryRaw<LockedListing[]>`
