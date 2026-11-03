@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { AuctionsModule } from "./auctions/auctions.module";
 import { AuthModule } from "./auth/auth.module";
 import { BidsModule } from "./bids/bids.module";
 import { DbModule } from "./db/db.module";
@@ -13,7 +14,7 @@ import { SearchModule } from "./search/search.module";
 import { UsersModule } from "./users/users.module";
 
 @Module({
-  imports: [DbModule, RateLimitModule, EmailModule, SearchModule, AuthModule, UsersModule, ListingsModule, BidsModule, NotificationsModule, QuestionsModule, RealtimeModule],
+  imports: [DbModule, RateLimitModule, EmailModule, SearchModule, AuthModule, UsersModule, ListingsModule, BidsModule, AuctionsModule, NotificationsModule, QuestionsModule, RealtimeModule],
   controllers: [HealthController],
 })
 export class AppModule {}

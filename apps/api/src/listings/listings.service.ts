@@ -32,6 +32,7 @@ const listingInclude = {
   category: true,
   seller: { select: { id: true, username: true } },
   highBidder: { select: { id: true, username: true } },
+  winner: { select: { id: true, username: true } },
   images: { orderBy: { position: "asc" } },
 } satisfies PrismaTypes.ListingInclude;
 
@@ -59,6 +60,11 @@ const toDto = (l: ListingRow, now = new Date()) => ({
   bidCount: l.bidCount,
   minimumNextBidCents: minimumNextBidCents(l),
   highBidder: l.highBidder,
+  // Null until the close job has run for an ended auction.
+  closedAt: l.closedAt,
+  outcome: l.outcome,
+  winner: l.winner,
+  finalPriceCents: l.finalPriceCents,
   startsAt: l.startsAt,
   endsAt: l.endsAt,
   publishedAt: l.publishedAt,

@@ -29,6 +29,7 @@ model User {
   emailChange         EmailChange?
   listings            Listing[]            @relation("ListingSeller")
   leadingListings     Listing[]            @relation("ListingHighBidder")
+  wonListings         Listing[]            @relation("ListingWinner")
   bids                Bid[]
   notifications       Notification[]
   questions           Question[]
@@ -112,6 +113,13 @@ model Listing {
   extensionCount     Int              @default(0)
   highBidderId       String?
   highBidder         User?            @relation("ListingHighBidder", fields: [highBidderId], references: [id], onDelete: Restrict)
+  // Set once, when the auction is closed after its end time (slice 5). `outcome` says how it ended; `winnerId` and
+  // `finalPriceCents` are only set for a sale.
+  closedAt           DateTime?
+  outcome            ListingOutcome?
+  winnerId           String?
+  winner             User?            @relation("ListingWinner", fields: [winnerId], references: [id], onDelete: Restrict)
+  finalPriceCents    Int?
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
   images             ListingImage[]
@@ -123,6 +131,14 @@ model Listing {
   @@index([sellerId])
   @@index([categoryId])
   @@index([highBidderId])
+  @@index([winnerId])
+  @@index([status, closedAt, endsAt])
+}
+
+enum ListingOutcome {
+  SOLD
+  NO_SALE
+  NO_BIDS
 }
 
 model ListingImage {

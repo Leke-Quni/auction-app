@@ -21,6 +21,21 @@ export interface DetailsListing {
   reservePriceCents: number | null;
   durationDays: number;
   startsAt: string | null;
+  // Set once the auction has been closed, a moment after it ends.
+  outcome: "SOLD" | "NO_SALE" | "NO_BIDS" | null;
+  winner: { id: string; username: string } | null;
+  finalPriceCents: number | null;
+}
+
+const RESULT_CHECK_MS = 10_000;
+
+function resultText(listing: DetailsListing, viewerId?: string): string {
+  if (listing.outcome === "SOLD" && listing.winner && listing.finalPriceCents != null) {
+    return `Sold for ${formatEur(listing.finalPriceCents)} to ${listing.winner.id === viewerId ? `${listing.winner.username} (you)` : listing.winner.username}`;
+  }
+  if (listing.outcome === "NO_SALE") return "Not sold: the reserve price was not met";
+  if (listing.outcome === "NO_BIDS") return "Not sold: there were no bids";
+  return "Closing the auction...";
 }
 
 // setTimeout cannot wait longer than this (about 24.8 days); a longer wait is split into several.
@@ -56,6 +71,14 @@ export function LiveDetails({ listing, openMode, viewerId }: { listing: DetailsL
   const live = useLive((s) => s);
   const phase = usePhase(listing.phase, listing.startsAt, live.endsAt, live.serverTime);
   const isLive = phase === "live";
+  // The result is saved a moment after the end, so ask for the page again until it is there.
+  const router = useRouter();
+  const awaitingResult = phase === "ended" && listing.outcome === null;
+  useEffect(() => {
+    if (!awaitingResult) return;
+    const timer = setInterval(() => router.refresh(), RESULT_CHECK_MS);
+    return () => clearInterval(timer);
+  }, [awaitingResult, router]);
   // Being the high bidder changes as bids arrive; the rest is settled by the server and the clock.
   const bidMode: BidMode | null =
     openMode === null || phase === "draft"
@@ -103,6 +126,7 @@ export function LiveDetails({ listing, openMode, viewerId }: { listing: DetailsL
         ] as [string, React.ReactNode][])
       : []),
     ["Status", PHASE_LABELS[phase]],
+    ...(phase === "ended" ? ([["Result", <span key="r" className="font-bold">{resultText(listing, viewerId)}</span>]] as [string, React.ReactNode][]) : []),
   ];
 
   return (
