@@ -30,6 +30,7 @@ model User {
   listings            Listing[]            @relation("ListingSeller")
   leadingListings     Listing[]            @relation("ListingHighBidder")
   bids                Bid[]
+  notifications       Notification[]
 }
 
 model LoginCode {
@@ -113,6 +114,7 @@ model Listing {
   updatedAt          DateTime         @updatedAt
   images             ListingImage[]
   bids               Bid[]
+  notifications      Notification[]
 
   @@index([status, endsAt])
   @@index([sellerId])
@@ -185,4 +187,31 @@ model PendingOutbidEmail {
 
   @@unique([userId, listingId])
   @@index([dueAt])
+}
+
+enum NotificationType {
+  OUTBID
+  AUCTION_EXTENDED
+}
+
+// What a person can read later in the bell: each notice the API pushes live is saved here too. `key` says what the
+// notification is about, and a newer one with the same key replaces the older, so a bidding war leaves one row.
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId String
+  listing   Listing          @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  key       String
+  title     String
+  // The same payload the live notice carried, for showing the details.
+  data      Json
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+  expiresAt DateTime
+
+  @@unique([userId, key])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([expiresAt])
 }

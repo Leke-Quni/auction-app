@@ -11,6 +11,7 @@ export const SOCKET_EVENTS = {
   auctionExtended: "auction:extended",
   outbid: "notice:outbid",
   extendedNotice: "notice:extended",
+  unread: "notifications:unread",
 } as const;
 
 export interface BidPlacedEvent {
@@ -54,4 +55,30 @@ export interface ExtendedNotice {
   extensionCount: number;
   // True when the end time has reached its ceiling: the auction cannot be extended again.
   final: boolean;
+}
+
+// Sent to `user:<id>` after the person's saved notifications change, so the bell can show the count without asking.
+export interface UnreadEvent {
+  unreadCount: number;
+}
+
+// Saved notifications live this long, and the bell lists this many.
+export const NOTIFICATION_TTL_DAYS = 14;
+export const NOTIFICATION_LIST_SIZE = 20;
+
+interface NotificationBase {
+  id: string;
+  listingId: string;
+  title: string;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export type NotificationItem =
+  | (NotificationBase & { type: "OUTBID"; data: OutbidNotice })
+  | (NotificationBase & { type: "AUCTION_EXTENDED"; data: ExtendedNotice });
+
+export interface NotificationList {
+  items: NotificationItem[];
+  unreadCount: number;
 }
