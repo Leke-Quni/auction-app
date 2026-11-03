@@ -31,6 +31,8 @@ model User {
   leadingListings     Listing[]            @relation("ListingHighBidder")
   bids                Bid[]
   notifications       Notification[]
+  questions           Question[]
+  questionVotes       QuestionVote[]
 }
 
 model LoginCode {
@@ -115,6 +117,7 @@ model Listing {
   images             ListingImage[]
   bids               Bid[]
   notifications      Notification[]
+  questions          Question[]
 
   @@index([status, endsAt])
   @@index([sellerId])
@@ -176,14 +179,14 @@ model BidAudit {
 // An outbid email waiting to be sent, one per person and auction. Waiting lets a bidding war collapse into one email
 // (or none, if they bid again or are watching); bidding again deletes the row. Plain ids and no relations, like BidAudit; a sweeper sends what is due.
 model PendingOutbidEmail {
-  id          String   @id @default(cuid())
-  userId      String
-  listingId   String
-  dueAt       DateTime
+  id        String   @id @default(cuid())
+  userId    String
+  listingId String
+  dueAt     DateTime
   // How many times a send has been started. A send claims the row by moving dueAt out (a lease) and deletes it only
   // once the email has gone, so a failed or interrupted send is tried again.
-  attempts    Int      @default(0)
-  createdAt   DateTime @default(now())
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
 
   @@unique([userId, listingId])
   @@index([dueAt])
@@ -214,4 +217,74 @@ model Notification {
   @@unique([userId, key])
   @@index([userId, createdAt(sort: Desc)])
   @@index([expiresAt])
+}
+
+// A public question on a listing, with the seller's answer once there is one. A deleted question stays as a gap
+// (deletedAt set) so the page can say it was deleted, and its text is not shown.
+model Question {
+  id         String    @id @default(cuid())
+  listingId  String
+  listing    Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  // Null once the asker's account is gone: the question stays for the seller's answer, but its text is no longer shown.
+  askerId    String?
+  asker      User?     @relation(fields: [askerId], references: [id], onDelete: SetNull)
+  body       String
+  createdAt  DateTime  @default(now())
+  deletedAt  DateTime?
+  answer     String?
+  answeredAt DateTime?
+  // Set when the asker changes their question or the seller changes their answer.
+  editedAt       DateTime?
+  answerEditedAt DateTime?
+
+  votes QuestionVote[]
+
+  @@index([listingId, createdAt(sort: Desc)])
+  @@index([askerId])
+}
+
+enum QuestionLogAction {
+  CREATED
+  EDITED
+  DELETED
+}
+
+// Every question and answer as it was written, every edit (with the text before it) and every deletion, kept for the
+// admin app. It has no foreign keys on purpose: the record outlives the question, the listing and the account.
+model QuestionLog {
+  id           String            @id @default(cuid())
+  questionId   String
+  listingId    String
+  target       VoteTarget
+  action       QuestionLogAction
+  actorId      String?
+  // The text after the change (for a deletion, the text that was deleted).
+  body         String
+  previousBody String?
+  createdAt    DateTime          @default(now())
+
+  @@index([questionId, createdAt])
+  @@index([listingId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+enum VoteTarget {
+  QUESTION
+  ANSWER
+}
+
+// A like (liked) or dislike (not liked) on a question or on its answer. One per person and target; changing a vote
+// rewrites the row and taking it back deletes it.
+model QuestionVote {
+  id         String     @id @default(cuid())
+  questionId String
+  question   Question   @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  target     VoteTarget
+  liked      Boolean
+  createdAt  DateTime   @default(now())
+
+  @@unique([questionId, userId, target])
+  @@index([userId])
 }

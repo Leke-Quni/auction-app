@@ -1,5 +1,5 @@
-import { BID_HISTORY_SHOWN } from "@auction/shared";
 import Link from "next/link";
+import { BID_HISTORY_SHOWN, type QuestionItem } from "@auction/shared";
 import { notFound } from "next/navigation";
 import { Gallery } from "@/app/gallery";
 import { auth } from "@/auth";
@@ -8,6 +8,7 @@ import type { BidRow } from "./bid-history";
 import type { BidMode } from "./bid-panel";
 import { LiveAuction, type LiveSnapshot } from "./live-auction";
 import { LiveDetails, LiveHistory } from "./live-details";
+import { Questions } from "./questions";
 
 export default async function ListingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -22,6 +23,9 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
   const published = listing.status === "PUBLISHED";
   const historyRes = published ? await apiFetch(`/listings/${id}/bids?limit=${BID_HISTORY_SHOWN}`) : null;
   const history: { items: BidRow[]; total: number } = historyRes?.ok ? await historyRes.json() : { items: [], total: 0 };
+
+  const questionsRes = published ? await (session ? authedApiFetch : apiFetch)(`/listings/${id}/questions`) : null;
+  const questions: { items: QuestionItem[]; total: number } = questionsRes?.ok ? await questionsRes.json() : { items: [], total: 0 };
 
   // What the viewer sees once the auction is open. The page works out upcoming, live and ended itself as time passes.
   const openMode: BidMode | null = !published
@@ -71,6 +75,16 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
         <h2 className="mb-1 text-sm font-bold">Description</h2>
         <p className="whitespace-pre-wrap">{listing.description}</p>
       </div>
+      {published && (
+        <Questions
+          listingId={listing.id}
+          items={questions.items}
+          total={questions.total}
+          viewerId={viewerId}
+          isSeller={isOwner}
+          open={listing.phase !== "ended"}
+        />
+      )}
     </div>
   );
 }
