@@ -1,46 +1,55 @@
 # Remaining work
 
-Written 2026-11-02, at the end of slice 4. `docs/DESIGN.md` is the source of truth for every decision; this file lists what is still to do, in the order to do it, plus the working rules and repo how-tos that used to live in the slice 4 handoff.
+Updated 2026-11-04, partway through slice 5. `docs/DESIGN.md` is the source of truth for every decision; this file lists what is still to do, in the order to do it, plus the working rules and repo how-tos.
 
 ## Where things stand
-Slice 4 (bidding and realtime) meets its done-criteria and is committed on branch `slice-4-bidding` (nothing pushed, nothing merged to `main`). Built: bidding with the minimum rule and a confirm step, live updates over WebSocket, anti-sniping (2-minute window and extension, 24-hour ceiling), outbid toasts and delayed outbid emails, rate limits and audit log, login-code cooldown, live search sync, seeded bids and a bot bidder. Slices 1 to 3 are done.
+Slices 1 to 4b are done and merged to `main` (PR #11). Slice 5 (auction close and payment) is in progress on branch `slice-5-close`, cut from `origin/main`. Steps 1 to 3 are committed locally and **not pushed**:
+- `9bbe411` Step 1: an idempotent close (`AuctionCloseService`, sweep at start-up and every 10 seconds) sets `closedAt`, `outcome` (`SOLD`, `NO_SALE`, `NO_BIDS`), winner and final price; the listing page shows the result.
+- `9804b15` Step 2: every bidder who did not win gets one "auction ended" email (`PendingEndEmail`, leased rows with 3 tries); the auction's notifications expire at close; waiting outbid emails are dropped at close.
+- `a13cd7a` Step 3: an `Order` for the winner (5% fee, 48 hours to pay), a "you won: pay now" email, the `PaymentProvider` interface with an in-memory fake, the order API (`/orders`), the pay-now page `/orders/[id]` and a test checkout page, the pay prompt in the bid panel, and a "You won the auction" toast.
+All checks passed at the last full run (lint, typecheck, 322 API, 241 web, 87 shared tests). Decisions taken with the owner this slice are recorded in `DESIGN.md` section 7: fee 5% and payout 3 days after delivery, strikes never expire (admin clears them), runner-up is offered the item at their own bid only if it meets the reserve, and QStash comes last.
 
-## 1. Left over from slice 4
-- **Database connection pool and timeouts.** `packages/db/src/index.ts` uses the default pool, and a bid waits up to 15 seconds for the row lock. Set an explicit pool size, then test a burst of bids on one hot auction to check that other requests still get through (pool starvation).
-- **Sockets after a token expires or a user is banned.** The sign-in token is checked only when a socket connects, so an old socket keeps its private room. Handle this with the admin slice, together with the "role freshness" decision below.
-- **Settings only the owner can set for the deployed apps:**
-  - Fly API: `REDIS_URL` pointing at the Upstash Redis (`fly secrets set REDIS_URL=...`). `TRUST_PROXY=1` is already in `apps/api/fly.toml`.
-  - Vercel web app: `NEXT_PUBLIC_API_URL` set to the Fly address.
-  - Deployed environments have no search until Typesense is hosted (bidding does not need it).
-- **Merge** `slice-4-bidding` into `main` when the owner is ready (the owner decides when to push or merge).
-- **Playwright end-to-end tests** (sign up, list, bid, win, pay) are in the quality plan (`DESIGN.md` section 6) and not started. The "win and pay" part needs slice 5.
+## 1. Rest of slice 5 (one step at a time; stop after each for the owner to test)
+### Step 4: Stripe test mode
+- Read Stripe's API documentation first (owner rule). Add `stripe` to `apps/api`; write `StripePaymentProvider` (Checkout Session with `success_url` `/orders/:id?paid=1`, which the order page already confirms; webhook with signature check, idempotent on the event id; `confirm`, `refund`, `payout`). Choose the provider in `PaymentsModule` from the environment: Stripe with `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, otherwise the fake, as mail falls back to the console. Add the variables to `.env.example`.
+- **Needs from the owner:** a Stripe account with test-mode keys (no card needed for test mode) and the Stripe CLI for `stripe listen` while testing by hand. Stripe availability in Kosovo, Albania and North Macedonia is unverified; the interface keeps it swappable.
+- Tests: unit tests with a mocked Stripe client; try a real test card by hand.
 
-## 2. Slice 4b: contacting the seller (next, by the owner's choice)
-Done-criteria are in `DESIGN.md` section 8. Both public questions and answers on the listing and private buyer-seller threads with an inbox. It also builds the **in-app notification list** the owner asked for:
-- Saved notifications (the API writes one when it creates a notice; the toast becomes the live display of a saved one), an unread count, mark as read, and clicking one opens its listing.
-- They expire after a few days; when an auction is completed its notifications expire too, except the latest "You've been outbid" one.
-- Reuse the toast component (`apps/web/app/notifications.tsx`), the private `user:<id>` room and `NotificationsService` (`apps/api/src/realtime/`).
-- Open decisions to settle when the slice starts (listed in `DESIGN.md` section 7): who may start a private thread, editing and deleting, a length limit, whether threads continue after the auction ends, whether a seller can turn questions off, blocking and reports, and stopping contact-detail swaps. Also the number of days notifications live and the layout.
+### Step 5: payment expiry, runner-up offer and strikes
+- Sweep orders that are `AWAITING_PAYMENT` and past `payBy` (index `Order(status, payBy)` exists). In one transaction: mark `EXPIRED`, add a strike (new `Strike` table: user, listing, createdAt; never expires), then offer the item to the next distinct bidder whose own highest bid meets the reserve (new `Order` with `round + 1`, new 48 hours, a "you won: pay now" email via `PendingEndEmail` kind `WON`, and the winner toast). If nobody qualifies, the listing becomes `NO_SALE`.
+- Bid gate: two strikes refuse bids with a new `BLOCKED` code (`packages/shared/src/bids.ts`, `BID_REFUSAL_MESSAGES`, `REFUSAL_STATUS` in `bids.service.ts`), shown in the bid panel.
+- Tell the non-payer (email) and the seller what happened. Tests: expiry runs once under duplicate sweeps, a strike is counted once, a runner-up below the reserve is skipped, the chain ends in `NO_SALE`, a blocked user is refused.
+- Check how the `LOST` emails and notifications treat the runner-up (they already got "you did not win" when the auction closed; the offer is a new email).
 
-## 3. Slice 5: auction close and payment
-Done-criteria are in `DESIGN.md` section 8. Things to carry in from slice 4:
-- The close job (QStash, idempotent, plus a periodic sweep) must also **send every bidder who was outbid an "auction ended, you did not win" email** with the final price. A long bidding war otherwise leaves people with one early email and no result.
-- Replace the outbid-email sweeper (`PendingOutbidEmail`, `NotificationsService.sweep`) with a QStash delayed message; the rules stay the same.
-- Move the search sync and the emails onto the transactional outbox, as the design plans.
-- Strike lifecycle and platform fee percentage are open decisions (below). Reserve not met means no sale and a one-click relist.
-- Note: when this slice starts closing auctions, check how it treats the anti-sniping ceiling (`extensionCeiling` in `packages/shared`).
+### Step 6: one-click relist
+- A seller action on a `NO_SALE` or `NO_BIDS` listing creates a new draft with the same details and photos through the existing listing service (the old listing stays as the record). A button on the closed listing page, for the seller only.
 
-## 4. Slice 6: shipping, notifications, admin
-Done-criteria are in `DESIGN.md` section 8 (fake shipping, watchlist and "ending soon" emails, seller ratings, `apps/admin` with moderation and the reports queue behind the `ADMIN` role). Decide the **role freshness** question first (how the API gets a current role so a demoted admin or banned user loses access), and choose the admin theme.
+### Step 7: QStash
+- Put scheduling behind a `JobScheduler` interface with the current sweep as the in-process implementation and a QStash one: a delayed message per auction to a signed `POST /jobs/close/:id` (verify the Upstash signature with the two signing keys), rescheduled when the auction is extended (`AuctionExtended`); the sweep stays as the safety net. Use it for the 48-hour order expiry too. Needs an Upstash account (free tier) and the QStash dev server or a tunnel for local testing; document how.
+- Replace the outbid-email sweeper with a QStash delayed message only if it stays small; otherwise keep the leased rows and record that in `DESIGN.md`. A full transactional outbox is not planned: leased rows are used instead.
+- On the Fly trial the machine stops every 5 minutes, so an auction that ends while it is stopped closes at the next start. QStash would wake the machine at the end time.
 
-## 5. Open decisions still to make (from `DESIGN.md` section 7)
+### Housekeeping for slice 5
+- Update `DESIGN.md` section 7 with each step as it lands (done for steps 1 to 3). When the slice is finished, check that section 3 (close and payment) still matches what was built.
+- Known small gaps, all noted in `DESIGN.md`: the unread count on an open page is not pushed when notifications expire; the won toast is not saved to the bell; sales that closed before orders existed have no order; sample users' `@seed.local` addresses would be emailed (and fail) if a real Resend key is set.
+- Push `slice-5-close` and open a PR when the owner asks (nothing is pushed yet). Local `main` still holds the old slice 4b commits and should be reset to `origin/main` once the owner agrees.
+
+## 2. Left over from earlier slices
+- **Database connection pool and timeouts.** `packages/db/src/index.ts` uses the default pool, and a bid waits up to 15 seconds for the row lock. Set an explicit pool size, then test a burst of bids on one hot auction to check that other requests still get through.
+- **Sockets after a token expires or a user is banned.** The sign-in token is checked only when a socket connects, so an old socket keeps its private room. Handle this with the admin slice and the role freshness decision below.
+- **Settings only the owner can set for the deployed apps:** Fly API `REDIS_URL` (Upstash) via `fly secrets set`; Vercel `NEXT_PUBLIC_API_URL` set to the Fly address; later `STRIPE_*` and QStash keys. Deployed environments search Postgres until Typesense is hosted.
+- **Playwright end-to-end tests** (sign up, list, bid, win, pay) are in the quality plan (`DESIGN.md` section 6) but not in the repo. A browser test of sign up, bid and live outbid was written and passed during slice 4 review, then removed at the owner's request. Add one when the pay step works end to end (after step 4).
+
+## 3. Slice 6: shipping, notifications, admin
+Done-criteria are in `DESIGN.md` section 8 (fake shipping, watchlist and "ending soon" emails, seller ratings, `apps/admin` with moderation and the reports queue behind the `ADMIN` role). Decide **role freshness** first (how the API gets a current role so a demoted admin or banned user loses access), and choose the admin theme. The admin app also reads `QuestionLog` and `Report`, clears strikes, and handles reports (handled reports are deleted by the clean-up 30 days later). Shipping releases the seller payout (`PaymentProvider.payout`, 3 days after delivery).
+
+## 4. Open decisions still to make (from `DESIGN.md` section 7)
 - Query library for server data: React Query or SWR.
 - Role freshness (see slice 6).
 - Username squatting: a cleanup rule for stale unverified accounts, before launch.
-- Platform fee percentage and the delay before seller payout.
-- Strike lifecycle (expiry, appeals).
-- Email sending through QStash instead of directly (slices 4b and 5); Resend's sandbox sender only delivers to the Resend account's own address until a domain is verified.
+- Email sending through QStash instead of directly (see step 7); Resend's sandbox sender only delivers to the Resend account's own address until a domain is verified.
 - Whether to keep `BidAudit` rows for ever (no clean-up exists).
+- Decided this slice, so no longer open: platform fee and payout delay, strike lifecycle, runner-up rule.
 
 ## Working rules (from the owner)
 - **Never commit, push or delete files unless asked.** When asked to commit, make separate commits per piece of work, and end each message with `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
