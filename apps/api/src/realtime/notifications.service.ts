@@ -1,4 +1,4 @@
-import { formatEur, minimumNextBidCents as minimumFor, SOCKET_EVENTS, type ExtendedNotice, type OutbidNotice } from "@auction/shared";
+import { formatEur, minimumNextBidCents as minimumFor, SOCKET_EVENTS, type ExtendedNotice, type OutbidNotice, type UnreadEvent } from "@auction/shared";
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type { Subscription } from "rxjs";
@@ -7,6 +7,7 @@ import type { BidResult } from "../bids/bids.service";
 import { outbidEmailDelaySeconds, outbidEmailQuietSeconds, webUrl } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
+import { SavedNotificationsService, type NewNotification } from "../notifications/saved-notifications.service";
 import { RATE_LIMITER, type RateLimiter } from "../rate-limit/rate-limiter";
 import { RealtimeGateway } from "./realtime.gateway";
 
@@ -35,6 +36,7 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     @Inject(PRISMA) private readonly prisma: Prisma,
     @Inject(MAIL_SENDER) private readonly mail: MailSender,
     @Inject(RATE_LIMITER) private readonly limiter: RateLimiter,
+    private readonly saved: SavedNotificationsService,
   ) {}
 
   private timer?: ReturnType<typeof setInterval>;
@@ -71,6 +73,7 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
         extended: result.extended,
         extensionCount,
       };
+      await this.saveAndTellUnread([outbidId], { type: "OUTBID", key: `outbid:${listingId}`, listingId, title: listing.title, data: notice });
       this.gateway.emitToUsers([outbidId], SOCKET_EVENTS.outbid, notice);
       await this.queueOutbidEmail(outbidId, listingId, endsAt);
     }
@@ -90,7 +93,19 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
         extensionCount,
         final: result.listing.finalChance,
       };
+      await this.saveAndTellUnread(others, { type: "AUCTION_EXTENDED", key: `extended:${listingId}`, listingId, title: listing.title, data: notice });
       this.gateway.emitToUsers(others, SOCKET_EVENTS.extendedNotice, notice);
+    }
+  }
+
+  // Saves the notification for each person and tells their open pages the new unread count. A failure here is logged
+  // and the live toast still goes out.
+  private async saveAndTellUnread(userIds: string[], notification: NewNotification) {
+    try {
+      const unread = await this.saved.save(userIds, notification);
+      for (const [userId, unreadCount] of unread) this.gateway.emitToUsers([userId], SOCKET_EVENTS.unread, { unreadCount } satisfies UnreadEvent);
+    } catch (error) {
+      this.log.error(`Could not save a notification: ${(error as Error).message}`);
     }
   }
 

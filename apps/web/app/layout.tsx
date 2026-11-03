@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
+import type { NotificationList } from "@auction/shared";
 import { auth, signOut } from "@/auth";
+import { authedApiFetch } from "@/lib/api";
 import { loadCategories } from "@/lib/categories";
 import "./globals.css";
+import { NotificationBell } from "./notification-bell";
 import { Notifications } from "./notifications";
 import { SearchBox } from "./search-box";
 import { UserMenu } from "./user-menu";
@@ -13,6 +16,18 @@ export const metadata: Metadata = { title: "Auctionly" };
 // Loaded inside the header's Suspense, so a slow API never holds up the rest of the page.
 async function HeaderSearch() {
   return <SearchBox categories={await loadCategories()} />;
+}
+
+// The bell starts with the person's latest notifications. Loaded inside a Suspense so a slow API never holds up the page.
+async function HeaderBell() {
+  let initial: NotificationList | null = null;
+  try {
+    const res = await authedApiFetch("/notifications");
+    if (res.ok) initial = await res.json();
+  } catch {
+    // The bell then loads its list when it is opened.
+  }
+  return <NotificationBell initial={initial} />;
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -29,13 +44,18 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </Suspense>
           <div className="ml-auto flex items-center justify-end gap-4 whitespace-nowrap sm:col-start-3">
             {session ? (
-              <UserMenu
-                username={session.user.name ?? ""}
-                signOutAction={async () => {
-                  "use server";
-                  await signOut({ redirectTo: "/" });
-                }}
-              />
+              <>
+                <Suspense fallback={<div className="h-8 w-8" />}>
+                  <HeaderBell />
+                </Suspense>
+                <UserMenu
+                  username={session.user.name ?? ""}
+                  signOutAction={async () => {
+                    "use server";
+                    await signOut({ redirectTo: "/" });
+                  }}
+                />
+              </>
             ) : (
               <>
                 <Link href="/sign-in">Sign in</Link>

@@ -30,6 +30,9 @@ model User {
   listings            Listing[]            @relation("ListingSeller")
   leadingListings     Listing[]            @relation("ListingHighBidder")
   bids                Bid[]
+  notifications       Notification[]
+  questions           Question[]
+  questionVotes       QuestionVote[]
 }
 
 model LoginCode {
@@ -113,6 +116,8 @@ model Listing {
   updatedAt          DateTime         @updatedAt
   images             ListingImage[]
   bids               Bid[]
+  notifications      Notification[]
+  questions          Question[]
 
   @@index([status, endsAt])
   @@index([sellerId])
@@ -174,15 +179,150 @@ model BidAudit {
 // An outbid email waiting to be sent, one per person and auction. Waiting lets a bidding war collapse into one email
 // (or none, if they bid again or are watching); bidding again deletes the row. Plain ids and no relations, like BidAudit; a sweeper sends what is due.
 model PendingOutbidEmail {
-  id          String   @id @default(cuid())
-  userId      String
-  listingId   String
-  dueAt       DateTime
+  id        String   @id @default(cuid())
+  userId    String
+  listingId String
+  dueAt     DateTime
   // How many times a send has been started. A send claims the row by moving dueAt out (a lease) and deletes it only
   // once the email has gone, so a failed or interrupted send is tried again.
-  attempts    Int      @default(0)
-  createdAt   DateTime @default(now())
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
 
   @@unique([userId, listingId])
   @@index([dueAt])
+}
+
+enum NotificationType {
+  OUTBID
+  AUCTION_EXTENDED
+  QUESTION_ASKED
+  QUESTION_ANSWERED
+}
+
+// What a person can read later in the bell: each notice the API pushes live is saved here too. `key` says what the
+// notification is about, and a newer one with the same key replaces the older, so a bidding war leaves one row.
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId String
+  listing   Listing          @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  key       String
+  title     String
+  // The same payload the live notice carried, for showing the details.
+  data      Json
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+  expiresAt DateTime
+
+  @@unique([userId, key])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([expiresAt])
+}
+
+// A public question on a listing, with the seller's answer once there is one. A deleted question stays as a gap
+// (deletedAt set) so the page can say it was deleted, and its text is not shown.
+model Question {
+  id         String    @id @default(cuid())
+  listingId  String
+  listing    Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  // Null once the asker's account is gone: the question stays for the seller's answer, but its text is no longer shown.
+  askerId    String?
+  asker      User?     @relation(fields: [askerId], references: [id], onDelete: SetNull)
+  body       String
+  createdAt  DateTime  @default(now())
+  deletedAt  DateTime?
+  answer     String?
+  answeredAt DateTime?
+  // Set when the asker changes their question or the seller changes their answer.
+  editedAt       DateTime?
+  answerEditedAt DateTime?
+
+  votes QuestionVote[]
+
+  @@index([listingId, createdAt(sort: Desc)])
+  @@index([askerId])
+}
+
+enum ReportReason {
+  SPAM
+  ABUSE
+  CONTACT_DETAILS
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  HANDLED
+}
+
+// A question or answer someone reported, or that the site flagged itself for sharing an email address or phone number.
+// It keeps the words as they were and has no foreign keys, so it outlives the post, the listing and the accounts until a
+// moderator has dealt with it. The admin app (slice 6) works through the OPEN ones.
+model Report {
+  id         String       @id @default(cuid())
+  questionId String
+  listingId  String
+  target     VoteTarget
+  // Null for a report the site raised itself.
+  reporterId String?
+  reason     ReportReason
+  // When the reported post was written (the question's creation, or the answer's answeredAt), so a replacement answer can be
+  // reported again by someone who reported the one before it.
+  postedAt   DateTime     @default(now())
+  body       String
+  status     ReportStatus @default(OPEN)
+  createdAt  DateTime     @default(now())
+  handledAt  DateTime?
+
+  @@unique([questionId, target, reporterId, postedAt])
+  @@index([status, createdAt])
+  @@index([listingId])
+}
+
+enum QuestionLogAction {
+  CREATED
+  EDITED
+  DELETED
+}
+
+// Every question and answer as it was written, every edit (with the text before it) and every deletion, kept for the
+// admin app. It has no foreign keys on purpose: the record outlives the question, the listing and the account.
+model QuestionLog {
+  id           String            @id @default(cuid())
+  questionId   String
+  listingId    String
+  target       VoteTarget
+  action       QuestionLogAction
+  actorId      String?
+  // The text after the change (for a deletion, the text that was deleted).
+  body         String
+  previousBody String?
+  createdAt    DateTime          @default(now())
+
+  @@index([questionId, createdAt])
+  @@index([listingId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+enum VoteTarget {
+  QUESTION
+  ANSWER
+}
+
+// A like (liked) or dislike (not liked) on a question or on its answer. One per person and target; changing a vote
+// rewrites the row and taking it back deletes it.
+model QuestionVote {
+  id         String     @id @default(cuid())
+  questionId String
+  question   Question   @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  target     VoteTarget
+  liked      Boolean
+  createdAt  DateTime   @default(now())
+
+  @@unique([questionId, userId, target])
+  @@index([userId])
 }

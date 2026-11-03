@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 // The minimum rise is the larger of €1 and 5% of the current bid. The 5% is a config value.
+// How many of the latest bids the listing page shows (the highest, which are also the most recent).
+export const BID_HISTORY_SHOWN = 5;
 export const MIN_BID_INCREMENT_CENTS = 100;
 export const BID_INCREMENT_PERCENT = 5;
 

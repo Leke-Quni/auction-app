@@ -14,6 +14,7 @@ vi.mock("@/lib/realtime", () => ({
 vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
 vi.mock("./listings/[id]/bid-actions", () => ({ placeBidAction: (...args: unknown[]) => placeBidAction(...args) }));
 
+import { useNotificationStore } from "@/lib/notification-store";
 import { Notifications } from "./notifications";
 
 const outbid: OutbidNotice = {
@@ -46,6 +47,21 @@ afterEach(() => {
 });
 
 describe("Notifications", () => {
+  it("shows a toast for a new question and for an answer, each linking to the listing", () => {
+    render(<Notifications />);
+    const notice = { listingId: "l3", questionId: "q1", title: "Old watch", from: "sam", excerpt: "Does it run?" };
+    push("notice:question", notice);
+    expect(screen.getByRole("status").textContent).toContain("New question");
+    expect(screen.getByRole("status").textContent).toContain("sam asked on");
+    expect(screen.getByRole("status").textContent).toContain("Does it run?");
+    expect(screen.getByRole("link", { name: "Old watch" }).getAttribute("href")).toBe("/listings/l3");
+    cleanup();
+    render(<Notifications />);
+    push("notice:answer", { ...notice, from: "seller1", excerpt: "Yes, it does." });
+    expect(screen.getByRole("status").textContent).toContain("Your question was answered");
+    expect(screen.getByRole("status").textContent).toContain("seller1 answered on");
+  });
+
   it("shows nothing until something happens, and closes the connection when it goes away", () => {
     const { container, unmount } = render(<Notifications />);
     expect(container.firstChild).toBeNull();
@@ -193,5 +209,12 @@ describe("Notifications", () => {
     render(<Notifications />);
     push("notice:extended", extended);
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("tells the bell the unread count when the server announces it", () => {
+    render(<Notifications />);
+    push("notifications:unread", { unreadCount: 4 });
+    expect(useNotificationStore.getState().unreadCount).toBe(4);
+    expect(useNotificationStore.getState().stale).toBe(true);
   });
 });

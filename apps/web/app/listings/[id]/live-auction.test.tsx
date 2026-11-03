@@ -65,12 +65,12 @@ describe("live auction store", () => {
     expect(store.getState()).toMatchObject({ bidCount: 3, currentBidCents: 1500 });
   });
 
-  it("keeps only the newest 20 rows", () => {
+  it("keeps only the newest 5 rows", () => {
     const store = createLiveStore({ ...snapshot, bidCount: 0, bids: [] });
     for (let i = 1; i <= 25; i++) {
       store.getState().applyBid(event({ bidCount: i, bid: { id: `b${i}`, amountCents: 1000 + i, createdAt: "2026-11-02T10:01:00.000Z", bidder: { id: "u2", username: "ben" } } }));
     }
-    expect(store.getState().bids).toHaveLength(20);
+    expect(store.getState().bids).toHaveLength(5);
     expect(store.getState().bids[0].id).toBe("b25");
   });
 });

@@ -2,11 +2,14 @@
 
 import Form from "next/form";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { SUGGESTION_MIN_LENGTH } from "@auction/shared";
+import { addRecentSearch, clearRecentSearches, readRecentSearches, removeRecentSearch } from "@/lib/recent-searches";
 import { activeFilterChips, carriedFilters } from "./search/active-filters";
 import { readSearchParams } from "./search/search-params";
 
+const SUGGEST_DELAY_MS = 200;
 const AUTH_PATHS = ["/sign-in", "/sign-up", "/forgot-password", "/reset-password"];
 const isAuthPath = (pathname: string) => AUTH_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 
@@ -14,6 +17,7 @@ const isAuthPath = (pathname: string) => AUTH_PATHS.some((path) => pathname === 
 // and lists them as chips that each remove one filter.
 export function SearchBox({ categories }: { categories: { slug: string; name: string }[] }) {
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const params = pathname === "/search" ? readSearchParams(Object.fromEntries(searchParams)) : {};
   const chips = activeFilterChips(params, categories);
@@ -30,11 +34,105 @@ export function SearchBox({ categories }: { categories: { slug: string; name: st
     return () => observer.disconnect();
   }, []);
 
+  // Under the box while it is focused: the earlier searches made in this browser when it is empty, and titles that match
+  // what is typed so far once there is some text.
+  const [text, setText] = useState(params.q ?? "");
+  const [open, setOpen] = useState(false);
+  const [recent, setRecent] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [active, setActive] = useState(-1);
+  useEffect(() => {
+    setText(params.q ?? "");
+    setOpen(false);
+  }, [params.q]);
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+  const typed = text.trim();
+  // The highlight starts over whenever the list changes or closes.
+  const listKey = `${open}|${typed === ""}|${suggestions.join("\n")}|${recent.join("\n")}`;
+  useEffect(() => setActive(-1), [listKey]);
+  // Asks for suggestions a moment after typing stops, and drops an answer that is no longer for what is in the box.
+  useEffect(() => {
+    if (!open || typed.length < SUGGESTION_MIN_LENGTH) {
+      setSuggestions([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/suggest?q=${encodeURIComponent(typed)}`, { signal: controller.signal });
+        const body = res.ok ? await res.json() : null;
+        setSuggestions(Array.isArray(body?.suggestions) ? body.suggestions : []);
+      } catch {
+        // A failed or cancelled request just means no suggestions.
+      }
+    }, SUGGEST_DELAY_MS);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [open, typed]);
+
   if (isAuthPath(pathname)) return null;
+
+  // Searching with nothing typed and no filter chosen has nothing to look for, so it stays where it is.
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    const text = String(new FormData(event.currentTarget).get("q") ?? "").trim();
+    if (text === "" && carriedFilters(params).length === 0) {
+      event.preventDefault();
+      return;
+    }
+    addRecentSearch(text);
+    setOpen(false);
+  };
+  const chooseSuggestion = (title: string) => {
+    addRecentSearch(title);
+    setText(title);
+    setOpen(false);
+  };
+  const showRecent = open && typed === "" && recent.length > 0;
+  const showSuggestions = open && typed.length >= SUGGESTION_MIN_LENGTH && suggestions.length > 0;
+  const choices = showRecent ? recent : showSuggestions ? suggestions : [];
+  const choose = (title: string) => {
+    chooseSuggestion(title);
+    router.push(`/search?q=${encodeURIComponent(title)}`);
+  };
+  // Up and down move through the list, Enter searches the highlighted one; without a highlight Enter searches the text.
+  const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Enter") return;
+    if (event.key === "Enter") {
+      if (active < 0 || !choices[active]) return;
+      event.preventDefault();
+      choose(choices[active]);
+      return;
+    }
+    event.preventDefault();
+    if (!open) {
+      setRecent(readRecentSearches());
+      setOpen(true);
+      return;
+    }
+    if (choices.length === 0) return;
+    const step = event.key === "ArrowDown" ? 1 : -1;
+    setActive((current) => (current < 0 ? (step === 1 ? 0 : choices.length - 1) : (current + step + choices.length) % choices.length));
+  };
 
   return (
     <div ref={box} className="flex min-w-0 flex-1 flex-col gap-1 sm:w-full">
-      <Form action="/search" className="flex">
+      <Form action="/search" onSubmit={submit} className="relative flex">
         {carriedFilters(params).map(([name, value]) => (
           <input key={name} type="hidden" name={name} value={value} />
         ))}
@@ -46,11 +144,74 @@ export function SearchBox({ categories }: { categories: { slug: string; name: st
           placeholder="Search auctions"
           maxLength={100}
           defaultValue={params.q}
+          autoComplete="off"
+          aria-autocomplete="list"
+          aria-activedescendant={active >= 0 ? `search-choice-${active}` : undefined}
+          onKeyDown={onKeyDown}
+          onFocus={(e) => {
+            setText(e.currentTarget.value);
+            setRecent(readRecentSearches());
+            setOpen(true);
+          }}
+          onChange={(e) => {
+            setText(e.currentTarget.value);
+            setRecent(readRecentSearches());
+            setOpen(true);
+          }}
           className="w-full border border-white bg-white p-1.5 text-sm text-[#222]"
         />
         <button type="submit" className="cursor-pointer border border-white px-3 py-1.5 text-sm font-bold">
           Search
         </button>
+        {showRecent && (
+          <div className="absolute left-0 top-full z-20 mt-1 w-full border border-[#e4e4e4] bg-white text-sm text-[#555] shadow-sm">
+            <div className="flex items-center justify-between px-3 py-1.5 text-xs text-[#999]">
+              <span>Recent searches</span>
+              <button type="button" onClick={() => (setRecent(clearRecentSearches()), setOpen(false))} className="cursor-pointer underline">
+                Clear
+              </button>
+            </div>
+            <ul>
+              {recent.map((item, index) => (
+                <li key={item} id={`search-choice-${index}`} className={`flex items-center hover:bg-[#f7f7f7] ${active === index ? "bg-[#f1f1f1]" : ""}`}>
+                  <Link
+                    href={`/search?q=${encodeURIComponent(item)}`}
+                    onClick={() => chooseSuggestion(item)}
+                    className="min-w-0 flex-1 truncate px-3 py-1.5"
+                  >
+                    {item}
+                  </Link>
+                  <button
+                    type="button"
+                    aria-label={`Forget ${item}`}
+                    onClick={() => {
+                      const list = removeRecentSearch(item);
+                      setRecent(list);
+                      if (list.length === 0) setOpen(false);
+                    }}
+                    className="cursor-pointer px-3 py-1.5 text-[#aaa] hover:text-[#555]"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {showSuggestions && (
+          <div className="absolute left-0 top-full z-20 mt-1 w-full border border-[#e4e4e4] bg-white text-sm text-[#555] shadow-sm">
+            <p className="px-3 py-1.5 text-xs text-[#999]">Suggestions</p>
+            <ul>
+              {suggestions.map((title, index) => (
+                <li key={title} id={`search-choice-${index}`} className={`hover:bg-[#f7f7f7] ${active === index ? "bg-[#f1f1f1]" : ""}`}>
+                  <Link href={`/search?q=${encodeURIComponent(title)}`} onClick={() => chooseSuggestion(title)} className="block truncate px-3 py-1.5">
+                    {title}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </Form>
       {chips.length > 0 && (
         <ul aria-label="Active filters" className="flex flex-wrap gap-1">
