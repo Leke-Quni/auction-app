@@ -10,8 +10,13 @@ import { UserMenu } from "./user-menu";
 
 export const metadata: Metadata = { title: "Auctionly" };
 
+// Loaded inside the header's Suspense, so a slow API never holds up the rest of the page.
+async function HeaderSearch() {
+  return <SearchBox categories={await loadCategories()} />;
+}
+
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const [session, categories] = await Promise.all([auth(), loadCategories()]);
+  const session = await auth();
   return (
     <html lang="en">
       <body className="flex min-h-screen flex-col">
@@ -20,7 +25,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             AUCTIONLY
           </Link>
           <Suspense fallback={<div className="flex-1" />}>
-            <SearchBox categories={categories} />
+            <HeaderSearch />
           </Suspense>
           <div className="ml-auto flex items-center justify-end gap-4 whitespace-nowrap sm:col-start-3">
             {session ? (
