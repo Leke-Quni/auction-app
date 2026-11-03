@@ -4,6 +4,7 @@ import type { Subscription } from "rxjs";
 import { AuctionEvents } from "../bids/auction-events";
 import { webUrl } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { utc } from "../email/format";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
 
 const SWEEP_EVERY_MS = 30_000;
@@ -21,6 +22,7 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
   private timer?: ReturnType<typeof setInterval>;
   private subscription?: Subscription;
   private running?: Promise<void>;
+  private again = false;
 
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
@@ -42,22 +44,31 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
     this.subscription?.unsubscribe();
   }
 
-  // A call while a sweep is under way waits for that sweep instead of starting another.
+  // A call while a sweep is under way makes it go round once more when it finishes (rows written after it started would
+  // otherwise wait for the next timer), and resolves when that is done.
   sweep(): Promise<void> {
-    this.running ??= this.run().finally(() => {
+    this.again = this.running !== undefined;
+    this.running ??= this.loop().finally(() => {
       this.running = undefined;
     });
     return this.running;
+  }
+
+  private async loop() {
+    do {
+      this.again = false;
+      await this.run();
+    } while (this.again);
   }
 
   private async run() {
     try {
       const due = await this.prisma.pendingEndEmail.findMany({ where: { dueAt: { lte: new Date() } }, orderBy: { dueAt: "asc" }, take: 100 });
       for (const candidate of due) {
-        const claimed = await this.prisma.$queryRaw<{ id: string; userId: string; listingId: string; attempts: number }[]>`
+        const claimed = await this.prisma.$queryRaw<{ id: string; userId: string; listingId: string; kind: "LOST" | "WON"; attempts: number }[]>`
           UPDATE "PendingEndEmail" SET "dueAt" = ${new Date(Date.now() + LEASE_MS)}, "attempts" = "attempts" + 1
           WHERE "id" = ${candidate.id} AND "dueAt" <= ${new Date()}
-          RETURNING "id", "userId", "listingId", "attempts"`;
+          RETURNING "id", "userId", "listingId", "kind", "attempts"`;
         const pending = claimed[0];
         if (!pending) continue; // another machine got it
         if (pending.attempts > MAX_ATTEMPTS) {
@@ -66,7 +77,7 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
           continue;
         }
         try {
-          await this.send(pending.userId, pending.listingId);
+          await this.send(pending.userId, pending.listingId, pending.kind);
           await this.prisma.pendingEndEmail.deleteMany({ where: { id: pending.id } });
         } catch (error) {
           this.log.error(`Could not email an auction-ended notice (try ${pending.attempts} of ${MAX_ATTEMPTS}): ${(error as Error).message}`);
@@ -78,17 +89,32 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Returns normally when the email was sent or is no longer needed; throws when it should be tried again.
-  private async send(userId: string, listingId: string) {
+  private async send(userId: string, listingId: string, kind: "LOST" | "WON") {
     const [listing, user] = await Promise.all([
       this.prisma.listing.findUnique({ where: { id: listingId }, select: { title: true, outcome: true, currentBidCents: true, finalPriceCents: true } }),
       this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
     ]);
     if (!listing || !user || !listing.outcome || listing.outcome === "NO_BIDS") return;
+    if (kind === "WON") return this.sendWon(user.email, userId, listingId, listing.title);
     const lines =
       listing.outcome === "SOLD"
         ? [`The auction for "${listing.title}" has ended, and you did not win it.`, "", `Final price: ${formatEur(listing.finalPriceCents ?? listing.currentBidCents ?? 0)}`]
         : [`The auction for "${listing.title}" has ended without a sale, because the reserve price was not met.`, "", `Highest bid: ${formatEur(listing.currentBidCents ?? 0)}`];
     lines.push("", `${webUrl()}/listings/${listingId}`);
     await this.mail.send(user.email, `${listing.title} has ended`, lines.join("\n"));
+  }
+
+  // The winner's email: what they won, what they owe and until when, and the link to pay.
+  private async sendWon(to: string, userId: string, listingId: string, title: string) {
+    const order = await this.prisma.order.findFirst({ where: { listingId, buyerId: userId }, orderBy: { round: "desc" } });
+    if (!order || order.status !== "AWAITING_PAYMENT") return; // already paid, or no longer theirs to pay
+    const lines = [
+      `You won "${title}" with a bid of ${formatEur(order.amountCents)}.`,
+      "",
+      `Please pay by ${utc(order.payBy)}. After that the item may be offered to the next bidder.`,
+      "",
+      `Pay now: ${webUrl()}/orders/${order.id}`,
+    ];
+    await this.mail.send(to, `You won ${title}: pay now`, lines.join("\n"));
   }
 }

@@ -22,6 +22,26 @@ const box = () => screen.getByLabelText("Your bid (€)") as HTMLInputElement;
 const place = () => fireEvent.click(screen.getByRole("button", { name: /^place bid$/i }));
 const confirmBid = async () => fireEvent.click(await screen.findByRole("button", { name: /^confirm bid of/i }));
 
+describe("BidPanel once the auction has ended in a sale", () => {
+  const ended = (order: { viewer: "buyer" | "seller"; status: string }) => <BidPanel listingId="L1" mode="ended" minimumNextBidCents={1100} order={{ id: "o1", amountCents: 3150, ...order }} />;
+
+  it("tells the winner what they owe and links to pay", () => {
+    render(ended({ viewer: "buyer", status: "AWAITING_PAYMENT" }));
+    expect(screen.getByText(/This auction has ended\./)).toBeTruthy();
+    expect(screen.getByText(/You won it for €31\.50/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Pay now" }).getAttribute("href")).toBe("/orders/o1");
+  });
+
+  it("links the winner who has paid, and the seller, to the order", () => {
+    const { rerender } = render(ended({ viewer: "buyer", status: "PAID" }));
+    expect(screen.getByRole("link", { name: "View the order" }).getAttribute("href")).toBe("/orders/o1");
+    expect(screen.queryByRole("link", { name: "Pay now" })).toBeNull();
+    rerender(ended({ viewer: "seller", status: "AWAITING_PAYMENT" }));
+    expect(screen.getByText(/This item sold/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "View the order" })).toBeTruthy();
+  });
+});
+
 describe("BidPanel when you cannot bid", () => {
   it("says why, for each case", () => {
     const { rerender } = render(panel("signed-out"));

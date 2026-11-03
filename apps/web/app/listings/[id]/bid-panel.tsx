@@ -15,7 +15,15 @@ const FAR_ABOVE_TIMES_MINIMUM = 10;
 const toEuros = (cents: number) => (cents / 100).toFixed(2);
 const note = "border border-line bg-white p-2 text-muted";
 
-export function BidPanel({ listingId, mode, minimumNextBidCents }: { listingId: string; mode: BidMode; minimumNextBidCents: number }) {
+// The sale this auction ended in, for the winner and the seller, who are pointed to the order.
+export interface BidPanelOrder {
+  id: string;
+  viewer: "buyer" | "seller";
+  status: string;
+  amountCents: number;
+}
+
+export function BidPanel({ listingId, mode, minimumNextBidCents, order }: { listingId: string; mode: BidMode; minimumNextBidCents: number; order?: BidPanelOrder }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [amount, setAmount] = useState(toEuros(minimumNextBidCents));
@@ -47,6 +55,18 @@ export function BidPanel({ listingId, mode, minimumNextBidCents }: { listingId: 
   }
   if (mode === "owner") return <p className={note}>This is your listing, so you cannot bid on it.</p>;
   if (mode === "upcoming") return <p className={note}>Bidding opens when the auction starts.</p>;
+  if (mode === "ended" && order) {
+    const toPay = order.viewer === "buyer" && order.status === "AWAITING_PAYMENT";
+    return (
+      <p className="border border-brand bg-white p-2">
+        This auction has ended.{" "}
+        {order.viewer === "buyer" ? (toPay ? `You won it for ${formatEur(order.amountCents)}. ` : "You won it. ") : "This item sold. "}
+        <Link href={`/orders/${order.id}`} className="text-brand underline">
+          {toPay ? "Pay now" : "View the order"}
+        </Link>
+      </p>
+    );
+  }
   if (mode === "ended") return <p className={note}>This auction has ended.</p>;
   if (mode === "highest") {
     return (

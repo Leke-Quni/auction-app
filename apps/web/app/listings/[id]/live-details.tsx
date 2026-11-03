@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { Countdown } from "@/app/countdown";
 import { LocalTime } from "@/app/local-time";
 import { BidHistory } from "./bid-history";
-import { BidPanel, type BidMode } from "./bid-panel";
+import { BidPanel, type BidMode, type BidPanelOrder } from "./bid-panel";
 import { useLive } from "./live-auction";
 
 const PHASE_LABELS = { draft: "Draft", upcoming: "Upcoming", live: "Live", ended: "Ended" } as const;
@@ -67,7 +67,7 @@ function usePhase(initial: DetailsListing["phase"], startsAt: string | null, end
   return initial === "ended" ? "ended" : phase;
 }
 
-export function LiveDetails({ listing, openMode, viewerId }: { listing: DetailsListing; openMode: BidMode | null; viewerId?: string }) {
+export function LiveDetails({ listing, openMode, viewerId, order }: { listing: DetailsListing; openMode: BidMode | null; viewerId?: string; order?: BidPanelOrder }) {
   const live = useLive((s) => s);
   const phase = usePhase(listing.phase, listing.startsAt, live.endsAt, live.serverTime);
   const isLive = phase === "live";
@@ -146,7 +146,7 @@ export function LiveDetails({ listing, openMode, viewerId }: { listing: DetailsL
           ))}
         </tbody>
       </table>
-      {bidMode && <BidPanel listingId={listing.id} mode={bidMode} minimumNextBidCents={live.minimumNextBidCents} />}
+      {bidMode && <BidPanel listingId={listing.id} mode={bidMode} minimumNextBidCents={live.minimumNextBidCents} order={order} />}
     </>
   );
 }

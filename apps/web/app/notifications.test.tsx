@@ -47,6 +47,17 @@ afterEach(() => {
 });
 
 describe("Notifications", () => {
+  it("tells the winner they won, and offers a link to the auction", () => {
+    vi.useFakeTimers();
+    render(<Notifications />);
+    push("notice:won", { listingId: "l9", title: "Old watch", finalPriceCents: 3150 });
+    expect(screen.getByRole("status").textContent).toContain("You won the auction");
+    expect(screen.getByRole("status").textContent).toContain("Old watch for €31.50");
+    expect(screen.getByRole("link", { name: "Go to the auction" }).getAttribute("href")).toBe("/listings/l9");
+    act(() => void vi.advanceTimersByTime(5_000));
+    expect(screen.queryByRole("status")).toBeNull(); // like the others, it goes after 5 seconds
+  });
+
   it("shows a toast for a new question and for an answer, each linking to the listing", () => {
     render(<Notifications />);
     const notice = { listingId: "l3", questionId: "q1", title: "Old watch", from: "sam", excerpt: "Does it run?" };

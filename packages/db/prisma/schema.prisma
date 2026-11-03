@@ -30,6 +30,8 @@ model User {
   listings            Listing[]            @relation("ListingSeller")
   leadingListings     Listing[]            @relation("ListingHighBidder")
   wonListings         Listing[]            @relation("ListingWinner")
+  purchases           Order[]              @relation("OrderBuyer")
+  sales               Order[]              @relation("OrderSeller")
   bids                Bid[]
   notifications       Notification[]
   questions           Question[]
@@ -126,6 +128,7 @@ model Listing {
   bids               Bid[]
   notifications      Notification[]
   questions          Question[]
+  orders             Order[]
 
   @@index([status, endsAt])
   @@index([sellerId])
@@ -133,6 +136,41 @@ model Listing {
   @@index([highBidderId])
   @@index([winnerId])
   @@index([status, closedAt, endsAt])
+}
+
+enum OrderStatus {
+  AWAITING_PAYMENT
+  PAID
+  EXPIRED
+  CANCELLED
+}
+
+// A sale: what the winner owes and until when. `feeCents` is the platform's share, taken from the seller; the seller
+// is paid `sellerNetCents` (released in slice 6). `round` counts the people the item was offered to (1 for the winner).
+model Order {
+  id             String      @id @default(cuid())
+  listingId      String
+  listing        Listing     @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  buyerId        String
+  buyer          User        @relation("OrderBuyer", fields: [buyerId], references: [id], onDelete: Restrict)
+  sellerId       String
+  seller         User        @relation("OrderSeller", fields: [sellerId], references: [id], onDelete: Restrict)
+  amountCents    Int
+  feeCents       Int
+  sellerNetCents Int
+  status         OrderStatus @default(AWAITING_PAYMENT)
+  round          Int         @default(1)
+  payBy          DateTime
+  paidAt         DateTime?
+  // The payment provider's checkout session for the latest attempt to pay.
+  paymentRef     String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@unique([listingId, round])
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([status, payBy])
 }
 
 enum ListingOutcome {
@@ -212,15 +250,22 @@ model PendingOutbidEmail {
 // transaction that closes the auction, so closing and owing the emails cannot come apart, and a sweeper sends what is
 // due with the same lease as PendingOutbidEmail. Plain ids and no relations.
 model PendingEndEmail {
-  id        String   @id @default(cuid())
+  id        String       @id @default(cuid())
   userId    String
   listingId String
+  kind      EndEmailKind @default(LOST)
   dueAt     DateTime @default(now())
   attempts  Int      @default(0)
   createdAt DateTime @default(now())
 
-  @@unique([userId, listingId])
+  @@unique([userId, listingId, kind])
   @@index([dueAt])
+}
+
+// LOST: "the auction ended, you did not win". WON: "you won, pay now".
+enum EndEmailKind {
+  LOST
+  WON
 }
 
 enum NotificationType {

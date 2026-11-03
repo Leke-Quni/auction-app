@@ -51,6 +51,8 @@ describe("closing auctions", () => {
 
   afterAll(async () => {
     const mine = { email: { startsWith: "close-", endsWith: `-${stamp}@example.com` } };
+    await prisma.pendingEndEmail.deleteMany({ where: { listingId: { in: created } } });
+    await prisma.order.deleteMany({ where: { listingId: { in: created } } });
     await prisma.bid.deleteMany({ where: { listing: { seller: mine } } });
     await prisma.listing.deleteMany({ where: { seller: mine } });
     await prisma.user.deleteMany({ where: mine });

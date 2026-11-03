@@ -1,5 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { platformFeeCents } from "@auction/shared";
 import { AuctionEvents } from "../bids/auction-events";
+import { paymentWindowHours, platformFeePercent } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
 
 const SWEEP_EVERY_MS = 10_000;
@@ -7,6 +9,7 @@ const SWEEP_BATCH = 100;
 
 interface ClosedRow {
   id: string;
+  sellerId: string;
   outcome: "SOLD" | "NO_SALE" | "NO_BIDS";
   winnerId: string | null;
   finalPriceCents: number | null;
@@ -54,13 +57,28 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
           "winnerId" = CASE WHEN "highBidderId" IS NOT NULL AND ("reservePriceCents" IS NULL OR "currentBidCents" >= "reservePriceCents") THEN "highBidderId" END,
           "finalPriceCents" = CASE WHEN "highBidderId" IS NOT NULL AND ("reservePriceCents" IS NULL OR "currentBidCents" >= "reservePriceCents") THEN "currentBidCents" END
         WHERE "id" = ${listingId} AND "status" = 'PUBLISHED' AND "closedAt" IS NULL AND "endsAt" <= clock_timestamp()
-        RETURNING "id", "outcome", "winnerId", "finalPriceCents"`;
+        RETURNING "id", "sellerId", "outcome", "winnerId", "finalPriceCents"`;
       if (!closed) return null;
       await tx.$executeRaw`
-        INSERT INTO "PendingEndEmail" ("id", "userId", "listingId")
-        SELECT gen_random_uuid()::text, b."bidderId", ${listingId} FROM (SELECT DISTINCT "bidderId" FROM "Bid" WHERE "listingId" = ${listingId}) b
+        INSERT INTO "PendingEndEmail" ("id", "userId", "listingId", "kind")
+        SELECT gen_random_uuid()::text, b."bidderId", ${listingId}, 'LOST'::"EndEmailKind" FROM (SELECT DISTINCT "bidderId" FROM "Bid" WHERE "listingId" = ${listingId}) b
         WHERE b."bidderId" IS DISTINCT FROM ${closed.winnerId}
-        ON CONFLICT ("userId", "listingId") DO NOTHING`;
+        ON CONFLICT ("userId", "listingId", "kind") DO NOTHING`;
+      if (closed.outcome === "SOLD" && closed.winnerId && closed.finalPriceCents != null) {
+        const feeCents = platformFeeCents(closed.finalPriceCents, platformFeePercent());
+        await tx.order.create({
+          data: {
+            listingId,
+            buyerId: closed.winnerId,
+            sellerId: closed.sellerId,
+            amountCents: closed.finalPriceCents,
+            feeCents,
+            sellerNetCents: closed.finalPriceCents - feeCents,
+            payBy: new Date(Date.now() + paymentWindowHours() * 3600_000),
+          },
+        });
+        await tx.pendingEndEmail.create({ data: { userId: closed.winnerId, listingId, kind: "WON" } });
+      }
       await tx.$executeRaw`DELETE FROM "PendingOutbidEmail" WHERE "listingId" = ${listingId}`;
       await tx.$executeRaw`
         UPDATE "Notification" SET "expiresAt" = LEAST("expiresAt", clock_timestamp())

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BID_HISTORY_SHOWN, type QuestionItem } from "@auction/shared";
+import { BID_HISTORY_SHOWN, type OrderView, type QuestionItem } from "@auction/shared";
 import { notFound } from "next/navigation";
 import { Gallery } from "@/app/gallery";
 import { auth } from "@/auth";
@@ -21,6 +21,9 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
   const viewerId = session?.user.id;
 
   const published = listing.status === "PUBLISHED";
+  // The winner and the seller of a sale are pointed to its order.
+  const ordersRes = session && listing.outcome === "SOLD" ? await authedApiFetch(`/orders?listingId=${id}`) : null;
+  const order: OrderView | undefined = ordersRes?.ok ? (await ordersRes.json())[0] : undefined;
   const historyRes = published ? await apiFetch(`/listings/${id}/bids?limit=${BID_HISTORY_SHOWN}`) : null;
   const history: { items: BidRow[]; total: number } = historyRes?.ok ? await historyRes.json() : { items: [], total: 0 };
 
@@ -66,7 +69,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
             <Gallery images={listing.images} alt={listing.title} />
           </div>
           <div className="min-w-0 space-y-3">
-            <LiveDetails listing={listing} openMode={openMode} viewerId={viewerId} />
+            <LiveDetails listing={listing} openMode={openMode} viewerId={viewerId} order={order} />
           </div>
         </div>
         {published && <LiveHistory viewerId={viewerId} />}

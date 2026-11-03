@@ -38,6 +38,7 @@ describe("auction ended emails and notification expiry", () => {
     },
   };
   // Only mail about this file's listings: the app's own sweeps also close old sample listings in a shared database.
+  // The "did not win" emails; the winner's pay-now email has its own tests.
   const sentFor = (listingId: string) => sent.filter((m) => m.text.includes(`/listings/${listingId}`));
 
   beforeAll(async () => {
@@ -63,6 +64,7 @@ describe("auction ended emails and notification expiry", () => {
   afterAll(async () => {
     const mine = { email: { startsWith: "end-", endsWith: `-${stamp}@example.com` } };
     await prisma.pendingEndEmail.deleteMany({ where: { listingId: { in: created } } });
+    await prisma.order.deleteMany({ where: { listingId: { in: created } } });
     await prisma.pendingOutbidEmail.deleteMany({ where: { listingId: { in: created } } });
     await prisma.notification.deleteMany({ where: { listingId: { in: created } } });
     await prisma.bid.deleteMany({ where: { listing: { seller: mine } } });

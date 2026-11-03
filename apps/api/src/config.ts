@@ -1,3 +1,4 @@
+import { DEFAULT_PLATFORM_FEE_PERCENT, PAYMENT_WINDOW_HOURS } from "@auction/shared";
 import { config as loadEnv } from "dotenv";
 import { resolve } from "node:path";
 
@@ -33,3 +34,10 @@ export const outbidEmailQuietSeconds = () => intFromEnv("OUTBID_EMAIL_QUIET_SECO
 
 // How often one auction's price and bid count are pushed to the search index (an extension is pushed at once).
 export const searchPriceThrottleSeconds = () => intFromEnv("SEARCH_PRICE_THROTTLE_SECONDS", 5);
+
+// The platform's share of a sale, taken from the seller, and how long the winner has to pay.
+export const platformFeePercent = () => {
+  const value = Number.parseFloat(process.env.PLATFORM_FEE_PERCENT ?? "");
+  return Number.isFinite(value) && value >= 0 && value <= 100 ? value : DEFAULT_PLATFORM_FEE_PERCENT;
+};
+export const paymentWindowHours = () => intFromEnv("PAYMENT_WINDOW_HOURS", PAYMENT_WINDOW_HOURS);
