@@ -92,9 +92,14 @@ export class BidsService {
     const attempt = { userId: bidderId, listingId, amountCents: input.amountCents, ip };
     let result: BidResult;
     try {
-      // A retry of a bid that already went through is answered, not limited, so the bidder can always find out.
-      const earlier = await this.prisma.bid.findUnique({ where: { bidderId_idempotencyKey: { bidderId, idempotencyKey: input.idempotencyKey } }, select: { id: true } });
-      if (!earlier) await this.checkRate(bidderId, ip);
+      try {
+        await this.checkRate(bidderId, ip);
+      } catch (error) {
+        // A retry of a bid that already went through is answered even over the limit, so the bidder can always find out.
+        const limited = error instanceof HttpException && (error.getResponse() as { code?: string }).code === "RATE_LIMITED";
+        const earlier = limited && (await this.prisma.bid.findUnique({ where: { bidderId_idempotencyKey: { bidderId, idempotencyKey: input.idempotencyKey } }, select: { id: true } }));
+        if (!earlier) throw error;
+      }
       result = await this.prisma.$transaction(
         async (tx) => {
           const [listing] = await tx.$queryRaw<LockedListing[]>`
@@ -117,7 +122,8 @@ export class BidsService {
           }
 
           if (!listing || listing.status !== "PUBLISHED" || !listing.startsAt || !listing.endsAt) throw refusal("NOT_FOUND");
-          const now = new Date();
+          // The database's clock, read after the lock is won, so every API machine judges the end time by the same time.
+          const [{ now }] = await tx.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS "now"`;
           if (listing.sellerId === bidderId) throw refusal("OWN_LISTING");
           if (now < listing.startsAt || now >= listing.endsAt) throw refusal("NOT_LIVE");
           if (listing.highBidderId === bidderId) throw refusal("ALREADY_HIGHEST");

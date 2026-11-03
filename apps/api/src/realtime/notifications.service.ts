@@ -78,8 +78,10 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.pendingOutbidEmail.deleteMany({ where: { userId: newBidderId, listingId } });
 
     if (result.extended) {
-      // A cap keeps a very long war from turning one bid into thousands of messages.
-      const bidders = await this.prisma.$queryRaw<{ bidderId: string }[]>`SELECT DISTINCT "bidderId" FROM "Bid" WHERE "listingId" = ${listingId} LIMIT 500`;
+      // A cap keeps a very long war from turning one bid into thousands of messages; the most recent bidders come first.
+      const bidders = await this.prisma.$queryRaw<{ bidderId: string }[]>`
+        SELECT "bidderId" FROM "Bid" WHERE "listingId" = ${listingId}
+        GROUP BY "bidderId" ORDER BY MAX("createdAt") DESC LIMIT 500`;
       const others = bidders.map((b) => b.bidderId).filter((id) => id !== newBidderId && id !== outbidId && id !== listing.sellerId);
       const notice: ExtendedNotice = {
         listingId,

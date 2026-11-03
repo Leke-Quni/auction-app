@@ -18,6 +18,8 @@ interface Entry {
 export class SearchSyncService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(SearchSyncService.name);
   private readonly entries = new Map<string, Entry>();
+  // The last update on its way for each auction. The next one waits for it, so they reach the index in order.
+  private readonly inFlight = new Map<string, Promise<void>>();
   private subscription?: Subscription;
 
   constructor(
@@ -57,7 +59,13 @@ export class SearchSyncService implements OnModuleInit, OnModuleDestroy {
   // Sends now and opens a window; whatever arrives during it is sent when it closes, and the entry is dropped after
   // a quiet window.
   private send(listingId: string, fields: LiveFields) {
-    this.search.update(listingId, fields).catch((error) => this.log.error(`Could not update search for ${listingId}: ${(error as Error).message}`));
+    const previous = this.inFlight.get(listingId);
+    const sent = (previous ? previous.then(() => this.search.update(listingId, fields)) : this.search.update(listingId, fields))
+      .catch((error) => this.log.error(`Could not update search for ${listingId}: ${(error as Error).message}`))
+      .finally(() => {
+        if (this.inFlight.get(listingId) === sent) this.inFlight.delete(listingId);
+      });
+    this.inFlight.set(listingId, sent);
     const entry: Entry = {
       timer: setTimeout(() => {
         const { pending } = entry;

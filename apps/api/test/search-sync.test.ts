@@ -57,30 +57,31 @@ describe("SearchSyncService", () => {
     expect(calls).toEqual([{ id: "L1", fields: { price_cents: 1500, bid_count: 3, final_chance: false, ends_at: endsAt.getTime() / 1000 } }]);
   });
 
-  it("holds back bids inside the window and sends only the newest when it ends", () => {
+  it("holds back bids inside the window and sends only the newest when it ends", async () => {
     bid(result({ currentBidCents: 1000, bidCount: 1 }));
     vi.advanceTimersByTime(1000);
     bid(result({ currentBidCents: 1100, bidCount: 2 }));
     vi.advanceTimersByTime(1000);
     bid(result({ currentBidCents: 1300, bidCount: 3 }));
     expect(calls).toHaveLength(1);
-    vi.advanceTimersByTime(3100);
+    await vi.advanceTimersByTimeAsync(3100);
     expect(calls.map((c) => [c.fields.price_cents, c.fields.bid_count])).toEqual([[1000, 1], [1300, 3]]);
   });
 
-  it("sends an extension at once, even inside the window, so the end time is never stale", () => {
+  it("sends an extension at once, even inside the window, so the end time is never stale", async () => {
     bid(result({ currentBidCents: 1000, bidCount: 1 }));
     const later = new Date(endsAt.getTime() + 120_000);
     bid(result({ currentBidCents: 1100, bidCount: 2, endsAt: later, finalChance: true }, true));
+    await vi.advanceTimersByTimeAsync(0);
     expect(calls).toHaveLength(2);
     expect(calls[1].fields).toEqual({ price_cents: 1100, bid_count: 2, final_chance: true, ends_at: later.getTime() / 1000 });
   });
 
-  it("does not send an older held-back bid after an extension carried the newer one", () => {
+  it("does not send an older held-back bid after an extension carried the newer one", async () => {
     bid(result({ currentBidCents: 1000, bidCount: 1 }));
     bid(result({ currentBidCents: 1100, bidCount: 2 }));
     bid(result({ currentBidCents: 1200, bidCount: 3 }, true));
-    vi.advanceTimersByTime(20_000);
+    await vi.advanceTimersByTimeAsync(20_000);
     expect(calls.map((c) => c.fields.bid_count)).toEqual([1, 3]);
   });
 
@@ -90,11 +91,12 @@ describe("SearchSyncService", () => {
     expect(calls.map((c) => c.id)).toEqual(["L1", "L2"]);
   });
 
-  it("sends the next bid at once after a quiet window, and ignores a replay", () => {
+  it("sends the next bid at once after a quiet window, and ignores a replay", async () => {
     bid(result({ bidCount: 1 }));
-    vi.advanceTimersByTime(6000);
+    await vi.advanceTimersByTimeAsync(6000);
     bid(result({ bidCount: 2 }));
     bid(result({ bidCount: 3 }, false, true));
+    await vi.advanceTimersByTimeAsync(0);
     expect(calls.map((c) => c.fields.bid_count)).toEqual([1, 2]);
   });
 
@@ -105,5 +107,31 @@ describe("SearchSyncService", () => {
     fail = false;
     bid(result({ bidCount: 2 }));
     expect(calls.map((c) => c.fields.bid_count)).toEqual([2]);
+  });
+
+  it("sends updates for one auction in order even when an earlier one is slow", async () => {
+    const order: number[] = [];
+    let release!: () => void;
+    const slow = new Promise<void>((resolve) => (release = resolve));
+    let first = true;
+    const search = {
+      async update(_id: string, fields: LiveFields) {
+        if (first) {
+          first = false;
+          await slow;
+        }
+        order.push(fields.bid_count as number);
+      },
+    } as unknown as SearchIndex;
+    service.onModuleDestroy();
+    service = new SearchSyncService(events, search);
+    service.onModuleInit();
+    bid(result({ bidCount: 1 }));
+    bid(result({ bidCount: 2 }, true));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(order).toEqual([]);
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(order).toEqual([1, 2]);
   });
 });

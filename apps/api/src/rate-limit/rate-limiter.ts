@@ -31,6 +31,11 @@ export class MemoryRateLimiter implements RateLimiter {
   async close() {}
 }
 
+// One atomic step that works on any Redis version (EXPIRE ... NX needs 7): the window starts at the first attempt.
+const INCREMENT_WITH_WINDOW = `local count = redis.call('INCR', KEYS[1])
+if count == 1 then redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1])) end
+return count`;
+
 // Counts in Redis so every API machine shares one count. If Redis cannot be reached the attempt is allowed: the
 // database still decides every bid, and a limiter outage must not stop bidding.
 export class RedisRateLimiter implements RateLimiter {
@@ -46,7 +51,7 @@ export class RedisRateLimiter implements RateLimiter {
 
   async allow(key: string, limit: number, windowSeconds: number) {
     try {
-      const [count] = (await this.client.multi().incr(key).expire(key, windowSeconds, "NX").exec()) as unknown as [number];
+      const count = (await this.client.eval(INCREMENT_WITH_WINDOW, { keys: [key], arguments: [String(windowSeconds)] })) as number;
       return count <= limit;
     } catch (error) {
       this.log.warn(`Not limiting ${key.split(":")[1]} while Redis is unavailable: ${(error as Error).message}`);

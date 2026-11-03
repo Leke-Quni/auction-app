@@ -26,9 +26,9 @@ describe("viewerIpHeaders", () => {
     });
   });
 
-  it("uses the first address in x-forwarded-for when there is no x-real-ip", async () => {
+  it("ignores x-forwarded-for, which the client can set to anything", async () => {
     incoming.headers.set("x-forwarded-for", "198.51.100.4, 10.0.0.1");
-    expect((await viewerIpHeaders())["x-viewer-ip"]).toBe("198.51.100.4");
+    expect(await viewerIpHeaders()).toEqual({});
   });
 
   it("sends nothing when there is no address or no request to read", async () => {

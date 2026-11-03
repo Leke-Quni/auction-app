@@ -52,6 +52,6 @@ export interface ExtendedNotice {
   title: string;
   endsAt: string;
   extensionCount: number;
-  // True for the second and last extension: the auction cannot be extended again.
+  // True when the end time has reached its ceiling: the auction cannot be extended again.
   final: boolean;
 }
