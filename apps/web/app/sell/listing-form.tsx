@@ -1,7 +1,8 @@
 "use client";
 
-import { AUCTION_DURATIONS, CONDITION_LABELS, LISTING_CONDITIONS, formatDuration, formatEur } from "@auction/shared";
+import { AUCTION_DURATIONS, CONDITION_LABELS, LISTING_CONDITIONS, SHIPPING_COUNTRIES, formatDuration, formatEur, type ShippingAddress } from "@auction/shared";
 import { useActionState, type ReactNode } from "react";
+import { AddressFields } from "../address-fields";
 import { saveListingAction } from "./actions";
 
 export interface FormListing {
@@ -13,6 +14,7 @@ export interface FormListing {
   startingPriceCents: number;
   reservePriceCents: number | null;
   durationDays: number;
+  pickupAddress?: ShippingAddress | null;
   status: "DRAFT" | "PUBLISHED";
 }
 
@@ -27,10 +29,13 @@ export function ListingForm({
   categories,
   listing,
   photos,
+  defaultPickup,
 }: {
   categories: { id: string; name: string }[];
   listing?: FormListing;
   photos?: ReactNode;
+  // The seller's saved default pickup address, offered when the listing has none of its own.
+  defaultPickup?: ShippingAddress | null;
 }) {
   const [state, formAction, pending] = useActionState(saveListingAction, {});
   const published = listing?.status === "PUBLISHED";
@@ -67,6 +72,7 @@ export function ListingForm({
                 ["Starting price", formatEur(listing.startingPriceCents)],
                 ["Reserve price", listing.reservePriceCents == null ? "None" : formatEur(listing.reservePriceCents)],
                 ["Duration", formatDuration(listing.durationDays)],
+                ["Pickup", listing.pickupAddress ? `${listing.pickupAddress.city}, ${SHIPPING_COUNTRIES[listing.pickupAddress.country] ?? listing.pickupAddress.country}` : "Not set"],
               ].map(([k, v]) => (
                 <tr key={k}>
                   <th className="w-32 border border-line bg-[#f0f0f0] p-1.5 text-left font-normal text-muted">{k}</th>
@@ -154,6 +160,19 @@ export function ListingForm({
               </label>
             </div>
             <p className="text-xs text-muted">The reserve price is shown to bidders. If it is not met, the item does not sell.</p>
+          </div>
+
+          <div className="space-y-3 border border-line bg-white p-3">
+            <h2 className="text-sm font-bold">Pickup address</h2>
+            <p className="text-xs text-muted">
+              Our carrier collects the item here when it sells, so give an address and a phone number where someone can hand it over. Buyers never see it.
+              {defaultPickup && !listing?.pickupAddress ? " It starts as your default address; change anything for this item." : ""}
+            </p>
+            <AddressFields prefix="pickup_" defaults={listing?.pickupAddress ?? defaultPickup} nameLabel="Contact name" />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="saveAsDefault" defaultChecked={!defaultPickup && !listing?.pickupAddress} />
+              Save as my default pickup address
+            </label>
           </div>
         </>
       )}

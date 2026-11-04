@@ -8,6 +8,7 @@ vi.mock("./actions", () => ({
   saveImagesAction,
   saveListingAction: vi.fn(async () => ({})),
   publishListingAction: vi.fn(async () => ({})),
+  updatePickupAddressAction: vi.fn(async () => ({})),
   deleteListingAction: vi.fn(async () => ({})),
 }));
 

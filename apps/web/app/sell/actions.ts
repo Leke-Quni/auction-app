@@ -1,11 +1,12 @@
 "use server";
 
-import { MAX_IMAGES, createListingSchema, eurosToCents, updateListingSchema } from "@auction/shared";
+import { MAX_IMAGES, createListingSchema, eurosToCents, pickupAddressSchema, updateListingSchema } from "@auction/shared";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { authedApiFetch } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { readAddress } from "@/lib/address";
 import { deleteOwnBlobs } from "@/lib/blob";
 
 // The API reports which photos a change removed; the web app deletes them from Blob (the API has no Blob credentials).
@@ -32,6 +33,9 @@ export async function saveListingAction(_: SellFormState, formData: FormData): P
   for (const key of ["title", "description", "categoryId", "condition"]) {
     if (formData.has(key)) input[key] = String(formData.get(key));
   }
+  // Left empty, the pickup address stays unset; the API requires it before publishing.
+  const pickup = readAddress(formData, "pickup_");
+  if (pickup) input.pickupAddress = pickup;
   if (formData.has("durationDays")) input.durationDays = Number(formData.get("durationDays"));
   if (formData.has("startingPrice")) {
     const cents = eurosToCents(String(formData.get("startingPrice")));
@@ -53,6 +57,10 @@ export async function saveListingAction(_: SellFormState, formData: FormData): P
     body: JSON.stringify(parsed.data),
   });
   if (!res.ok) return { error: await apiErrorMessage(res) };
+  // "Save as my default": the listing is already saved, so a failure here only means the default was not stored.
+  if (pickup && formData.get("saveAsDefault") === "on") {
+    await authedApiFetch("/me/pickup-address", { method: "PUT", body: JSON.stringify(parsed.data.pickupAddress) }).catch(() => undefined);
+  }
   if (!id) {
     const created = await res.json();
     // Photos picked in the new-listing form were already uploaded to Blob; attach them to the new draft.
@@ -102,4 +110,15 @@ export async function deleteListingAction(listingId: string): Promise<{ error?: 
   if (!res.ok) return { error: await apiErrorMessage(res) };
   await deleteRemovedPhotos(res);
   redirect("/sell");
+}
+
+// The seller corrects where the carrier collects, whatever the listing's state; an order for it follows.
+export async function updatePickupAddressAction(_: SellFormState, formData: FormData): Promise<SellFormState> {
+  const listingId = String(formData.get("listingId") ?? "");
+  const parsed = pickupAddressSchema.safeParse(readAddress(formData) ?? {});
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check the address and try again." };
+  const res = await authedApiFetch(`/listings/${listingId}/pickup-address`, { method: "PUT", body: JSON.stringify(parsed.data) });
+  if (!res.ok) return { error: await apiErrorMessage(res) };
+  revalidatePath("/", "layout");
+  return { ok: "Pickup address updated." };
 }

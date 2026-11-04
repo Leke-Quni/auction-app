@@ -5,6 +5,7 @@ import {
   confirmEmailChangeSchema,
   forgotPasswordSchema,
   loginCodeSchema,
+  pickupAddressSchema,
   resetPasswordSchema,
   signInSchema,
   signUpSchema,
@@ -18,6 +19,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { signIn, unstable_update } from "@/auth";
 import { apiFetch, authedApiFetch } from "@/lib/api";
+import { readAddress } from "@/lib/address";
 import { apiErrorMessage } from "@/lib/api-error";
 
 export interface FormState {
@@ -91,6 +93,16 @@ export async function updateProfileAction(_: FormState, formData: FormData): Pro
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
   revalidatePath("/account", "layout");
   return { ok: "Name updated." };
+}
+
+// The seller's default pickup address, offered on each new listing.
+export async function savePickupAddressAction(_: FormState, formData: FormData): Promise<FormState> {
+  const parsed = pickupAddressSchema.safeParse(readAddress(formData) ?? {});
+  if (!parsed.success) return { error: firstIssue(parsed.error) };
+  const res = await authedApiFetch("/me/pickup-address", { method: "PUT", body: JSON.stringify(parsed.data) });
+  if (!res.ok) return { error: SOMETHING_WENT_WRONG };
+  revalidatePath("/account", "layout");
+  return { ok: "Pickup address saved." };
 }
 
 export async function updateUsernameAction(_: FormState, formData: FormData): Promise<FormState> {

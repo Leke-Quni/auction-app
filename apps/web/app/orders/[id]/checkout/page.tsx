@@ -20,7 +20,7 @@ export default async function TestCheckoutPage({ params }: { params: Promise<{ i
       <h1 className="text-lg font-bold">Test checkout</h1>
       <p className="text-muted">This is a test payment page. No real money moves and no card is needed.</p>
       <p>
-        {order.title}: <b>{formatEur(order.amountCents)}</b>
+        {order.title}: <b>{formatEur(order.totalCents ?? order.amountCents)}</b>
       </p>
       <PayButton action={payWithTestCardAction} label="Pay with test card" orderId={order.id} />
     </div>

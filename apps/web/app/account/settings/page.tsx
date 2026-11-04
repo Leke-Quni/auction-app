@@ -6,6 +6,7 @@ import {
   updateProfileAction,
   updateUsernameAction,
 } from "@/app/actions";
+import { PickupAddressSetting } from "@/app/pickup-address-setting";
 import { SettingRow } from "@/app/setting-row";
 import { auth } from "@/auth";
 import { authedApiFetch } from "@/lib/api";
@@ -16,6 +17,8 @@ export default async function AccountSettingsPage() {
   if (res.status === 401) redirect("/sign-in");
   if (!res.ok) throw new Error(`API /me failed: ${res.status}`);
   const me = await res.json();
+  const pickupRes = await authedApiFetch("/me/pickup-address");
+  const pickupAddress = pickupRes.ok ? (await pickupRes.json()).pickupAddress : null;
   return (
     <div className="mx-auto max-w-sm space-y-2">
       <div className="flex items-baseline justify-between">
@@ -64,6 +67,7 @@ export default async function AccountSettingsPage() {
             { name: "confirmPassword", label: "Confirm new password", type: "password", autoComplete: "new-password" },
           ]}
         />
+        <PickupAddressSetting address={pickupAddress} />
       </div>
     </div>
   );
