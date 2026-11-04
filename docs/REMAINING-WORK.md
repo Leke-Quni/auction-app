@@ -26,7 +26,7 @@ All checks passed at the last full run (lint, typecheck, 322 API, 241 web, 87 sh
 ### Step 6: one-click relist (built 2026-11-04)
 - A seller action on a `NO_SALE` or `NO_BIDS` listing creates a new draft with the same details and photos through the existing listing service (the old listing stays as the record). A button on the closed listing page, for the seller only.
 
-### Step 7: QStash
+### Step 7: QStash (built and checked against the QStash dev server and the production image, 2026-11-04; needs the owner's Upstash account and the four Fly secrets, see DESIGN.md "QStash jobs")
 - Put scheduling behind a `JobScheduler` interface with the current sweep as the in-process implementation and a QStash one: a delayed message per auction to a signed `POST /jobs/close/:id` (verify the Upstash signature with the two signing keys), rescheduled when the auction is extended (`AuctionExtended`); the sweep stays as the safety net. Use it for the 48-hour order expiry too. Needs an Upstash account (free tier) and the QStash dev server or a tunnel for local testing; document how.
 - Replace the outbid-email sweeper with a QStash delayed message only if it stays small; otherwise keep the leased rows and record that in `DESIGN.md`. A full transactional outbox is not planned: leased rows are used instead.
 - On the Fly trial the machine stops every 5 minutes, so an auction that ends while it is stopped closes at the next start. QStash would wake the machine at the end time.

@@ -60,3 +60,16 @@ export const stripeConfig = () => {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || undefined;
   return secretKey && webhookSecret ? { secretKey, webhookSecret } : undefined;
 };
+
+// QStash, which calls the API at the moment an auction ends or an order's payment window runs out, so nothing waits for the
+// next sweep (and a stopped Fly machine is woken). All four are needed: the token to publish messages, both signing keys to
+// verify the calls that come back (the next key lets Upstash rotate keys without a gap), and the address the API is
+// reachable at from the internet. Without them the sweeps alone do the work. `QSTASH_URL` points at the local dev server.
+export const qstashConfig = () => {
+  const token = process.env.QSTASH_TOKEN || undefined;
+  const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY || undefined;
+  const nextSigningKey = process.env.QSTASH_NEXT_SIGNING_KEY || undefined;
+  const callbackUrl = process.env.API_PUBLIC_URL?.replace(/\/+$/, "") || undefined;
+  if (!token || !currentSigningKey || !nextSigningKey || !callbackUrl) return undefined;
+  return { token, currentSigningKey, nextSigningKey, callbackUrl, baseUrl: process.env.QSTASH_URL || undefined };
+};

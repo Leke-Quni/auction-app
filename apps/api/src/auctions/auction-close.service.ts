@@ -3,6 +3,7 @@ import { platformFeeCents } from "@auction/shared";
 import { AuctionEvents } from "../bids/auction-events";
 import { paymentWindowHours, platformFeeCapCents, platformFeePercent } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { JOB_SCHEDULER, type JobScheduler } from "../jobs/job-scheduler";
 
 const SWEEP_EVERY_MS = 10_000;
 const SWEEP_BATCH = 100;
@@ -33,6 +34,7 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
     private readonly events: AuctionEvents,
+    @Inject(JOB_SCHEDULER) private readonly scheduler: JobScheduler,
   ) {}
 
   onModuleInit() {
@@ -49,6 +51,7 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
   // "auction ended" email, any outbid email still waiting for this auction is dropped (that email covers it), and the
   // auction's notifications expire (the latest "You've been outbid" of each loser stays).
   async close(listingId: string): Promise<boolean> {
+    let order: { id: string; payBy: Date } | undefined;
     const row = await this.prisma.$transaction(async (tx) => {
       const [closed] = await tx.$queryRaw<ClosedRow[]>`
         UPDATE "Listing" SET
@@ -71,7 +74,7 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
       if (closed.outcome === "SOLD" && closed.winnerId && closed.finalPriceCents != null) {
         const listing = await tx.listing.findUnique({ where: { id: listingId }, select: { pickupAddress: true } });
         const feeCents = platformFeeCents(closed.finalPriceCents, platformFeePercent(), platformFeeCapCents());
-        await tx.order.create({
+        order = await tx.order.create({
           data: {
             listingId,
             buyerId: closed.winnerId,
@@ -92,11 +95,12 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
       return closed;
     });
     if (!row) return false;
+    if (order) await this.scheduler.scheduleOrderExpiry(order.id, order.payBy);
     this.events.publish({ type: "AuctionClosed", listingId: row.id, outcome: row.outcome, winnerId: row.winnerId, finalPriceCents: row.finalPriceCents });
     return true;
   }
 
-  // Safety net and, for now, the only trigger: closes whatever has ended and is still open. Safe to run on every machine.
+  // Safety net for the QStash call (and the only trigger when QStash is not configured): closes whatever has ended and is still open. Safe to run on every machine.
   async sweep(): Promise<number> {
     if (this.sweeping) return 0;
     this.sweeping = true;

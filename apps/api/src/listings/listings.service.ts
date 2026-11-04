@@ -23,6 +23,7 @@ import {
   type OnModuleInit,
 } from "@nestjs/common";
 import type { Prisma as PrismaTypes } from "@auction/db";
+import { JOB_SCHEDULER, type JobScheduler } from "../jobs/job-scheduler";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { SEARCH_INDEX, type ListingDocument, type SearchIndex } from "../search/search-index";
 import { isSellerImage } from "./seller-image";
@@ -104,6 +105,7 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
     @Inject(SEARCH_INDEX) private readonly search: SearchIndex,
+    @Inject(JOB_SCHEDULER) private readonly scheduler: JobScheduler,
   ) {}
 
   async onModuleInit() {
@@ -293,6 +295,7 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
       include: listingInclude,
     });
     await this.syncSearch(published);
+    await this.scheduler.scheduleClose(published.id, endsAt);
     return toDto(published, new Date(), true);
   }
 

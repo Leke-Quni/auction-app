@@ -3,6 +3,7 @@ import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nest
 import { AuctionEvents } from "../bids/auction-events";
 import { paymentWindowHours, platformFeeCapCents, platformFeePercent } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { JOB_SCHEDULER, type JobScheduler } from "../jobs/job-scheduler";
 import { PAYMENT_PROVIDER, type PaymentProvider } from "../payments/payment-provider";
 import { OrdersService } from "./orders.service";
 
@@ -39,6 +40,7 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
     @Inject(PAYMENT_PROVIDER) private readonly payments: PaymentProvider,
     private readonly orders: OrdersService,
     private readonly events: AuctionEvents,
+    @Inject(JOB_SCHEDULER) private readonly scheduler: JobScheduler,
   ) {}
 
   onModuleInit() {
@@ -82,6 +84,7 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    let offered: { id: string; payBy: Date } | undefined;
     const result = await this.prisma.$transaction(async (tx) => {
       // Judged by the database's clock, like the close and the bids, so several machines agree on the deadline.
       const marked = await tx.$executeRaw`
@@ -117,7 +120,7 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
 
       if (qualifies) {
         const feeCents = platformFeeCents(next.amountCents, platformFeePercent(), platformFeeCapCents());
-        await tx.order.create({
+        offered = await tx.order.create({
           data: {
             listingId: order.listingId,
             round: order.round + 1,
@@ -143,6 +146,7 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
       return { orderId, listingId: order.listingId, nextBuyerId: qualifies ? next.userId : null, nextAmountCents: qualifies ? next.amountCents : null };
     });
     if (!result) return null;
+    if (offered) await this.scheduler.scheduleOrderExpiry(offered.id, offered.payBy);
 
     const summary: ExpiryResult = { orderId: result.orderId, listingId: result.listingId, nextBuyerId: result.nextBuyerId, nextAmountCents: result.nextAmountCents };
     this.events.publish({ type: "OrderExpired", ...summary });

@@ -8,6 +8,7 @@ import { AppModule } from "../src/app.module";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
 import { MAIL_SENDER, type MailSender } from "../src/email/mail-sender";
+import { JOB_SCHEDULER } from "../src/jobs/job-scheduler";
 import { ListingsService } from "../src/listings/listings.service";
 import { SEARCH_INDEX, type ListingDocument, type SearchIndex } from "../src/search/search-index";
 
@@ -18,6 +19,7 @@ const fakeMail: MailSender = {
   },
 };
 
+const closesScheduled: { id: string; at: Date }[] = [];
 const indexed = new Map<string, ListingDocument>();
 let failSearch = false;
 const fakeSearch: SearchIndex = {
@@ -106,6 +108,8 @@ describe("listings", () => {
       .useValue(fakeMail)
       .overrideProvider(SEARCH_INDEX)
       .useValue(fakeSearch)
+      .overrideProvider(JOB_SCHEDULER)
+      .useValue({ scheduleClose: async (id: string, at: Date) => void closesScheduled.push({ id, at }), scheduleOrderExpiry: async () => undefined })
       .compile();
     app = moduleRef.createNestApplication();
     await app.init();
@@ -334,6 +338,16 @@ describe("listings", () => {
       await api().post(`/listings/${listing.id}/publish`).set(as(seller)).send({}).expect(409);
       const draft = await createDraft();
       await api().post(`/listings/${draft.id}/publish`).set(as(other)).send({}).expect(404);
+    });
+  });
+
+  describe("scheduling the close", () => {
+    it("asks for the auction to be closed at its end time when it is published, and not for a draft", async () => {
+      closesScheduled.length = 0;
+      await createDraft();
+      expect(closesScheduled).toEqual([]);
+      const listing = await createPublished();
+      expect(closesScheduled).toEqual([{ id: listing.id, at: new Date(listing.endsAt) }]);
     });
   });
 

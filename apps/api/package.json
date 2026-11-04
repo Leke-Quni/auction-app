@@ -21,6 +21,7 @@
     "@nestjs/platform-socket.io": "^11",
     "@nestjs/websockets": "^11",
     "@socket.io/redis-adapter": "^8.3.0",
+    "@upstash/qstash": "^2.12.1",
     "bcryptjs": "^3.0.0",
     "dotenv": "^16.4.0",
     "jose": "^6.0.0",

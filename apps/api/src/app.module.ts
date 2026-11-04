@@ -5,6 +5,8 @@ import { BidsModule } from "./bids/bids.module";
 import { DbModule } from "./db/db.module";
 import { EmailModule } from "./email/email.module";
 import { HealthController } from "./health/health.controller";
+import { JobSchedulerModule } from "./jobs/job-scheduler.module";
+import { JobsModule } from "./jobs/jobs.module";
 import { OrdersModule } from "./orders/orders.module";
 import { NotificationsModule } from "./notifications/notifications.module";
 import { ListingsModule } from "./listings/listings.module";
@@ -16,7 +18,7 @@ import { SearchModule } from "./search/search.module";
 import { UsersModule } from "./users/users.module";
 
 @Module({
-  imports: [DbModule, RateLimitModule, EmailModule, SearchModule, AuthModule, UsersModule, ListingsModule, BidsModule, AuctionsModule, PaymentsModule, OrdersModule, NotificationsModule, QuestionsModule, RealtimeModule],
+  imports: [DbModule, JobSchedulerModule, RateLimitModule, EmailModule, SearchModule, AuthModule, UsersModule, ListingsModule, BidsModule, AuctionsModule, PaymentsModule, OrdersModule, NotificationsModule, QuestionsModule, RealtimeModule, JobsModule],
   controllers: [HealthController],
 })
 export class AppModule {}
