@@ -359,7 +359,7 @@ describe("bid notifications", () => {
       await prisma.listing.update({ where: { id: listing.id }, data: { endsAt: new Date(Date.now() - 1000) } });
       sent.length = 0;
       await flushEmails();
-      await app.get(AuctionCloseService).sweep();
+      await app.get(AuctionCloseService).close(listing.id); // not sweep(): that returns at once if the background sweep is mid-run
       await app.get(AuctionEndEmailService).sweep();
       const about = sent.filter((m) => m.text.includes(`/listings/${listing.id}`));
       expect(about).toHaveLength(1); // not one from each
