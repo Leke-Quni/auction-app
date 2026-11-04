@@ -1,17 +1,20 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { platformFeeCents } from "@auction/shared";
 import { AuctionEvents } from "../bids/auction-events";
-import { paymentWindowHours, platformFeePercent } from "../config";
+import { paymentWindowHours, platformFeeCapCents, platformFeePercent } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
 
 const SWEEP_EVERY_MS = 10_000;
 const SWEEP_BATCH = 100;
+// A listing that fails to close is left out of the sweep for this long, so a few broken ones cannot fill every batch.
+const RETRY_FAILED_AFTER_MS = 5 * 60_000;
 
 interface ClosedRow {
   id: string;
   sellerId: string;
   outcome: "SOLD" | "NO_SALE" | "NO_BIDS";
   winnerId: string | null;
+  closedAt: Date;
   finalPriceCents: number | null;
 }
 
@@ -25,6 +28,7 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(AuctionCloseService.name);
   private timer?: ReturnType<typeof setInterval>;
   private sweeping = false;
+  private readonly failedUntil = new Map<string, number>();
 
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
@@ -57,7 +61,7 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
           "winnerId" = CASE WHEN "highBidderId" IS NOT NULL AND ("reservePriceCents" IS NULL OR "currentBidCents" >= "reservePriceCents") THEN "highBidderId" END,
           "finalPriceCents" = CASE WHEN "highBidderId" IS NOT NULL AND ("reservePriceCents" IS NULL OR "currentBidCents" >= "reservePriceCents") THEN "currentBidCents" END
         WHERE "id" = ${listingId} AND "status" = 'PUBLISHED' AND "closedAt" IS NULL AND "endsAt" <= clock_timestamp()
-        RETURNING "id", "sellerId", "outcome", "winnerId", "finalPriceCents"`;
+        RETURNING "id", "sellerId", "outcome", "winnerId", "finalPriceCents", "closedAt"`;
       if (!closed) return null;
       await tx.$executeRaw`
         INSERT INTO "PendingEndEmail" ("id", "userId", "listingId", "kind")
@@ -65,7 +69,8 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
         WHERE b."bidderId" IS DISTINCT FROM ${closed.winnerId}
         ON CONFLICT ("userId", "listingId", "kind") DO NOTHING`;
       if (closed.outcome === "SOLD" && closed.winnerId && closed.finalPriceCents != null) {
-        const feeCents = platformFeeCents(closed.finalPriceCents, platformFeePercent());
+        const listing = await tx.listing.findUnique({ where: { id: listingId }, select: { pickupAddress: true } });
+        const feeCents = platformFeeCents(closed.finalPriceCents, platformFeePercent(), platformFeeCapCents());
         await tx.order.create({
           data: {
             listingId,
@@ -74,7 +79,8 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
             amountCents: closed.finalPriceCents,
             feeCents,
             sellerNetCents: closed.finalPriceCents - feeCents,
-            payBy: new Date(Date.now() + paymentWindowHours() * 3600_000),
+            ...(listing?.pickupAddress ? { pickupAddress: listing.pickupAddress } : {}),
+            payBy: new Date(closed.closedAt.getTime() + paymentWindowHours() * 3600_000),
           },
         });
         await tx.pendingEndEmail.create({ data: { userId: closed.winnerId, listingId, kind: "WON" } });
@@ -96,14 +102,19 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
     this.sweeping = true;
     let closed = 0;
     try {
+      const now = Date.now();
+      for (const [id, until] of this.failedUntil) if (until <= now) this.failedUntil.delete(id);
+      const skip = [...this.failedUntil.keys()];
       const due = await this.prisma.$queryRaw<{ id: string }[]>`
         SELECT "id" FROM "Listing"
         WHERE "status" = 'PUBLISHED' AND "closedAt" IS NULL AND "endsAt" <= clock_timestamp()
+          AND "id" <> ALL(${skip}::text[])
         ORDER BY "endsAt" LIMIT ${SWEEP_BATCH}`;
       for (const { id } of due) {
         try {
           if (await this.close(id)) closed++;
         } catch (error) {
+          this.failedUntil.set(id, Date.now() + RETRY_FAILED_AFTER_MS);
           this.log.error(`Could not close listing ${id}: ${(error as Error).message}`);
         }
       }

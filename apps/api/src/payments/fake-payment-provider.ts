@@ -5,6 +5,7 @@ import type { CheckoutRequest, CheckoutSession, PaymentProvider } from "./paymen
 interface FakeSession extends CheckoutRequest {
   paid: boolean;
   refunded: boolean;
+  expired: boolean;
 }
 
 // A payment provider that keeps everything in memory, for tests and for running the app without a payment account.
@@ -16,12 +17,24 @@ export class FakePaymentProvider implements PaymentProvider {
 
   async createCheckout(request: CheckoutRequest): Promise<CheckoutSession> {
     const id = `fake_${randomUUID()}`;
-    this.sessions.set(id, { ...request, paid: false, refunded: false });
+    this.sessions.set(id, { ...request, paid: false, refunded: false, expired: false });
     return { id, url: `${webUrl()}/orders/${request.orderId}/checkout?session=${id}` };
   }
 
   async confirm(sessionId: string) {
-    return { paid: this.sessions.get(sessionId)?.paid ?? false };
+    const session = this.sessions.get(sessionId);
+    return { paid: session?.paid ?? false, ...(session ? { amountCents: session.amountCents + session.shippingCents } : {}) };
+  }
+
+  async findOpenCheckout(sessionId: string) {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.paid || session.expired) return null;
+    return { url: `${webUrl()}/orders/${session.orderId}/checkout?session=${sessionId}`, amountCents: session.amountCents + session.shippingCents };
+  }
+
+  async expireCheckout(sessionId: string) {
+    const session = this.sessions.get(sessionId);
+    if (session && !session.paid) session.expired = true;
   }
 
   async refund(sessionId: string) {
@@ -36,7 +49,7 @@ export class FakePaymentProvider implements PaymentProvider {
   /** Marks a session paid, as the buyer's card going through would. Returns false for an unknown session. */
   simulatePayment(sessionId: string): boolean {
     const session = this.sessions.get(sessionId);
-    if (!session) return false;
+    if (!session || session.expired) return false;
     session.paid = true;
     return true;
   }

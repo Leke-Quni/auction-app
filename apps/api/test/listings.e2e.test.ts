@@ -52,6 +52,7 @@ const emails = { seller: `lst-seller-${stamp}@example.com`, other: `lst-other-${
 const DAY = 86_400_000;
 
 const validListing = {
+  pickupAddress: { name: "Sam Seller", line1: "Rr. Dardania 12", city: "Prishtina", postcode: "10000", country: "XK", phone: "+38344000111" },
   title: "Vintage 1970s wristwatch",
   description: "Serviced, original strap, runs well.",
   categoryId: "category_watches_jewelry",
@@ -255,7 +256,36 @@ describe("listings", () => {
     });
   });
 
+  describe("the pickup address", () => {
+    it("is shown to the seller only, never to buyers or visitors", async () => {
+      const listing = await createPublished();
+      const owner = (await api().get(`/listings/${listing.id}`).set(as(seller)).expect(200)).body;
+      expect(owner.pickupAddress).toMatchObject({ line1: "Rr. Dardania 12", phone: "+38344000111" });
+      const visitor = (await api().get(`/listings/${listing.id}`).expect(200)).body;
+      expect(JSON.stringify(visitor)).not.toContain("Dardania");
+      expect(visitor).not.toHaveProperty("pickupAddress");
+      const viewedByOther = (await api().get(`/listings/${listing.id}`).set(as(other)).expect(200)).body;
+      expect(JSON.stringify(viewedByOther)).not.toContain("Dardania");
+      const page = (await api().get("/listings").expect(200)).body;
+      expect(JSON.stringify(page)).not.toContain("Dardania");
+    });
+
+    it("cannot change once the listing is published", async () => {
+      const listing = await createPublished();
+      await api().patch(`/listings/${listing.id}`).set(as(seller)).send({ pickupAddress: { ...validListing.pickupAddress, line1: "Elsewhere 1" } }).expect(400);
+    });
+  });
+
   describe("publishing", () => {
+    it("needs a pickup address", async () => {
+      const draft = await createDraft({ pickupAddress: undefined });
+      await api().put(`/listings/${draft.id}/images`).set(as(seller)).send({ images: [image(sellerId, 1)] }).expect(200);
+      const res = await api().post(`/listings/${draft.id}/publish`).set(as(seller)).send({}).expect(400);
+      expect(res.body.message).toMatch(/pickup address/);
+      await api().patch(`/listings/${draft.id}`).set(as(seller)).send({ pickupAddress: validListing.pickupAddress }).expect(200);
+      await api().post(`/listings/${draft.id}/publish`).set(as(seller)).send({}).expect(200);
+    });
+
     it("needs at least one photo", async () => {
       const draft = await createDraft();
       await api().post(`/listings/${draft.id}/publish`).set(as(seller)).send({}).expect(400);

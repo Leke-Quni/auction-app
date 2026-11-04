@@ -1,6 +1,8 @@
 import {
   createListingSchema,
   listingImagesSchema,
+  pickupAddressSchema,
+  type PickupAddress,
   publishListingSchema,
   updateListingSchema,
   type CreateListingInput,
@@ -74,6 +76,13 @@ export class ListingsController {
     @Body(new ZodValidationPipe(imagesBodySchema)) body: { images: ListingImageInput[] },
   ) {
     return this.listings.setImages(req.user.id, id, body.images);
+  }
+
+  // The seller may correct where the carrier collects at any time, even after publishing or a sale: a typo found late must be fixable.
+  @Put("listings/:id/pickup-address")
+  @UseGuards(JwtAuthGuard)
+  setPickupAddress(@Req() req: AuthedRequest, @Param("id") id: string, @Body(new ZodValidationPipe(pickupAddressSchema)) body: PickupAddress) {
+    return this.listings.setPickupAddress(req.user.id, id, body);
   }
 
   @Post("listings/:id/publish")

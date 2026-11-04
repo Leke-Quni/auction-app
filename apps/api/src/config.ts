@@ -1,4 +1,4 @@
-import { DEFAULT_PLATFORM_FEE_PERCENT, PAYMENT_WINDOW_HOURS } from "@auction/shared";
+import { DEFAULT_DELIVERY_RULE, DEFAULT_PLATFORM_FEE_CAP_CENTS, DEFAULT_PLATFORM_FEE_PERCENT, PAYMENT_WINDOW_HOURS, type DeliveryRule } from "@auction/shared";
 import { config as loadEnv } from "dotenv";
 import { resolve } from "node:path";
 
@@ -40,4 +40,23 @@ export const platformFeePercent = () => {
   const value = Number.parseFloat(process.env.PLATFORM_FEE_PERCENT ?? "");
   return Number.isFinite(value) && value >= 0 && value <= 100 ? value : DEFAULT_PLATFORM_FEE_PERCENT;
 };
+// The most the platform takes from one sale, however high the price.
+export const platformFeeCapCents = () => intFromEnv("PLATFORM_FEE_CAP_CENTS", DEFAULT_PLATFORM_FEE_CAP_CENTS);
+// What the buyer pays for delivery: a percentage of the item price (kept between a minimum and a maximum) plus the option's
+// extra. The platform keeps it and pays the carrier. Read on every call so tests can change them.
+export const deliveryRule = (): DeliveryRule => {
+  const percent = Number.parseFloat(process.env.DELIVERY_PERCENT ?? "");
+  return {
+    percent: Number.isFinite(percent) && percent >= 0 && percent <= 100 ? percent : DEFAULT_DELIVERY_RULE.percent,
+    minCents: intFromEnv("DELIVERY_MIN_CENTS", DEFAULT_DELIVERY_RULE.minCents),
+    maxCents: intFromEnv("DELIVERY_MAX_CENTS", DEFAULT_DELIVERY_RULE.maxCents),
+  };
+};
 export const paymentWindowHours = () => intFromEnv("PAYMENT_WINDOW_HOURS", PAYMENT_WINDOW_HOURS);
+
+// Stripe test or live keys. With both set the API takes payments through Stripe; without them it uses the in-memory fake.
+export const stripeConfig = () => {
+  const secretKey = process.env.STRIPE_SECRET_KEY || undefined;
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || undefined;
+  return secretKey && webhookSecret ? { secretKey, webhookSecret } : undefined;
+};

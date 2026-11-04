@@ -6,6 +6,7 @@ import {
   minimumNextBidCents,
   type CreateListingInput,
   type ListingImageInput,
+  type PickupAddress,
   type PublishListingInput,
   type UpdateListingInput,
 } from "@auction/shared";
@@ -41,7 +42,9 @@ type ListingRow = PrismaTypes.ListingGetPayload<{ include: typeof listingInclude
 // True once a published auction's end has reached its ceiling and cannot move again.
 const isFinal = (l: ListingRow) => (l.startsAt && l.endsAt ? isFinalChance(l.endsAt, extensionCeiling(l.startsAt, l.durationDays)) : false);
 
-const toDto = (l: ListingRow, now = new Date()) => ({
+// `forSeller` adds the pickup address, which only the seller may see: it is the seller's home or business address.
+const toDto = (l: ListingRow, now = new Date(), forSeller = false) => ({
+  ...(forSeller ? { pickupAddress: l.pickupAddress } : {}),
   id: l.id,
   title: l.title,
   description: l.description,
@@ -151,14 +154,14 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
   async create(sellerId: string, input: CreateListingInput) {
     await this.requireCategory(input.categoryId);
     const listing = await this.prisma.listing.create({ data: { ...input, sellerId }, include: listingInclude });
-    return toDto(listing);
+    return toDto(listing, new Date(), true);
   }
 
   async findOne(id: string, viewerId?: string) {
     const listing = await this.prisma.listing.findUnique({ where: { id }, include: listingInclude });
     // A draft is private: anyone but the seller gets the same answer as for a listing that does not exist.
     if (!listing || (listing.status === "DRAFT" && listing.sellerId !== viewerId)) throw new NotFoundException();
-    return toDto(listing);
+    return toDto(listing, new Date(), listing.sellerId === viewerId);
   }
 
   async list(page: number, pageSize: number, section?: "endingSoon" | "upcoming") {
@@ -196,7 +199,7 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
       orderBy: { createdAt: "desc" },
     });
     const now = new Date();
-    return listings.map((l) => toDto(l, now));
+    return listings.map((l) => toDto(l, now, true));
   }
 
   async update(sellerId: string, id: string, input: UpdateListingInput) {
@@ -217,6 +220,7 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
         startingPriceCents: listing.startingPriceCents,
         reservePriceCents: listing.reservePriceCents,
         durationDays: listing.durationDays,
+        pickupAddress: listing.pickupAddress ?? undefined,
         ...input,
       });
       if (!merged.success) throw new BadRequestException(merged.error.flatten());
@@ -232,7 +236,19 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
     if (written.count === 0) throw new ConflictException("This listing was just published, so those details can no longer change.");
     const updated = await this.prisma.listing.findUniqueOrThrow({ where: { id }, include: listingInclude });
     await this.syncSearch(updated);
-    return toDto(updated);
+    return toDto(updated, new Date(), true);
+  }
+
+  // Changes where the carrier collects, whatever the listing's state. Orders for the listing that are waiting for payment or paid
+  // (the carrier has not collected yet; nothing records collection until slice 6) take the new address too.
+  async setPickupAddress(sellerId: string, id: string, address: PickupAddress) {
+    await this.getOwned(sellerId, id);
+    const [, orders] = await this.prisma.$transaction([
+      this.prisma.listing.update({ where: { id }, data: { pickupAddress: address } }),
+      this.prisma.order.updateMany({ where: { listingId: id, status: { in: ["AWAITING_PAYMENT", "PAID"] } }, data: { pickupAddress: address } }),
+    ]);
+    const updated = await this.prisma.listing.findUniqueOrThrow({ where: { id }, include: listingInclude });
+    return { ...toDto(updated, new Date(), true), ordersUpdated: orders.count };
   }
 
   async setImages(sellerId: string, id: string, images: ListingImageInput[]) {
@@ -256,13 +272,14 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
     const removedImageUrls = listing.images.map((i) => i.url).filter((url) => !kept.has(url));
     const updated = await this.prisma.listing.findUniqueOrThrow({ where: { id }, include: listingInclude });
     await this.syncSearch(updated);
-    return { ...toDto(updated), removedImageUrls };
+    return { ...toDto(updated, new Date(), true), removedImageUrls };
   }
 
   async publish(sellerId: string, id: string, input: PublishListingInput) {
     const listing = await this.getOwned(sellerId, id);
     if (listing.status === "PUBLISHED") throw new ConflictException("This listing is already published");
     if (listing.images.length === 0) throw new BadRequestException("Add at least one photo before publishing");
+    if (!listing.pickupAddress) throw new BadRequestException("Add a pickup address before publishing, so the carrier knows where to collect the item");
 
     const startsAt = input.startsAt ? new Date(input.startsAt) : new Date();
     const endsAt = new Date(startsAt.getTime() + listing.durationDays * 86_400_000);
@@ -272,7 +289,7 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
       include: listingInclude,
     });
     await this.syncSearch(published);
-    return toDto(published);
+    return toDto(published, new Date(), true);
   }
 
   async remove(sellerId: string, id: string) {
