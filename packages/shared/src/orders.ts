@@ -8,6 +8,8 @@ export const PAYMENT_WINDOW_HOURS = 48;
 
 // A buyer who wins and does not pay in time gets a strike; this many block bidding. Strikes never expire.
 export const MAX_STRIKES = 2;
+/** How many buyers an item is offered to in all (the winner and then the next bidders) before the auction ends without a sale. */
+export const MAX_PAYMENT_ROUNDS = 3;
 
 // The platform's share of the final price (not of shipping), taken from the seller, and the most it can come to.
 // Config on the API (`PLATFORM_FEE_PERCENT`, `PLATFORM_FEE_CAP_CENTS`).

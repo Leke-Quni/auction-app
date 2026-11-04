@@ -1,4 +1,4 @@
-import { MAX_STRIKES, platformFeeCents } from "@auction/shared";
+import { MAX_PAYMENT_ROUNDS, MAX_STRIKES, platformFeeCents } from "@auction/shared";
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { AuctionEvents } from "../bids/auction-events";
 import { paymentWindowHours, platformFeeCapCents, platformFeePercent } from "../config";
@@ -107,7 +107,8 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
         GROUP BY b."bidderId"
         ORDER BY MAX(b."amountCents") DESC
         LIMIT 1`;
-      const qualifies = next && (listing.reservePriceCents === null || next.amountCents >= listing.reservePriceCents);
+      // The item is offered to at most MAX_PAYMENT_ROUNDS buyers; after the last one the auction ends without a sale.
+      const qualifies = order.round < MAX_PAYMENT_ROUNDS && next && (listing.reservePriceCents === null || next.amountCents >= listing.reservePriceCents);
 
       // An email of the same kind still waiting from an earlier round is made due again rather than dropped, so this round is told too.
       for (const [userId, kind] of [[order.buyerId, "EXPIRED"], [order.sellerId, "NOT_PAID"]] as const) {

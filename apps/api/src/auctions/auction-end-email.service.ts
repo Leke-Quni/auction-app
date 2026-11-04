@@ -1,4 +1,4 @@
-import { formatEur, MAX_STRIKES, type ShippingAddress } from "@auction/shared";
+import { formatEur, MAX_PAYMENT_ROUNDS, MAX_STRIKES, type ShippingAddress } from "@auction/shared";
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import type { Subscription } from "rxjs";
 import { AuctionEvents } from "../bids/auction-events";
@@ -213,7 +213,9 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
       "",
       next
         ? `We have offered the item to the next bidder, ${next.buyer.username}, at their highest bid of ${formatEur(next.amountCents)}. They have until ${utc(next.payBy)} to pay. We will tell you if they do not.`
-        : "No remaining bid met the reserve, so the auction ended without a sale. You can list the item again.",
+        : order.round >= MAX_PAYMENT_ROUNDS
+          ? `The item was offered to ${MAX_PAYMENT_ROUNDS} buyers and none of them paid, so the auction ended without a sale. You can list the item again.`
+          : "No other bidder qualified (a remaining bid has to meet the reserve price, if there is one), so the auction ended without a sale. You can list the item again.",
       "",
       `${webUrl()}/listings/${listingId}`,
     ];
