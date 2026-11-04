@@ -22,6 +22,8 @@ model User {
   passwordHash        String
   emailVerified       DateTime?
   role                Role                 @default(USER)
+  // The seller's default pickup address and contact; each listing starts from it and may change it.
+  pickupAddress       Json?
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   loginCodes          LoginCode[]
@@ -104,6 +106,9 @@ model Listing {
   startingPriceCents Int
   reservePriceCents  Int?
   durationDays       Int
+  // Where our carrier collects the item (the seller's name, address and phone). Required to publish, fixed after, and
+  // never sent to buyers. Chosen per listing, starting from the seller's default (User.pickupAddress).
+  pickupAddress      Json?
   status             ListingStatus    @default(DRAFT)
   startsAt           DateTime?
   endsAt             DateTime?
@@ -164,6 +169,18 @@ model Order {
   paidAt         DateTime?
   // The payment provider's checkout session for the latest attempt to pay.
   paymentRef     String?
+  // Every checkout session started for this order, so a payment on an earlier attempt is still found.
+  paymentRefs    String[]    @default([])
+  // Delivery details the buyer chose before paying: the address and the carrier's option (both validated by the shared
+  // schemas), its price, and the total charged (amountCents + shippingCents). All null until chosen.
+  shippingAddress Json?
+  shippingOption  Json?
+  shippingCents   Int?
+  totalCents      Int?
+  // A copy of the listing's pickup address taken when the sale closes, for the carrier.
+  pickupAddress   Json?
+  // Assigned once, when the order becomes PAID (from the InvoiceNumberSeq sequence), as INV-<year>-<number>.
+  invoiceNumber   String?     @unique
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -266,6 +283,9 @@ model PendingEndEmail {
 enum EndEmailKind {
   LOST
   WON
+  // After payment: the buyer's confirmation with the invoice, and the seller's "sold, ship to" notice.
+  PAID
+  SOLD
 }
 
 enum NotificationType {

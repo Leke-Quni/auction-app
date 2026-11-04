@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PLATFORM_FEE_PERCENT, platformFeeCents } from "./orders";
+import { DEFAULT_PLATFORM_FEE_CAP_CENTS, DEFAULT_PLATFORM_FEE_PERCENT, platformFeeCents } from "./orders";
 
 describe("platformFeeCents", () => {
   it("is 5% by default, to the nearest cent", () => {
@@ -23,5 +23,20 @@ describe("platformFeeCents", () => {
       expect(fee).toBeGreaterThanOrEqual(0);
       expect(fee).toBeLessThanOrEqual(amount);
     }
+  });
+});
+
+describe("platformFeeCents with a cap", () => {
+  it("takes the percentage up to the cap and no more", () => {
+    expect(DEFAULT_PLATFORM_FEE_CAP_CENTS).toBe(5000);
+    expect(platformFeeCents(100_000, 5, 5000)).toBe(5000); // exactly the cap
+    expect(platformFeeCents(100_001, 5, 5000)).toBe(5000);
+    expect(platformFeeCents(5_000_000, 5, 5000)).toBe(5000);
+    expect(platformFeeCents(99_999, 5, 5000)).toBe(5000); // 4999.95 rounds to 5000
+    expect(platformFeeCents(3150, 5, 5000)).toBe(158); // under the cap: unchanged
+  });
+
+  it("is uncapped without a cap", () => {
+    expect(platformFeeCents(5_000_000, 5)).toBe(250_000);
   });
 });
