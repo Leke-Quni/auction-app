@@ -62,11 +62,20 @@ describe("the result of an ended auction", () => {
   });
 
   it("says why there was no sale", () => {
-    show(listing({ outcome: "NO_SALE" }));
+    show(listing({ outcome: "NO_SALE", reservePriceCents: 5000 })); // the top bid, 25.00, is below the reserve
     expect(screen.getByText("Not sold: the reserve price was not met")).toBeTruthy();
     cleanup();
     show(listing({ outcome: "NO_BIDS" }));
     expect(screen.getByText("Not sold: there were no bids")).toBeTruthy();
+  });
+
+  it("blames non-payment, not the reserve, when the buyers the item was offered to did not pay", () => {
+    show(listing({ outcome: "NO_SALE", reservePriceCents: null }));
+    expect(screen.getByText("Not sold: no buyer paid")).toBeTruthy();
+    expect(screen.queryByText(/reserve price was not met/)).toBeNull();
+    cleanup();
+    show(listing({ outcome: "NO_SALE", reservePriceCents: 2000 })); // the top bid, 25.00, met the reserve
+    expect(screen.getByText("Not sold: no buyer paid")).toBeTruthy();
   });
 
   it("shows no result for an auction that is still live", () => {
