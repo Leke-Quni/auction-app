@@ -126,12 +126,13 @@ describe("isFinalChance", () => {
 
 describe("minimumNextBidCents over the whole range", () => {
   it("always rises by at least €1 and at least 5%, by no more than a cent over that, and fits a 32-bit column", () => {
+    // Plain comparisons, with one assertion at the end: an `expect` per value made this too slow on a busy CI runner.
+    const wrong: number[] = [];
     for (let current = 1; current <= 400_000; current += 7) {
       const rise = minimumNextBidCents({ startingPriceCents: 100, currentBidCents: current }) - current;
-      expect(rise, String(current)).toBeGreaterThanOrEqual(100);
-      expect(rise, String(current)).toBeGreaterThanOrEqual(current * 0.05);
-      expect(rise, String(current)).toBeLessThan(Math.max(100, current * 0.05) + 1);
+      if (rise < 100 || rise < current * 0.05 || rise >= Math.max(100, current * 0.05) + 1) wrong.push(current);
     }
+    expect(wrong).toEqual([]);
     expect(minimumNextBidCents({ startingPriceCents: 100, currentBidCents: MAX_BID_CENTS })).toBeLessThan(2_147_483_647);
   });
 });
