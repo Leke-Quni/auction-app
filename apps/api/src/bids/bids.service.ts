@@ -98,6 +98,9 @@ export class BidsService {
       // connection can always find out and a genuine new bid is not refused because of the retries.
       const earlier = await this.prisma.bid.findUnique({ where: { bidderId_idempotencyKey: { bidderId, idempotencyKey: input.idempotencyKey } }, select: { id: true } });
       if (!earlier) await this.checkRate(bidderId, ip);
+      // Read before the lock is taken, so the check does not lengthen the time the listing's row is held (a strike landing
+      // in these few milliseconds changes nothing that matters).
+      const strikes = earlier ? 0 : await this.prisma.strike.count({ where: { userId: bidderId } });
       result = await this.prisma.$transaction(
         async (tx) => {
           const [listing] = await tx.$queryRaw<LockedListing[]>`
@@ -125,7 +128,7 @@ export class BidsService {
           if (listing.sellerId === bidderId) throw refusal("OWN_LISTING");
           if (now < listing.startsAt || now >= listing.endsAt) throw refusal("NOT_LIVE");
           // Winning and not paying earns a strike; two strikes stop a person bidding at all.
-          if ((await tx.strike.count({ where: { userId: bidderId } })) >= MAX_STRIKES) throw refusal("BLOCKED");
+          if (strikes >= MAX_STRIKES) throw refusal("BLOCKED");
           if (listing.highBidderId === bidderId) throw refusal("ALREADY_HIGHEST");
           const minimum = minimumNextBidCents(listing);
           if (input.amountCents < minimum) throw refusal("TOO_LOW", { minimumNextBidCents: minimum });

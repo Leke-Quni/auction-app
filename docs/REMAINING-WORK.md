@@ -23,7 +23,7 @@ All checks passed at the last full run (lint, typecheck, 322 API, 241 web, 87 sh
 - Done in code and tests (see `DESIGN.md` section 7, "Payment expiry, the runner-up offer and strikes"). To try by hand: win an auction, let `payBy` pass (set it in the past in the database), and watch the order expire, the strike, the offer to the next bidder, the emails and the toast; then miss a second payment and try to bid.
 - Open for later: where a person can see their strikes (only the listing note and the email say so for now); the admin screen that clears them (slice 6); a "second chance" email to the non-payer is deliberately not sent.
 
-### Step 6: one-click relist
+### Step 6: one-click relist (built 2026-11-04)
 - A seller action on a `NO_SALE` or `NO_BIDS` listing creates a new draft with the same details and photos through the existing listing service (the old listing stays as the record). A button on the closed listing page, for the seller only.
 
 ### Step 7: QStash

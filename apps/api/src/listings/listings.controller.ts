@@ -96,6 +96,12 @@ export class ListingsController {
     return this.listings.publish(req.user.id, id, body);
   }
 
+  @Post("listings/:id/relist")
+  @UseGuards(JwtAuthGuard)
+  relist(@Req() req: AuthedRequest, @Param("id") id: string) {
+    return this.listings.relist(req.user.id, id);
+  }
+
   @Delete("listings/:id")
   @UseGuards(JwtAuthGuard)
   @HttpCode(200)

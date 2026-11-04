@@ -276,6 +276,46 @@ describe("orders that are not paid in time", () => {
       expect(waiting[0]!.dueAt.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
     });
 
+    it("expires nothing, and strikes nobody, while a checkout page cannot be closed", async () => {
+      const [a, b] = await makePeople(2);
+      const { order } = await sale([[b, 1500], [a, 2000]]);
+      await prisma.order.update({ where: { id: order.id }, data: { shippingAddress: { name: "Ann", line1: "Rr 1", city: "Tirana", postcode: "1001", country: "AL", phone: "+355691112222" }, shippingOption: { id: "standard", name: "Standard", estimatedDays: 6, tracked: false, insured: false, priceCents: 300 }, shippingCents: 300, totalCents: 2300 } });
+      await api().post(`/orders/${order.id}/checkout`).set(as(a)).expect(201);
+      const ref = (await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).paymentRef!;
+      await overdue(order.id);
+      const real = provider.expireCheckout.bind(provider);
+      provider.expireCheckout = async () => { throw new Error("provider down"); };
+      try {
+        await expect(expiry.expire(order.id)).rejects.toThrow("provider down");
+      } finally {
+        provider.expireCheckout = real;
+      }
+      expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("AWAITING_PAYMENT");
+      expect(await strikes(a)).toBe(0);
+      expect(await expiry.expire(order.id)).not.toBeNull(); // once it can be closed, the order expires and the page is shut
+      expect(provider.simulatePayment(ref)).toBe(false);
+    });
+
+    it("words a delayed notice with the strike count of its own order, not of a later one", async () => {
+      const [a, b] = await makePeople(2);
+      const first = await sale([[b, 1500], [a, 2000]]);
+      const second = await sale([[b, 1500], [a, 2000]]);
+      await overdue(first.order.id);
+      await expiry.expire(first.order.id);
+      await overdue(second.order.id);
+      await expiry.expire(second.order.id); // a is now at two strikes
+      // the first notice is sent again late, as after a mail outage
+      await prisma.pendingEndEmail.upsert({
+        where: { userId_listingId_kind: { userId: a.id, listingId: first.listing.id, kind: "EXPIRED" } },
+        create: { userId: a.id, listingId: first.listing.id, kind: "EXPIRED" },
+        update: { dueAt: new Date(), attempts: 0 },
+      });
+      await emails.sweep();
+      const notice = (title: string) => sent.filter((m) => m.to === a.email && m.subject.includes(title)).at(-1)!;
+      expect(notice(first.listing.title).text).toContain("strike 1 of 2");
+      expect(notice(second.listing.title).text).toContain("strike 2");
+    });
+
     it("closes a checkout page left open, so the expired order cannot be paid on it", async () => {
       const [a, b] = await makePeople(2);
       const { order } = await sale([[b, 1500], [a, 2000]]);
@@ -300,6 +340,40 @@ describe("orders that are not paid in time", () => {
       expect(await expiry.sweep()).toBeGreaterThanOrEqual(2);
       for (const o of [due1, due2]) expect((await prisma.order.findUniqueOrThrow({ where: { id: o.id } })).status).toBe("EXPIRED");
       expect((await prisma.order.findUniqueOrThrow({ where: { id: waiting.id } })).status).toBe("AWAITING_PAYMENT");
+    });
+
+    it("leaves an order alone for a while after the provider could not be asked about it, and does not strike meanwhile", async () => {
+      const [a, b] = await makePeople(2);
+      const { order } = await sale([[b, 1500], [a, 2000]]);
+      await prisma.order.update({ where: { id: order.id }, data: { paymentRef: "cs_flaky", paymentRefs: ["cs_flaky"] } });
+      await overdue(order.id);
+      let asked = 0;
+      const real = provider.confirm.bind(provider);
+      provider.confirm = async (ref: string) => {
+        if (ref === "cs_flaky") {
+          asked++;
+          throw new Error("provider down");
+        }
+        return real(ref);
+      };
+      try {
+        await expiry.sweep();
+        await expiry.sweep();
+      } finally {
+        provider.confirm = real;
+      }
+      expect(asked).toBe(1); // the second sweep skipped it
+      expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("AWAITING_PAYMENT");
+      expect(await strikes(a)).toBe(0);
+    });
+
+    it("lists a listing's orders with the newest round first", async () => {
+      const [a, b] = await makePeople(2);
+      const { listing, order } = await sale([[b, 1500], [a, 2000]]);
+      await overdue(order.id);
+      await expiry.expire(order.id);
+      const res = await api().get(`/orders?listingId=${listing.id}`).set(as(seller)).expect(200);
+      expect(res.body.map((o: { buyer: { id: string } }) => o.buyer.id)).toEqual([b.id, a.id]); // round 2 (b), then round 1 (a)
     });
   });
 

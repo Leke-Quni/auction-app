@@ -112,6 +112,14 @@ export async function deleteListingAction(listingId: string): Promise<{ error?: 
   redirect("/sell");
 }
 
+// One click on an auction that ended without a sale: a new draft with the same details and photos, opened for editing.
+export async function relistListingAction(listingId: string): Promise<{ error?: string }> {
+  const res = await authedApiFetch(`/listings/${listingId}/relist`, { method: "POST" });
+  if (!res.ok) return { error: await apiErrorMessage(res) };
+  const draft = await res.json();
+  redirect(`/sell/${draft.id}/edit`);
+}
+
 // The seller corrects where the carrier collects, whatever the listing's state; an order for it follows.
 export async function updatePickupAddressAction(_: SellFormState, formData: FormData): Promise<SellFormState> {
   const listingId = String(formData.get("listingId") ?? "");

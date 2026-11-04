@@ -273,7 +273,7 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
 
     // The caller deletes these from Blob; this service has no Blob credentials.
     const kept = new Set(images.map((i) => i.url));
-    const removedImageUrls = listing.images.map((i) => i.url).filter((url) => !kept.has(url));
+    const removedImageUrls = await this.unsharedUrls(listing.images.map((i) => i.url).filter((url) => !kept.has(url)));
     const updated = await this.prisma.listing.findUniqueOrThrow({ where: { id }, include: listingInclude });
     await this.syncSearch(updated);
     return { ...toDto(updated, new Date(), true), removedImageUrls };
@@ -309,7 +309,48 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`Search removal failed for listing ${id}: ${error instanceof Error ? error.message : error}`);
       }
     }
-    return { removedImageUrls: listing.images.map((i) => i.url) };
+    return { removedImageUrls: await this.unsharedUrls(listing.images.map((i) => i.url)) };
+  }
+
+  // A seller whose auction ended without a sale can list the item again with one click: a new draft with the same details,
+  // pickup address and photos (the old listing stays as the record). The draft is not published, so the seller can change
+  // anything first, and while that draft exists, asking again returns it. Only a listing that closed with no bids or no sale qualifies, never one that sold or is still running.
+  async relist(sellerId: string, id: string) {
+    const old = await this.getOwned(sellerId, id);
+    if (old.closedAt === null || (old.outcome !== "NO_SALE" && old.outcome !== "NO_BIDS")) {
+      throw new ConflictException("Only an auction that ended without a sale can be listed again");
+    }
+    // Asking again (a double click, a second tab) returns the draft that is already there instead of making another. The
+    // lock makes two calls at the same moment take turns.
+    const draft = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`relist:${id}`}))`;
+      const existing = await tx.listing.findFirst({ where: { relistedFromId: id, sellerId, status: "DRAFT" }, include: listingInclude });
+      if (existing) return existing;
+      return tx.listing.create({
+        data: {
+          sellerId,
+          relistedFromId: id,
+          title: old.title,
+          description: old.description,
+          categoryId: old.categoryId,
+          condition: old.condition,
+          startingPriceCents: old.startingPriceCents,
+          reservePriceCents: old.reservePriceCents,
+          durationDays: old.durationDays,
+          ...(old.pickupAddress ? { pickupAddress: old.pickupAddress } : {}),
+          images: { create: old.images.map((image) => ({ url: image.url, pathname: image.pathname, position: image.position })) },
+        },
+        include: listingInclude,
+      });
+    });
+    return toDto(draft, new Date(), true);
+  }
+
+  // Photos a relisted draft shares with the listing it came from must stay in Blob when one of them lets go of a photo.
+  private async unsharedUrls(urls: string[]) {
+    if (urls.length === 0) return urls;
+    const stillUsed = new Set((await this.prisma.listingImage.findMany({ where: { url: { in: urls } }, select: { url: true } })).map((i) => i.url));
+    return urls.filter((url) => !stillUsed.has(url));
   }
 
   private async requireCategory(categoryId: string) {

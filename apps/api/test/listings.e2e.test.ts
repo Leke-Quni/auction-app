@@ -114,6 +114,11 @@ describe("listings", () => {
     ({ id: otherId, token: other } = await signUp(emails.other, "o"));
   });
 
+  // The tests reuse the same photo URLs; real uploads are unique, and a photo another listing still uses is not reported as removed.
+  beforeEach(async () => {
+    await prisma.listing.deleteMany({ where: { sellerId } });
+  });
+
   afterAll(async () => {
     await prisma.user.deleteMany({ where: { email: { in: Object.values(emails) } } });
     await app.close();
@@ -396,6 +401,70 @@ describe("listings", () => {
     });
   });
 
+  describe("listing it again", () => {
+    // An auction that ended: closed with the given outcome, as the close would leave it.
+    const ended = async (outcome: "NO_SALE" | "NO_BIDS" | "SOLD") => {
+      const listing = await createPublished({ title: "Relist me", reservePriceCents: 5000 });
+      await prisma.listing.update({ where: { id: listing.id }, data: { startsAt: new Date(Date.now() - 6 * DAY), endsAt: new Date(Date.now() - 1000), closedAt: new Date(), outcome } });
+      return listing;
+    };
+
+    it("copies an auction that had no bids into a new draft with the same details and photos", async () => {
+      const old = await ended("NO_BIDS");
+      const res = await api().post(`/listings/${old.id}/relist`).set(as(seller)).expect(201);
+      expect(res.body).toMatchObject({ status: "DRAFT", title: "Relist me", reservePriceCents: 5000, startingPriceCents: 1000, durationDays: 5, condition: "GOOD", closedAt: null, outcome: null, bidCount: 0 });
+      expect(res.body.id).not.toBe(old.id);
+      expect(res.body.images).toHaveLength(1);
+      const saved = await prisma.listing.findUniqueOrThrow({ where: { id: res.body.id } });
+      expect(saved.pickupAddress).toMatchObject({ line1: "Rr. Dardania 12" });
+      expect(saved.startsAt).toBeNull();
+      expect((await prisma.listing.findUniqueOrThrow({ where: { id: old.id } })).outcome).toBe("NO_BIDS"); // the old one stays as the record
+    });
+
+    it("works for an auction that ended without a sale, and the new draft can be published", async () => {
+      const old = await ended("NO_SALE");
+      const draft = (await api().post(`/listings/${old.id}/relist`).set(as(seller)).expect(201)).body;
+      const published = (await api().post(`/listings/${draft.id}/publish`).set(as(seller)).send({}).expect(200)).body;
+      expect(published.status).toBe("PUBLISHED");
+    });
+
+    it("returns the draft it already made when asked again, even at the same moment, and makes a new one once that is published", async () => {
+      const old = await ended("NO_BIDS");
+      const results = await Promise.all([1, 2, 3].map(() => api().post(`/listings/${old.id}/relist`).set(as(seller))));
+      results.forEach((r) => expect(r.status).toBe(201));
+      expect(new Set(results.map((r) => r.body.id)).size).toBe(1);
+      expect(await prisma.listing.count({ where: { relistedFromId: old.id } })).toBe(1);
+      const draftId = results[0]!.body.id;
+      await api().post(`/listings/${draftId}/publish`).set(as(seller)).send({}).expect(200);
+      const again = await api().post(`/listings/${old.id}/relist`).set(as(seller)).expect(201);
+      expect(again.body.id).not.toBe(draftId);
+    });
+
+    it("refuses a sale, an auction still running, and a draft", async () => {
+      const sold = await ended("SOLD");
+      await api().post(`/listings/${sold.id}/relist`).set(as(seller)).expect(409);
+      const running = await createPublished();
+      await api().post(`/listings/${running.id}/relist`).set(as(seller)).expect(409);
+      const draft = await createDraft();
+      await api().post(`/listings/${draft.id}/relist`).set(as(seller)).expect(409);
+    });
+
+    it("is for the seller only", async () => {
+      const old = await ended("NO_BIDS");
+      await api().post(`/listings/${old.id}/relist`).expect(401);
+      await api().post(`/listings/${old.id}/relist`).set(as(other)).expect(403);
+    });
+
+    it("keeps a photo in Blob while the other listing still uses it", async () => {
+      const old = await ended("NO_BIDS");
+      const draft = (await api().post(`/listings/${old.id}/relist`).set(as(seller)).expect(201)).body;
+      const removed = await api().put(`/listings/${draft.id}/images`).set(as(seller)).send({ images: [image(sellerId, 2)] }).expect(200);
+      expect(removed.body.removedImageUrls).toEqual([]); // photo 1 is still on the old listing
+      const gone = await api().delete(`/listings/${draft.id}`).set(as(seller)).expect(200);
+      expect(gone.body.removedImageUrls).toEqual([image(sellerId, 2).url]);
+    });
+  });
+
   describe("lists", () => {
     it("shows only live and upcoming published listings, newest first, in pages", async () => {
       await prisma.listing.deleteMany({ where: { sellerId } });
@@ -425,8 +494,10 @@ describe("listings", () => {
     });
 
     it("gives a seller all of their own listings, drafts included, and nobody else's", async () => {
+      await createDraft();
+      await createPublished();
       const mine = await api().get("/me/listings").set(as(seller)).expect(200);
-      expect(mine.body.length).toBeGreaterThan(0);
+      expect(mine.body.length).toBe(2);
       expect(mine.body.every((l: { seller: { id: string } }) => l.seller.id === sellerId)).toBe(true);
       expect(mine.body.some((l: { status: string }) => l.status === "DRAFT")).toBe(true);
 

@@ -57,12 +57,29 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
     // A payment that was taken but not yet reported must not cost the buyer a strike. If the provider cannot be asked
     // right now, throw so the sweep backs off and tries again later, rather than punishing on a guess (until the
     // deadline is long past; see GIVE_UP_CHECKING_AFTER_MS).
+    let giveUp = false;
     try {
       if (await this.orders.settleIfPaid(orderId)) return null;
     } catch (error) {
-      const order = await this.prisma.order.findUnique({ where: { id: orderId }, select: { payBy: true } });
-      if (!order || Date.now() - order.payBy.getTime() < GIVE_UP_CHECKING_AFTER_MS) throw error;
+      giveUp = await this.longOverdue(orderId);
+      if (!giveUp) throw error;
       this.log.error(`Could not check payments for order ${orderId} ${GIVE_UP_CHECKING_AFTER_MS / 3600_000} hours after its deadline; expiring it anyway: ${(error as Error).message}`);
+    }
+
+    // Checkout pages still open must be closed before the order is given up on, so the buyer cannot pay for an item that
+    // is offered to someone else. If one cannot be closed now, nothing is expired yet and the sweep tries again (unless
+    // the deadline is long past, when a payment that still lands is refunded instead).
+    const due = await this.prisma.$queryRaw<{ paymentRef: string | null; paymentRefs: string[] }[]>`
+      SELECT "paymentRef", "paymentRefs" FROM "Order"
+      WHERE "id" = ${orderId} AND "status" = 'AWAITING_PAYMENT' AND "payBy" <= clock_timestamp()`;
+    if (due.length === 0) return null;
+    for (const ref of new Set([...(due[0]!.paymentRef ? [due[0]!.paymentRef] : []), ...due[0]!.paymentRefs])) {
+      try {
+        await this.payments.expireCheckout(ref);
+      } catch (error) {
+        if (!giveUp && !(await this.longOverdue(orderId))) throw error;
+        this.log.error(`Could not close session ${ref} of order ${orderId}: ${(error as Error).message}`);
+      }
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -72,7 +89,7 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
         WHERE "id" = ${orderId} AND "status" = 'AWAITING_PAYMENT' AND "payBy" <= clock_timestamp()`;
       if (marked === 0) return null;
       const [{ now }] = await tx.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS "now"`;
-      const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { listingId: true, buyerId: true, sellerId: true, round: true, paymentRefs: true } });
+      const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { listingId: true, buyerId: true, sellerId: true, round: true } });
       await tx.strike.create({ data: { userId: order.buyerId, listingId: order.listingId, orderId } });
       const listing = await tx.listing.findUniqueOrThrow({ where: { id: order.listingId }, select: { reservePriceCents: true, pickupAddress: true } });
 
@@ -123,21 +140,18 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
       } else {
         await tx.listing.update({ where: { id: order.listingId }, data: { outcome: "NO_SALE", winnerId: null, finalPriceCents: null } });
       }
-      return { orderId, listingId: order.listingId, nextBuyerId: qualifies ? next.userId : null, nextAmountCents: qualifies ? next.amountCents : null, refs: order.paymentRefs };
+      return { orderId, listingId: order.listingId, nextBuyerId: qualifies ? next.userId : null, nextAmountCents: qualifies ? next.amountCents : null };
     });
     if (!result) return null;
 
-    // A checkout page still open for the expired order must not take money any more (a payment that lands anyway is refunded).
-    for (const ref of result.refs) {
-      try {
-        await this.payments.expireCheckout(ref);
-      } catch (error) {
-        this.log.error(`Could not close session ${ref} of expired order ${orderId}: ${(error as Error).message}`);
-      }
-    }
     const summary: ExpiryResult = { orderId: result.orderId, listingId: result.listingId, nextBuyerId: result.nextBuyerId, nextAmountCents: result.nextAmountCents };
     this.events.publish({ type: "OrderExpired", ...summary });
     return summary;
+  }
+
+  private async longOverdue(orderId: string) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId }, select: { payBy: true } });
+    return !!order && Date.now() - order.payBy.getTime() >= GIVE_UP_CHECKING_AFTER_MS;
   }
 
   // Expires whatever is waiting and past its deadline. Safe to run on every machine.

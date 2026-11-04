@@ -9,6 +9,7 @@ import type { BidMode } from "./bid-panel";
 import { LiveAuction, type LiveSnapshot } from "./live-auction";
 import { LiveDetails, LiveHistory } from "./live-details";
 import { Questions } from "./questions";
+import { RelistButton } from "./relist-button";
 
 export default async function ListingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -61,6 +62,12 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
           <Link href={`/sell/${listing.id}/edit`} className="text-brand underline">
             {listing.status === "DRAFT" ? "Edit and publish" : "Edit description and photos"}
           </Link>
+          {listing.closedAt && (listing.outcome === "NO_SALE" || listing.outcome === "NO_BIDS") && (
+            <>
+              {" "}
+              <RelistButton listingId={listing.id} />
+            </>
+          )}
         </p>
       )}
       <h1 className="border border-line bg-white p-2 text-lg font-bold">{listing.title}</h1>

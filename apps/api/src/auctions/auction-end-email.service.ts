@@ -192,7 +192,9 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
     if (!order) return;
     const title = order.listing.title;
     if (kind === "EXPIRED") {
-      const strikes = await this.prisma.strike.count({ where: { userId } });
+      // The count as it was when this order expired, not as it is now, so a late or retried email does not skip ahead.
+      const given = await this.prisma.strike.findUnique({ where: { orderId: order.id }, select: { createdAt: true } });
+      const strikes = await this.prisma.strike.count({ where: { userId, ...(given ? { createdAt: { lte: given.createdAt } } : {}) } });
       const lines = [
         `You did not pay for "${title}" (${formatEur(order.amountCents)}) within the payment window, so the order has been cancelled.`,
         "",
