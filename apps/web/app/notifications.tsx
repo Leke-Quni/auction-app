@@ -212,9 +212,9 @@ function OutbidBody({ toast, onAsk, onCancel, onConfirm }: { toast: OutbidToast;
 function WonBody({ notice }: { notice: WonNotice }) {
   return (
     <div className="space-y-1.5">
-      <p className="font-bold">You won the auction</p>
+      <p className="font-bold">{notice.offered ? "The item is yours to pay for" : "You won the auction"}</p>
       <p className="text-muted">
-        {notice.title} for {formatEur(notice.finalPriceCents)}.
+        {notice.offered ? `The first buyer of ${notice.title} did not pay, so it is offered to you at ${formatEur(notice.finalPriceCents)}.` : `${notice.title} for ${formatEur(notice.finalPriceCents)}.`}
       </p>
       <Link href={`/listings/${notice.listingId}`} className="block w-full rounded bg-brand px-3 py-1.5 text-center font-bold text-white hover:bg-brand-dark">
         Go to the auction

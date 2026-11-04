@@ -6,6 +6,9 @@ import type { BidResult } from "./bids.service";
 export type AuctionEvent =
   | { type: "BidPlaced"; listingId: string; result: BidResult }
   | { type: "AuctionExtended"; listingId: string; endsAt: Date; extensionCount: number }
+  // A buyer did not pay in time. `nextBuyerId` is who the item was offered to next (at their own highest bid), or null when
+  // no remaining bid qualified and the auction ended without a sale.
+  | { type: "OrderExpired"; listingId: string; orderId: string; nextBuyerId: string | null; nextAmountCents: number | null }
   | { type: "AuctionClosed"; listingId: string; outcome: "SOLD" | "NO_SALE" | "NO_BIDS"; winnerId: string | null; finalPriceCents: number | null };
 
 @Injectable()

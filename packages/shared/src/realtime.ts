@@ -65,6 +65,8 @@ export interface WonNotice {
   listingId: string;
   title: string;
   finalPriceCents: number;
+  // True when the item is offered to this bidder because the winner did not pay, rather than won outright.
+  offered?: boolean;
 }
 
 // For the seller when someone asks a question on their listing (`notice:question`), and for the asker when the seller

@@ -58,6 +58,16 @@ describe("Notifications", () => {
     expect(screen.queryByRole("status")).toBeNull(); // like the others, it goes after 5 seconds
   });
 
+  it("tells the next bidder the item is theirs to pay for, worded as an offer and not as a win", () => {
+    render(<Notifications />);
+    push("notice:won", { listingId: "l9", title: "Old watch", finalPriceCents: 2500, offered: true });
+    const toast = screen.getByRole("status").textContent!;
+    expect(toast).toContain("The item is yours to pay for");
+    expect(toast).toContain("did not pay");
+    expect(toast).toContain("€25.00");
+    expect(toast).not.toContain("You won the auction");
+  });
+
   it("shows a toast for a new question and for an answer, each linking to the listing", () => {
     render(<Notifications />);
     const notice = { listingId: "l3", questionId: "q1", title: "Old watch", from: "sam", excerpt: "Does it run?" };

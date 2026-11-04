@@ -1,0 +1,173 @@
+import { MAX_STRIKES, platformFeeCents } from "@auction/shared";
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { AuctionEvents } from "../bids/auction-events";
+import { paymentWindowHours, platformFeeCapCents, platformFeePercent } from "../config";
+import { PRISMA, type Prisma } from "../db/db.module";
+import { PAYMENT_PROVIDER, type PaymentProvider } from "../payments/payment-provider";
+import { OrdersService } from "./orders.service";
+
+const SWEEP_EVERY_MS = 30_000;
+const SWEEP_BATCH = 100;
+// An order that fails to expire is left out of the sweep for this long, so a few broken ones cannot fill every batch.
+const RETRY_FAILED_AFTER_MS = 5 * 60_000;
+// If the provider still cannot be asked this long after the deadline, the order is expired anyway, so one unreadable
+// checkout session cannot hold up the strike and the runner-up offer for ever. A payment that lands later is refunded.
+const GIVE_UP_CHECKING_AFTER_MS = 24 * 3600_000;
+
+export interface ExpiryResult {
+  orderId: string;
+  listingId: string;
+  // Who the item was offered to next, and at what price; null when no remaining bid qualified (no sale).
+  nextBuyerId: string | null;
+  nextAmountCents: number | null;
+}
+
+// Gives up on orders that were not paid in time. For each one, in a single transaction: the order is marked EXPIRED, the
+// buyer gets a strike, and the item is offered to the next bidder at their own highest bid (a new order with a fresh
+// payment window) if that bid meets the reserve, or the auction ends without a sale if no remaining bid does. Emails to the
+// non-payer, the seller and the new buyer are queued in the same transaction. The update only matches an order that is still
+// waiting and past its deadline, so duplicate runs, several machines and the sweep catching up change nothing twice.
+@Injectable()
+export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
+  private readonly log = new Logger(OrderExpiryService.name);
+  private timer?: ReturnType<typeof setInterval>;
+  private sweeping = false;
+  private readonly failedUntil = new Map<string, number>();
+
+  constructor(
+    @Inject(PRISMA) private readonly prisma: Prisma,
+    @Inject(PAYMENT_PROVIDER) private readonly payments: PaymentProvider,
+    private readonly orders: OrdersService,
+    private readonly events: AuctionEvents,
+  ) {}
+
+  onModuleInit() {
+    this.timer = setInterval(() => void this.sweep(), SWEEP_EVERY_MS);
+    this.timer.unref();
+    void this.sweep();
+  }
+
+  onModuleDestroy() {
+    clearInterval(this.timer);
+  }
+
+  // Returns what happened if this call expired the order, or null if it did nothing (not due, not waiting, already
+  // expired, or paid after all).
+  async expire(orderId: string): Promise<ExpiryResult | null> {
+    // A payment that was taken but not yet reported must not cost the buyer a strike. If the provider cannot be asked
+    // right now, throw so the sweep backs off and tries again later, rather than punishing on a guess (until the
+    // deadline is long past; see GIVE_UP_CHECKING_AFTER_MS).
+    try {
+      if (await this.orders.settleIfPaid(orderId)) return null;
+    } catch (error) {
+      const order = await this.prisma.order.findUnique({ where: { id: orderId }, select: { payBy: true } });
+      if (!order || Date.now() - order.payBy.getTime() < GIVE_UP_CHECKING_AFTER_MS) throw error;
+      this.log.error(`Could not check payments for order ${orderId} ${GIVE_UP_CHECKING_AFTER_MS / 3600_000} hours after its deadline; expiring it anyway: ${(error as Error).message}`);
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Judged by the database's clock, like the close and the bids, so several machines agree on the deadline.
+      const marked = await tx.$executeRaw`
+        UPDATE "Order" SET "status" = 'EXPIRED', "updatedAt" = clock_timestamp()
+        WHERE "id" = ${orderId} AND "status" = 'AWAITING_PAYMENT' AND "payBy" <= clock_timestamp()`;
+      if (marked === 0) return null;
+      const [{ now }] = await tx.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS "now"`;
+      const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { listingId: true, buyerId: true, sellerId: true, round: true, paymentRefs: true } });
+      await tx.strike.create({ data: { userId: order.buyerId, listingId: order.listingId, orderId } });
+      const listing = await tx.listing.findUniqueOrThrow({ where: { id: order.listingId }, select: { reservePriceCents: true, pickupAddress: true } });
+
+      // The next bidder, by their own highest bid, who has not already been offered this item and is not blocked from bidding.
+      // Bids only rise, so if the best remaining one is below the reserve, they all are.
+      const [next] = await tx.$queryRaw<{ userId: string; amountCents: number }[]>`
+        SELECT b."bidderId" AS "userId", MAX(b."amountCents")::int AS "amountCents"
+        FROM "Bid" b
+        WHERE b."listingId" = ${order.listingId}
+          AND b."bidderId" NOT IN (SELECT "buyerId" FROM "Order" WHERE "listingId" = ${order.listingId})
+          AND (SELECT COUNT(*) FROM "Strike" s WHERE s."userId" = b."bidderId") < ${MAX_STRIKES}
+        GROUP BY b."bidderId"
+        ORDER BY MAX(b."amountCents") DESC
+        LIMIT 1`;
+      const qualifies = next && (listing.reservePriceCents === null || next.amountCents >= listing.reservePriceCents);
+
+      // An email of the same kind still waiting from an earlier round is made due again rather than dropped, so this round is told too.
+      for (const [userId, kind] of [[order.buyerId, "EXPIRED"], [order.sellerId, "NOT_PAID"]] as const) {
+        await tx.pendingEndEmail.upsert({
+          where: { userId_listingId_kind: { userId, listingId: order.listingId, kind } },
+          create: { userId, listingId: order.listingId, kind },
+          update: { dueAt: now, attempts: 0 },
+        });
+      }
+
+      if (qualifies) {
+        const feeCents = platformFeeCents(next.amountCents, platformFeePercent(), platformFeeCapCents());
+        await tx.order.create({
+          data: {
+            listingId: order.listingId,
+            round: order.round + 1,
+            buyerId: next.userId,
+            sellerId: order.sellerId,
+            amountCents: next.amountCents,
+            feeCents,
+            sellerNetCents: next.amountCents - feeCents,
+            ...(listing.pickupAddress ? { pickupAddress: listing.pickupAddress } : {}),
+            payBy: new Date(now.getTime() + paymentWindowHours() * 3600_000),
+          },
+        });
+        // The listing's result follows the sale: the new buyer and what they pay.
+        await tx.listing.update({ where: { id: order.listingId }, data: { winnerId: next.userId, finalPriceCents: next.amountCents } });
+        await tx.pendingEndEmail.upsert({
+          where: { userId_listingId_kind: { userId: next.userId, listingId: order.listingId, kind: "WON" } },
+          create: { userId: next.userId, listingId: order.listingId, kind: "WON" },
+          update: { dueAt: now, attempts: 0 },
+        });
+      } else {
+        await tx.listing.update({ where: { id: order.listingId }, data: { outcome: "NO_SALE", winnerId: null, finalPriceCents: null } });
+      }
+      return { orderId, listingId: order.listingId, nextBuyerId: qualifies ? next.userId : null, nextAmountCents: qualifies ? next.amountCents : null, refs: order.paymentRefs };
+    });
+    if (!result) return null;
+
+    // A checkout page still open for the expired order must not take money any more (a payment that lands anyway is refunded).
+    for (const ref of result.refs) {
+      try {
+        await this.payments.expireCheckout(ref);
+      } catch (error) {
+        this.log.error(`Could not close session ${ref} of expired order ${orderId}: ${(error as Error).message}`);
+      }
+    }
+    const summary: ExpiryResult = { orderId: result.orderId, listingId: result.listingId, nextBuyerId: result.nextBuyerId, nextAmountCents: result.nextAmountCents };
+    this.events.publish({ type: "OrderExpired", ...summary });
+    return summary;
+  }
+
+  // Expires whatever is waiting and past its deadline. Safe to run on every machine.
+  async sweep(): Promise<number> {
+    if (this.sweeping) return 0;
+    this.sweeping = true;
+    let expired = 0;
+    try {
+      const now = Date.now();
+      for (const [id, until] of this.failedUntil) if (until <= now) this.failedUntil.delete(id);
+      const due = await this.prisma.order.findMany({
+        where: { status: "AWAITING_PAYMENT", payBy: { lte: new Date() }, id: { notIn: [...this.failedUntil.keys()] } },
+        orderBy: { payBy: "asc" },
+        take: SWEEP_BATCH,
+        select: { id: true },
+      });
+      for (const { id } of due) {
+        try {
+          if (await this.expire(id)) expired++;
+        } catch (error) {
+          this.failedUntil.set(id, Date.now() + RETRY_FAILED_AFTER_MS);
+          this.log.error(`Could not expire order ${id}: ${(error as Error).message}`);
+        }
+      }
+      if (expired > 0) this.log.log(`Expired ${expired} unpaid order${expired === 1 ? "" : "s"}`);
+    } catch (error) {
+      this.log.error(`Order expiry sweep failed: ${(error as Error).message}`);
+    } finally {
+      this.sweeping = false;
+    }
+    return expired;
+  }
+}

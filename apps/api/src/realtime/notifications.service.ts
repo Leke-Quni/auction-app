@@ -51,6 +51,13 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
         }
         return;
       }
+      if (event.type === "OrderExpired") {
+        // The item is offered to the next bidder: they get the same live toast as a winner, worded as an offer.
+        if (event.nextBuyerId && event.nextAmountCents != null) {
+          this.tellWinner(event.listingId, event.nextBuyerId, event.nextAmountCents, true).catch((error) => this.log.error(`Could not send the offer notice: ${(error as Error).message}`));
+        }
+        return;
+      }
       if (event.type !== "BidPlaced" || event.result.replayed) return;
       this.onBid(event.listingId, event.result).catch((error) => this.log.error(`Could not send notices: ${(error as Error).message}`));
     });
@@ -62,10 +69,10 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
   }
 
   // A live toast for the winner on any page they have open. Not saved and not replayed; the "you won" email covers it.
-  private async tellWinner(listingId: string, winnerId: string, finalPriceCents: number) {
+  private async tellWinner(listingId: string, winnerId: string, finalPriceCents: number, offered = false) {
     const listing = await this.prisma.listing.findUnique({ where: { id: listingId }, select: { title: true } });
     if (!listing) return;
-    this.gateway.emitToUsers([winnerId], SOCKET_EVENTS.wonNotice, { listingId, title: listing.title, finalPriceCents } satisfies WonNotice);
+    this.gateway.emitToUsers([winnerId], SOCKET_EVENTS.wonNotice, { listingId, title: listing.title, finalPriceCents, ...(offered ? { offered } : {}) } satisfies WonNotice);
   }
 
   private async onBid(listingId: string, result: BidResult) {

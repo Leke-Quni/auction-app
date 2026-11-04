@@ -42,6 +42,24 @@ describe("BidPanel once the auction has ended in a sale", () => {
   });
 });
 
+describe("BidPanel once an order has lapsed", () => {
+  const ended = (order: { viewer: "buyer" | "seller"; status: string }) => <BidPanel listingId="L1" mode="ended" minimumNextBidCents={1100} order={{ id: "o1", amountCents: 3150, ...order }} />;
+
+  it("tells a buyer who did not pay that the order was cancelled, and no longer offers to pay", () => {
+    render(ended({ viewer: "buyer", status: "EXPIRED" }));
+    expect(screen.getByText(/You did not pay for it in time, so the order was cancelled/)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Pay now" })).toBeNull();
+    expect(screen.queryByText(/You won it/)).toBeNull();
+    expect(screen.getByRole("link", { name: "View the order" }).getAttribute("href")).toBe("/orders/o1");
+  });
+
+  it("tells the seller the buyer did not pay, not that the item sold", () => {
+    render(ended({ viewer: "seller", status: "EXPIRED" }));
+    expect(screen.getByText(/The buyer did not pay, so it ended without a sale/)).toBeTruthy();
+    expect(screen.queryByText(/This item sold/)).toBeNull();
+  });
+});
+
 describe("BidPanel when you cannot bid", () => {
   it("says why, for each case", () => {
     const { rerender } = render(panel("signed-out"));
@@ -54,7 +72,9 @@ describe("BidPanel when you cannot bid", () => {
     expect(screen.getByText(/has ended/i)).toBeTruthy();
     rerender(panel("highest"));
     expect(screen.getByText("You are the highest bidder.")).toBeTruthy();
-    for (const mode of ["signed-out", "owner", "upcoming", "ended", "highest"] as const) {
+    rerender(panel("blocked"));
+    expect(screen.getByText(/did not pay for auctions you won \(two strikes\)/i)).toBeTruthy();
+    for (const mode of ["signed-out", "owner", "blocked", "upcoming", "ended", "highest"] as const) {
       rerender(panel(mode));
       expect(screen.queryByRole("button", { name: /place bid/i }), mode).toBeNull();
     }

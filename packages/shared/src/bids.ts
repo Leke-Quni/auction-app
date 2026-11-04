@@ -68,6 +68,7 @@ export const BID_REFUSALS = [
   "ALREADY_HIGHEST",
   "TOO_LOW",
   "RATE_LIMITED",
+  "BLOCKED",
 ] as const;
 export type BidRefusal = (typeof BID_REFUSALS)[number];
 
@@ -78,4 +79,5 @@ export const BID_REFUSAL_MESSAGES: Record<BidRefusal, string> = {
   ALREADY_HIGHEST: "You already have the highest bid.",
   TOO_LOW: "Your bid is below the minimum.",
   RATE_LIMITED: "You are bidding too fast. Wait a moment and try again.",
+  BLOCKED: "You cannot bid because you did not pay for auctions you won.",
 };

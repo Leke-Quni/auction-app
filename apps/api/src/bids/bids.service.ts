@@ -3,6 +3,7 @@ import {
   endsAtAfterBid,
   extensionCeiling,
   isFinalChance,
+  MAX_STRIKES,
   minimumNextBidCents,
   type BidRefusal,
   type PlaceBidInput,
@@ -20,6 +21,7 @@ const REFUSAL_STATUS: Record<BidRefusal, HttpStatus> = {
   ALREADY_HIGHEST: HttpStatus.CONFLICT,
   TOO_LOW: HttpStatus.UNPROCESSABLE_ENTITY,
   RATE_LIMITED: HttpStatus.TOO_MANY_REQUESTS,
+  BLOCKED: HttpStatus.FORBIDDEN,
 };
 
 // The code lets the page say why in words; the minimum lets it fill the box in again.
@@ -122,6 +124,8 @@ export class BidsService {
           const [{ now }] = await tx.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS "now"`;
           if (listing.sellerId === bidderId) throw refusal("OWN_LISTING");
           if (now < listing.startsAt || now >= listing.endsAt) throw refusal("NOT_LIVE");
+          // Winning and not paying earns a strike; two strikes stop a person bidding at all.
+          if ((await tx.strike.count({ where: { userId: bidderId } })) >= MAX_STRIKES) throw refusal("BLOCKED");
           if (listing.highBidderId === bidderId) throw refusal("ALREADY_HIGHEST");
           const minimum = minimumNextBidCents(listing);
           if (input.amountCents < minimum) throw refusal("TOO_LOW", { minimumNextBidCents: minimum });

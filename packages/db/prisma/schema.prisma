@@ -32,6 +32,7 @@ model User {
   listings            Listing[]            @relation("ListingSeller")
   leadingListings     Listing[]            @relation("ListingHighBidder")
   wonListings         Listing[]            @relation("ListingWinner")
+  strikes             Strike[]
   purchases           Order[]              @relation("OrderBuyer")
   sales               Order[]              @relation("OrderSeller")
   bids                Bid[]
@@ -283,6 +284,10 @@ model PendingEndEmail {
 enum EndEmailKind {
   LOST
   WON
+  // When a buyer did not pay in time: the non-payer's notice with their strike count, and the seller's account of what
+  // happened next (offered to the next bidder, or no sale).
+  EXPIRED
+  NOT_PAID
   // After payment: the buyer's confirmation with the invoice, and the seller's "sold, ship to" notice.
   PAID
   SOLD
@@ -420,5 +425,19 @@ model QuestionVote {
   createdAt  DateTime   @default(now())
 
   @@unique([questionId, userId, target])
+  @@index([userId])
+}
+
+// A mark against a buyer who won an auction and did not pay within the payment window. One per expired order (`orderId`
+// is unique, so however often the expiry runs a missed payment counts once). Strikes never expire; an admin removes them
+// (slice 6). Two strikes block bidding (`MAX_STRIKES` in packages/shared).
+model Strike {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId String
+  orderId   String   @unique
+  createdAt DateTime @default(now())
+
   @@index([userId])
 }

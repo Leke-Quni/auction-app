@@ -44,7 +44,7 @@ export class OrdersService {
   async list(userId: string, listingId?: string): Promise<OrderView[]> {
     const rows = await this.prisma.order.findMany({
       where: { OR: [{ buyerId: userId }, { sellerId: userId }], ...(listingId ? { listingId } : {}) },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ round: "desc" }, { createdAt: "desc" }],
       take: 100,
       include,
     });
@@ -89,16 +89,25 @@ export class OrdersService {
   async confirm(userId: string, orderId: string): Promise<OrderView> {
     const order = await this.find(userId, orderId);
     if (order.buyerId !== userId) throw refuse("NOT_BUYER");
-    if (order.status !== "PAID") {
-      const refs = [...new Set([...(order.paymentRef ? [order.paymentRef] : []), ...order.paymentRefs])].reverse();
-      for (const ref of refs) {
-        const result = await this.payments.confirm(ref);
-        if (!result.paid) continue;
-        const outcome = await this.settlePayment(orderId, ref, result.amountCents ?? null, "eur");
-        if (outcome === "paid" || outcome === "already") break;
-      }
-    }
+    if (order.status !== "PAID") await this.settleIfPaid(orderId);
     return this.get(userId, orderId);
+  }
+
+  // Looks at every checkout session of the order and settles any that was paid. True when the order ends up paid by one.
+  // The expiry uses it too, so a payment taken but not yet reported (the buyer closed the tab, the webhook is late) is found
+  // before the order is given up on and the buyer is struck.
+  async settleIfPaid(orderId: string): Promise<boolean> {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId }, select: { status: true, paymentRef: true, paymentRefs: true } });
+    if (!order) return false;
+    if (order.status === "PAID") return true;
+    const refs = [...new Set([...(order.paymentRef ? [order.paymentRef] : []), ...order.paymentRefs])].reverse();
+    for (const ref of refs) {
+      const result = await this.payments.confirm(ref);
+      if (!result.paid) continue;
+      const outcome = await this.settlePayment(orderId, ref, result.amountCents ?? null, "eur");
+      if (outcome === "paid" || outcome === "already") return true;
+    }
+    return false;
   }
 
   // A payment the provider reports as taken (from the buyer coming back, or from the webhook, possibly both at once).

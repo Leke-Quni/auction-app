@@ -6,6 +6,9 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number];
 // How long the winner has to pay (also the runner-up, when the item is offered on).
 export const PAYMENT_WINDOW_HOURS = 48;
 
+// A buyer who wins and does not pay in time gets a strike; this many block bidding. Strikes never expire.
+export const MAX_STRIKES = 2;
+
 // The platform's share of the final price (not of shipping), taken from the seller, and the most it can come to.
 // Config on the API (`PLATFORM_FEE_PERCENT`, `PLATFORM_FEE_CAP_CENTS`).
 export const DEFAULT_PLATFORM_FEE_PERCENT = 5;

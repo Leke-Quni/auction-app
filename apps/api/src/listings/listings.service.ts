@@ -3,6 +3,7 @@ import {
   extensionCeiling,
   isFinalChance,
   listingPhase,
+  MAX_STRIKES,
   minimumNextBidCents,
   type CreateListingInput,
   type ListingImageInput,
@@ -161,7 +162,10 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
     const listing = await this.prisma.listing.findUnique({ where: { id }, include: listingInclude });
     // A draft is private: anyone but the seller gets the same answer as for a listing that does not exist.
     if (!listing || (listing.status === "DRAFT" && listing.sellerId !== viewerId)) throw new NotFoundException();
-    return toDto(listing, new Date(), listing.sellerId === viewerId);
+    const dto = toDto(listing, new Date(), listing.sellerId === viewerId);
+    // Whether this viewer is blocked from bidding (two strikes), so the page says so instead of offering a bid box.
+    if (!viewerId) return dto;
+    return { ...dto, viewerBlocked: (await this.prisma.strike.count({ where: { userId: viewerId } })) >= MAX_STRIKES };
   }
 
   async list(page: number, pageSize: number, section?: "endingSoon" | "upcoming") {

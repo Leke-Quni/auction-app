@@ -1,4 +1,4 @@
-import { formatEur, type ShippingAddress } from "@auction/shared";
+import { formatEur, MAX_STRIKES, type ShippingAddress } from "@auction/shared";
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import type { Subscription } from "rxjs";
 import { AuctionEvents } from "../bids/auction-events";
@@ -39,7 +39,7 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
     this.timer.unref();
     void this.sweep();
     this.subscription = this.events.stream.subscribe((event) => {
-      if (event.type === "AuctionClosed") void this.sweep();
+      if (event.type === "AuctionClosed" || event.type === "OrderExpired") void this.sweep();
     });
   }
 
@@ -69,7 +69,7 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
     try {
       const due = await this.prisma.pendingEndEmail.findMany({ where: { dueAt: { lte: new Date() } }, orderBy: { dueAt: "asc" }, take: 100 });
       for (const candidate of due) {
-        const claimed = await this.prisma.$queryRaw<{ id: string; userId: string; listingId: string; kind: "LOST" | "WON" | "PAID" | "SOLD"; attempts: number }[]>`
+        const claimed = await this.prisma.$queryRaw<{ id: string; userId: string; listingId: string; kind: "LOST" | "WON" | "PAID" | "SOLD" | "EXPIRED" | "NOT_PAID"; attempts: number }[]>`
           UPDATE "PendingEndEmail" SET "dueAt" = ${new Date(Date.now() + LEASE_MS)}, "attempts" = "attempts" + 1
           WHERE "id" = ${candidate.id} AND "dueAt" <= ${new Date()}
           RETURNING "id", "userId", "listingId", "kind", "attempts"`;
@@ -93,8 +93,9 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Returns normally when the email was sent or is no longer needed; throws when it should be tried again.
-  private async send(userId: string, listingId: string, kind: "LOST" | "WON" | "PAID" | "SOLD") {
+  private async send(userId: string, listingId: string, kind: "LOST" | "WON" | "PAID" | "SOLD" | "EXPIRED" | "NOT_PAID") {
     if (kind === "PAID" || kind === "SOLD") return this.sendPaid(userId, listingId, kind);
+    if (kind === "EXPIRED" || kind === "NOT_PAID") return this.sendExpired(userId, listingId, kind);
     const [listing, user] = await Promise.all([
       this.prisma.listing.findUnique({ where: { id: listingId }, select: { title: true, outcome: true, currentBidCents: true, finalPriceCents: true } }),
       this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
@@ -114,14 +115,18 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
   private async sendWon(to: string, userId: string, listingId: string, title: string) {
     const order = await this.prisma.order.findFirst({ where: { listingId, buyerId: userId }, orderBy: { round: "desc" } });
     if (!order || order.status !== "AWAITING_PAYMENT") return; // already paid, or no longer theirs to pay
+    // A later round means the buyer before did not pay, so this is an offer at the bidder's own highest bid, not a win.
+    const offered = order.round > 1;
     const lines = [
-      `You won "${title}" with a bid of ${formatEur(order.amountCents)}.`,
+      offered
+        ? `The buyer who won "${title}" did not pay in time, so the item is now offered to you at your highest bid of ${formatEur(order.amountCents)}.`
+        : `You won "${title}" with a bid of ${formatEur(order.amountCents)}.`,
       "",
-      `Please pay by ${utc(order.payBy)}. After that the item may be offered to the next bidder.`,
+      `Please pay by ${utc(order.payBy)}. After that the item may be offered to the next bidder${offered ? " or the auction may end without a sale" : ""}.`,
       "",
       `Pay now: ${webUrl()}/orders/${order.id}`,
     ];
-    await this.mail.send(to, `You won ${title}: pay now`, lines.join("\n"));
+    await this.mail.send(to, offered ? `${title} is yours if you pay: pay now` : `You won ${title}: pay now`, lines.join("\n"));
   }
 
   // After payment. The buyer gets the confirmation with the invoice attached and the delivery details; the seller is told
@@ -174,5 +179,42 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
       `${webUrl()}/orders/${order.id}`,
     ];
     await this.mail.send(order.buyer.email, `Payment completed: ${order.listing.title}`, lines.join("\n"), [{ filename: `${data.invoiceNumber}.pdf`, content: await renderInvoice(data) }]);
+  }
+
+  // When a buyer did not pay in time. The buyer is told they were struck and what that means; the seller is told what happens
+  // to the item next (offered to the next bidder, or the auction ends without a sale).
+  private async sendExpired(userId: string, listingId: string, kind: "EXPIRED" | "NOT_PAID") {
+    const order = await this.prisma.order.findFirst({
+      where: { listingId, status: "EXPIRED", ...(kind === "EXPIRED" ? { buyerId: userId } : { sellerId: userId }) },
+      orderBy: { round: "desc" },
+      include: { listing: { select: { title: true } }, buyer: { select: { email: true, username: true } }, seller: { select: { email: true } } },
+    });
+    if (!order) return;
+    const title = order.listing.title;
+    if (kind === "EXPIRED") {
+      const strikes = await this.prisma.strike.count({ where: { userId } });
+      const lines = [
+        `You did not pay for "${title}" (${formatEur(order.amountCents)}) within the payment window, so the order has been cancelled.`,
+        "",
+        strikes >= MAX_STRIKES
+          ? `That is strike ${strikes} on your account, so you can no longer place bids.`
+          : `That is strike ${strikes} of ${MAX_STRIKES} on your account. At ${MAX_STRIKES} strikes you can no longer place bids.`,
+        "",
+        "If you were charged after the order expired, the payment is refunded automatically.",
+      ];
+      await this.mail.send(order.buyer.email, `You did not pay for ${title} in time`, lines.join("\n"));
+      return;
+    }
+    const next = await this.prisma.order.findFirst({ where: { listingId, round: order.round + 1 }, include: { buyer: { select: { username: true } } } });
+    const lines = [
+      `${order.buyer.username} won "${title}" at ${formatEur(order.amountCents)} but did not pay within the payment window, so that order was cancelled and they received a strike.`,
+      "",
+      next
+        ? `We have offered the item to the next bidder, ${next.buyer.username}, at their highest bid of ${formatEur(next.amountCents)}. They have until ${utc(next.payBy)} to pay. We will tell you if they do not.`
+        : "No remaining bid met the reserve, so the auction ended without a sale. You can list the item again.",
+      "",
+      `${webUrl()}/listings/${listingId}`,
+    ];
+    await this.mail.send(order.seller.email, next ? `${order.buyer.username} did not pay for ${title}: offered to the next bidder` : `${order.buyer.username} did not pay for ${title}: no sale`, lines.join("\n"));
   }
 }

@@ -19,12 +19,9 @@ All checks passed at the last full run (lint, typecheck, 322 API, 241 web, 87 sh
 - Done in code and tests (API 357, web 250, shared 98); see `DESIGN.md` section 7, "Delivery, confirmation email and invoice". Delivery is the platform's own: 5% of the item (EUR 3 to 50) plus the option's extra, kept by the platform to pay carriers; sellers give a pickup address (default in account settings, per listing). Tried by hand with Playwright (headless Chrome, driven from outside the repo) against Stripe test mode: sign-up, default pickup address, listing, bid, close, delivery form, two tabs, backing out of Stripe, changing the delivery mid-payment, paying, invoice PDFs, seller view and pickup correction. Emails were checked in the API tests, not in the browser run.
 - Open for later: the admin view of an order with both addresses (slice 6); a real carrier booking, if ever wanted.
 
-### Step 5: payment expiry, runner-up offer and strikes
-- Already done in step 4b, so not needed here: refunding a payment that lands on an order that has expired (`OrdersService.settlePayment` refunds any payment that does not match its order). The expiry sweep only has to mark the order `EXPIRED`; a payment that arrives afterwards is refunded by the webhook or by the buyer coming back.
-- Sweep orders that are `AWAITING_PAYMENT` and past `payBy` (index `Order(status, payBy)` exists). In one transaction: mark `EXPIRED`, add a strike (new `Strike` table: user, listing, createdAt; never expires), then offer the item to the next distinct bidder whose own highest bid meets the reserve (new `Order` with `round + 1`, new 48 hours, a "you won: pay now" email via `PendingEndEmail` kind `WON`, and the winner toast). If nobody qualifies, the listing becomes `NO_SALE`.
-- Bid gate: two strikes refuse bids with a new `BLOCKED` code (`packages/shared/src/bids.ts`, `BID_REFUSAL_MESSAGES`, `REFUSAL_STATUS` in `bids.service.ts`), shown in the bid panel.
-- Tell the non-payer (email) and the seller what happened. Tests: expiry runs once under duplicate sweeps, a strike is counted once, a runner-up below the reserve is skipped, the chain ends in `NO_SALE`, a blocked user is refused.
-- Check how the `LOST` emails and notifications treat the runner-up (they already got "you did not win" when the auction closed; the offer is a new email).
+### Step 5: payment expiry, runner-up offer and strikes (built 2026-11-04, not yet tried by hand)
+- Done in code and tests (see `DESIGN.md` section 7, "Payment expiry, the runner-up offer and strikes"). To try by hand: win an auction, let `payBy` pass (set it in the past in the database), and watch the order expire, the strike, the offer to the next bidder, the emails and the toast; then miss a second payment and try to bid.
+- Open for later: where a person can see their strikes (only the listing note and the email say so for now); the admin screen that clears them (slice 6); a "second chance" email to the non-payer is deliberately not sent.
 
 ### Step 6: one-click relist
 - A seller action on a `NO_SALE` or `NO_BIDS` listing creates a new draft with the same details and photos through the existing listing service (the old listing stays as the record). A button on the closed listing page, for the seller only.
@@ -37,7 +34,7 @@ All checks passed at the last full run (lint, typecheck, 322 API, 241 web, 87 sh
 ### Housekeeping for slice 5
 - Update `DESIGN.md` section 7 with each step as it lands (done for steps 1 to 3). When the slice is finished, check that section 3 (close and payment) still matches what was built.
 - Known small gaps, all noted in `DESIGN.md`: the unread count on an open page is not pushed when notifications expire; the won toast is not saved to the bell; sales that closed before orders existed have no order; sample users' `@seed.local` addresses would be emailed (and fail) if a real Resend key is set.
-- Push `slice-5-close` and open a PR when the owner asks (nothing is pushed yet). Local `main` still holds the old slice 4b commits and should be reset to `origin/main` once the owner agrees.
+- Push `slice-5-close` and open a PR when the owner asks (nothing is pushed yet).
 
 ## 2. Left over from earlier slices
 - **Database connection pool and timeouts.** `packages/db/src/index.ts` uses the default pool, and a bid waits up to 15 seconds for the row lock. Set an explicit pool size, then test a burst of bids on one hot auction to check that other requests still get through.

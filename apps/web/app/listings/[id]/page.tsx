@@ -22,7 +22,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
 
   const published = listing.status === "PUBLISHED";
   // The winner and the seller of a sale are pointed to its order.
-  const ordersRes = session && listing.outcome === "SOLD" ? await authedApiFetch(`/orders?listingId=${id}`) : null;
+  const ordersRes = session && (listing.outcome === "SOLD" || listing.outcome === "NO_SALE") ? await authedApiFetch(`/orders?listingId=${id}`) : null;
   const order: OrderView | undefined = ordersRes?.ok ? (await ordersRes.json())[0] : undefined;
   const historyRes = published ? await apiFetch(`/listings/${id}/bids?limit=${BID_HISTORY_SHOWN}`) : null;
   const history: { items: BidRow[]; total: number } = historyRes?.ok ? await historyRes.json() : { items: [], total: 0 };
@@ -37,7 +37,9 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
       ? "signed-out"
       : isOwner
         ? "owner"
-        : listing.highBidder?.id === viewerId
+        : listing.viewerBlocked
+          ? "blocked"
+          : listing.highBidder?.id === viewerId
           ? "highest"
           : "live";
   const snapshot: LiveSnapshot = {

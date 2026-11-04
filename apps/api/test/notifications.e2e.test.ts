@@ -10,6 +10,7 @@ import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { AuctionCloseService } from "../src/auctions/auction-close.service";
+import { OrderExpiryService } from "../src/orders/order-expiry.service";
 import { AuctionEndEmailService } from "../src/auctions/auction-end-email.service";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
@@ -384,6 +385,28 @@ describe("bid notifications", () => {
       await settle();
       expect(benWon).toEqual([{ listingId: sold.id, title: "Notice test listing", finalPriceCents: 1200 }]);
       expect(annaWon).toEqual([]);
+    });
+
+    it("sends the next bidder an offer toast, and nobody else, when the winner does not pay", async () => {
+      const [anna, ben, cara] = await makePeople(3);
+      const listing = await makeListing();
+      await bid(cara, listing.id, 1000).expect(201);
+      await bid(ben, listing.id, 1200).expect(201);
+      await bid(anna, listing.id, 1400).expect(201);
+      await prisma.listing.update({ where: { id: listing.id }, data: { endsAt: new Date(Date.now() - 1000) } });
+      await app.get(AuctionCloseService).close(listing.id);
+      await settle();
+      const [annaSocket, benSocket, caraSocket] = await Promise.all([open(anna), open(ben), open(cara)]);
+      const annaWon = collect(annaSocket, SOCKET_EVENTS.wonNotice);
+      const benWon = collect(benSocket, SOCKET_EVENTS.wonNotice);
+      const caraWon = collect(caraSocket, SOCKET_EVENTS.wonNotice);
+      const order = await prisma.order.findFirstOrThrow({ where: { listingId: listing.id } });
+      await prisma.order.update({ where: { id: order.id }, data: { payBy: new Date(Date.now() - 1000) } });
+      await app.get(OrderExpiryService).expire(order.id);
+      await settle();
+      expect(benWon).toEqual([{ listingId: listing.id, title: "Notice test listing", finalPriceCents: 1200, offered: true }]);
+      expect(annaWon).toEqual([]);
+      expect(caraWon).toEqual([]);
     });
 
     it("is kept in the database, so another API machine sends it after a restart", async () => {
