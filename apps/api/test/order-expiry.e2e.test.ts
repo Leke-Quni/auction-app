@@ -207,6 +207,33 @@ describe("orders that are not paid in time", () => {
       expect([await strikes(a), await strikes(b), await strikes(c)]).toEqual([1, 1, 1]);
     });
 
+    it("offers it to at most three buyers in all, then ends without a sale and tells the seller why", async () => {
+      const [a, b, c, d] = await makePeople(4);
+      const { listing, order } = await sale([[d, 1000], [c, 1500], [b, 2000], [a, 3000]]);
+      await overdue(order.id);
+      await expiry.expire(order.id); // a -> b
+      await overdue((await orderOf(listing.id, 2)).id);
+      await expiry.expire((await orderOf(listing.id, 2)).id); // b -> c
+      // real rounds are two days apart: let the notices of the earlier rounds go out before the last one expires
+      for (let i = 0; i < 50 && (await prisma.pendingEndEmail.count({ where: { listingId: listing.id } })) > 0; i++) {
+        await emails.sweep();
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      await overdue((await orderOf(listing.id, 3)).id);
+      expect(await expiry.expire((await orderOf(listing.id, 3)).id)).toMatchObject({ nextBuyerId: null, nextAmountCents: null }); // d has a bid, but three have been offered
+      expect(await prisma.order.count({ where: { listingId: listing.id } })).toBe(3);
+      expect(await prisma.order.count({ where: { listingId: listing.id, buyerId: d.id } })).toBe(0);
+      expect(await listingOf(listing.id)).toMatchObject({ outcome: "NO_SALE", winnerId: null, finalPriceCents: null });
+      expect(await strikes(d)).toBe(0);
+      // a sweep already under way makes ours return early, so wait for the email rather than assume it is there
+      const noSale = () => sent.filter((m) => m.to === seller.email && m.subject.includes("no sale") && m.subject.includes(listing.title)).at(-1);
+      for (let i = 0; i < 50 && !noSale(); i++) {
+        await emails.sweep();
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(noSale()!.text).toContain("offered to 3 buyers and none of them paid");
+    });
+
     it("skips a bidder who is already blocked from bidding", async () => {
       const [a, b, c] = await makePeople(3);
       for (let i = 0; i < 2; i++) await prisma.strike.create({ data: { userId: b.id, listingId: `old-${i}`, orderId: `old-${stamp}-${b.id}-${i}` } });

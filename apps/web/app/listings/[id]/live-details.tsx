@@ -29,11 +29,15 @@ export interface DetailsListing {
 
 const RESULT_CHECK_MS = 10_000;
 
-function resultText(listing: DetailsListing, viewerId?: string): string {
+function resultText(listing: DetailsListing, viewerId?: string, topBidCents?: number | null): string {
   if (listing.outcome === "SOLD" && listing.winner && listing.finalPriceCents != null) {
     return `Sold for ${formatEur(listing.finalPriceCents)} to ${listing.winner.id === viewerId ? `${listing.winner.username} (you)` : listing.winner.username}`;
   }
-  if (listing.outcome === "NO_SALE") return "Not sold: the reserve price was not met";
+  if (listing.outcome === "NO_SALE") {
+    // Either the top bid never reached the reserve, or the buyers it was offered to did not pay.
+    const reserveMissed = listing.reservePriceCents != null && (topBidCents ?? 0) < listing.reservePriceCents;
+    return reserveMissed ? "Not sold: the reserve price was not met" : "Not sold: no buyer paid";
+  }
   if (listing.outcome === "NO_BIDS") return "Not sold: there were no bids";
   return "Closing the auction...";
 }
@@ -126,7 +130,7 @@ export function LiveDetails({ listing, openMode, viewerId, order }: { listing: D
         ] as [string, React.ReactNode][])
       : []),
     ["Status", PHASE_LABELS[phase]],
-    ...(phase === "ended" ? ([["Result", <span key="r" className="font-bold">{resultText(listing, viewerId)}</span>]] as [string, React.ReactNode][]) : []),
+    ...(phase === "ended" ? ([["Result", <span key="r" className="font-bold">{resultText(listing, viewerId, live.currentBidCents)}</span>]] as [string, React.ReactNode][]) : []),
   ];
 
   return (
