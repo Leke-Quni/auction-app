@@ -1,3 +1,4 @@
+import { DEFAULT_DELIVERY_RULE, DEFAULT_PLATFORM_FEE_CAP_CENTS, DEFAULT_PLATFORM_FEE_PERCENT, PAYMENT_WINDOW_HOURS, type DeliveryRule } from "@auction/shared";
 import { config as loadEnv } from "dotenv";
 import { resolve } from "node:path";
 
@@ -33,3 +34,42 @@ export const outbidEmailQuietSeconds = () => intFromEnv("OUTBID_EMAIL_QUIET_SECO
 
 // How often one auction's price and bid count are pushed to the search index (an extension is pushed at once).
 export const searchPriceThrottleSeconds = () => intFromEnv("SEARCH_PRICE_THROTTLE_SECONDS", 5);
+
+// The platform's share of a sale, taken from the seller, and how long the winner has to pay.
+export const platformFeePercent = () => {
+  const value = Number.parseFloat(process.env.PLATFORM_FEE_PERCENT ?? "");
+  return Number.isFinite(value) && value >= 0 && value <= 100 ? value : DEFAULT_PLATFORM_FEE_PERCENT;
+};
+// The most the platform takes from one sale, however high the price.
+export const platformFeeCapCents = () => intFromEnv("PLATFORM_FEE_CAP_CENTS", DEFAULT_PLATFORM_FEE_CAP_CENTS);
+// What the buyer pays for delivery: a percentage of the item price (kept between a minimum and a maximum) plus the option's
+// extra. The platform keeps it and pays the carrier. Read on every call so tests can change them.
+export const deliveryRule = (): DeliveryRule => {
+  const percent = Number.parseFloat(process.env.DELIVERY_PERCENT ?? "");
+  return {
+    percent: Number.isFinite(percent) && percent >= 0 && percent <= 100 ? percent : DEFAULT_DELIVERY_RULE.percent,
+    minCents: intFromEnv("DELIVERY_MIN_CENTS", DEFAULT_DELIVERY_RULE.minCents),
+    maxCents: intFromEnv("DELIVERY_MAX_CENTS", DEFAULT_DELIVERY_RULE.maxCents),
+  };
+};
+export const paymentWindowHours = () => intFromEnv("PAYMENT_WINDOW_HOURS", PAYMENT_WINDOW_HOURS);
+
+// Stripe test or live keys. With both set the API takes payments through Stripe; without them it uses the in-memory fake.
+export const stripeConfig = () => {
+  const secretKey = process.env.STRIPE_SECRET_KEY || undefined;
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || undefined;
+  return secretKey && webhookSecret ? { secretKey, webhookSecret } : undefined;
+};
+
+// QStash, which calls the API at the moment an auction ends or an order's payment window runs out, so nothing waits for the
+// next sweep (and a stopped Fly machine is woken). All four are needed: the token to publish messages, both signing keys to
+// verify the calls that come back (the next key lets Upstash rotate keys without a gap), and the address the API is
+// reachable at from the internet. Without them the sweeps alone do the work. `QSTASH_URL` points at the local dev server.
+export const qstashConfig = () => {
+  const token = process.env.QSTASH_TOKEN || undefined;
+  const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY || undefined;
+  const nextSigningKey = process.env.QSTASH_NEXT_SIGNING_KEY || undefined;
+  const callbackUrl = process.env.API_PUBLIC_URL?.replace(/\/+$/, "") || undefined;
+  if (!token || !currentSigningKey || !nextSigningKey || !callbackUrl) return undefined;
+  return { token, currentSigningKey, nextSigningKey, callbackUrl, baseUrl: process.env.QSTASH_URL || undefined };
+};

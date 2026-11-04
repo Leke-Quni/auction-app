@@ -105,6 +105,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnModuleInit, OnMod
       this.server.to(auctionRoom(event.listingId)).emit(SOCKET_EVENTS.bidPlaced, payload);
       return;
     }
+    if (event.type !== "AuctionExtended") return;
     const payload: AuctionExtendedEvent = {
       listingId: event.listingId,
       endsAt: event.endsAt.toISOString(),

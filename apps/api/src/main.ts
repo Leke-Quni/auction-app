@@ -6,7 +6,7 @@ import { redisUrl, trustedProxies, webUrl } from "./config";
 import { RealtimeAdapter } from "./realtime/realtime.adapter";
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
   app.set("trust proxy", trustedProxies());
   const realtime = new RealtimeAdapter(app);
   const redis = redisUrl();

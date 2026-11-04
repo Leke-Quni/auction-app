@@ -1,4 +1,4 @@
-import { formatEur, minimumNextBidCents as minimumFor, SOCKET_EVENTS, type ExtendedNotice, type OutbidNotice, type UnreadEvent } from "@auction/shared";
+import { formatEur, minimumNextBidCents as minimumFor, SOCKET_EVENTS, type ExtendedNotice, type OutbidNotice, type UnreadEvent, type WonNotice } from "@auction/shared";
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type { Subscription } from "rxjs";
@@ -6,12 +6,11 @@ import { AuctionEvents } from "../bids/auction-events";
 import type { BidResult } from "../bids/bids.service";
 import { outbidEmailDelaySeconds, outbidEmailQuietSeconds, webUrl } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { utc } from "../email/format";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
 import { SavedNotificationsService, type NewNotification } from "../notifications/saved-notifications.service";
 import { RATE_LIMITER, type RateLimiter } from "../rate-limit/rate-limiter";
 import { RealtimeGateway } from "./realtime.gateway";
-
-const utc = (date: Date) => `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 
 const SWEEP_EVERY_MS = 30_000;
 // A send holds its row this long; if the machine stops mid-send the row comes due again afterwards.
@@ -46,6 +45,19 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     this.timer.unref();
     void this.sweep();
     this.subscription = this.events.stream.subscribe((event) => {
+      if (event.type === "AuctionClosed") {
+        if (event.outcome === "SOLD" && event.winnerId && event.finalPriceCents != null) {
+          this.tellWinner(event.listingId, event.winnerId, event.finalPriceCents).catch((error) => this.log.error(`Could not send the winner notice: ${(error as Error).message}`));
+        }
+        return;
+      }
+      if (event.type === "OrderExpired") {
+        // The item is offered to the next bidder: they get the same live toast as a winner, worded as an offer.
+        if (event.nextBuyerId && event.nextAmountCents != null) {
+          this.tellWinner(event.listingId, event.nextBuyerId, event.nextAmountCents, true).catch((error) => this.log.error(`Could not send the offer notice: ${(error as Error).message}`));
+        }
+        return;
+      }
       if (event.type !== "BidPlaced" || event.result.replayed) return;
       this.onBid(event.listingId, event.result).catch((error) => this.log.error(`Could not send notices: ${(error as Error).message}`));
     });
@@ -54,6 +66,13 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy() {
     clearInterval(this.timer);
     this.subscription?.unsubscribe();
+  }
+
+  // A live toast for the winner on any page they have open. Not saved and not replayed; the "you won" email covers it.
+  private async tellWinner(listingId: string, winnerId: string, finalPriceCents: number, offered = false) {
+    const listing = await this.prisma.listing.findUnique({ where: { id: listingId }, select: { title: true } });
+    if (!listing) return;
+    this.gateway.emitToUsers([winnerId], SOCKET_EVENTS.wonNotice, { listingId, title: listing.title, finalPriceCents, ...(offered ? { offered } : {}) } satisfies WonNotice);
   }
 
   private async onBid(listingId: string, result: BidResult) {
@@ -171,25 +190,25 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     if (!listing || !user || listing.status !== "PUBLISHED" || !listing.endsAt) return;
     if (listing.highBidderId === userId) return; // back in front
     if (await this.gateway.isWatching(userId, listingId)) return; // sees it on the page
+    // Once the auction has ended, the close sends everyone who did not win an "auction ended" email with the final price
+    // (AuctionEndEmailService), so this one would be a second email about the same thing.
+    if (listing.endsAt.getTime() <= Date.now()) return;
     // A retry takes the slot again but is not stopped by it: an earlier try may have taken the slot and never sent.
     const quietKey = `rl:outbid-email:${userId}:${listingId}`;
     const allowed = await this.limiter.allow(quietKey, 1, outbidEmailQuietSeconds());
     if (!allowed && attempts === 1) return;
 
     const current = listing.currentBidCents ?? listing.startingPriceCents;
-    const ended = listing.endsAt.getTime() <= Date.now();
-    const lines = ended
-      ? [`The auction for "${listing.title}" has ended, and your bid was not the highest.`, "", `Final price: ${formatEur(current)}`]
-      : [
-          `You've been outbid on "${listing.title}".`,
-          "",
-          `Current bid: ${formatEur(current)}`,
-          `Minimum next bid: ${formatEur(minimumFor(listing))}`,
-          `Ends: ${utc(listing.endsAt)}`,
-        ];
+    const lines = [
+      `You've been outbid on "${listing.title}".`,
+      "",
+      `Current bid: ${formatEur(current)}`,
+      `Minimum next bid: ${formatEur(minimumFor(listing))}`,
+      `Ends: ${utc(listing.endsAt)}`,
+    ];
     lines.push("", `${webUrl()}/listings/${listingId}`);
     try {
-      await this.mail.send(user.email, ended ? `${listing.title} has ended` : `You've been outbid on ${listing.title}`, lines.join("\n"));
+      await this.mail.send(user.email, `You've been outbid on ${listing.title}`, lines.join("\n"));
     } catch (error) {
       await this.limiter.reset(quietKey); // nothing was sent, so do not hold back the next one
       throw error;

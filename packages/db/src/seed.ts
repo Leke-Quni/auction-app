@@ -10,6 +10,14 @@ import { assertSafeToSeed } from "./seed-guard";
 
 config({ path: resolve(__dirname, "../../../../.env") });
 
+// Where the carrier collects sample items (the reference countries), so a sample win can be paid and delivered.
+const PICKUPS = [
+  { name: "Sample Seller", line1: "Rr. Dardania 12", city: "Prishtina", postcode: "10000", country: "XK", phone: "+38344000111" },
+  { name: "Sample Seller", line1: "Rr. Adem Jashari 5", city: "Prizren", postcode: "20000", country: "XK", phone: "+38344000222" },
+  { name: "Sample Seller", line1: "Rruga e Durresit 30", city: "Tirana", postcode: "1001", country: "AL", phone: "+355690000333" },
+  { name: "Sample Seller", line1: "Ul. Makedonija 8", city: "Skopje", postcode: "1000", country: "MK", phone: "+38970000444" },
+];
+
 const SEED_EMAIL_DOMAIN = "@seed.local";
 const SELLERS = 40;
 const DAY = 86_400_000;
@@ -203,6 +211,7 @@ async function main() {
         startingPriceCents,
         reservePriceCents: random() < 0.35 ? Math.round((startingPriceCents * between(1.2, 3)) / 100) * 100 : null,
         durationDays: when.days,
+        pickupAddress: pick(PICKUPS),
         // A few live auctions that have been extended right up to the ceiling, so the "Final chance to bid" tag has data.
         extensionCount: finalChance(when, i) ? 30 : 0,
         status: "PUBLISHED" as const,

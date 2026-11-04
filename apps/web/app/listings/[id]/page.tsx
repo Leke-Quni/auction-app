@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BID_HISTORY_SHOWN, type QuestionItem } from "@auction/shared";
+import { BID_HISTORY_SHOWN, type OrderView, type QuestionItem } from "@auction/shared";
 import { notFound } from "next/navigation";
 import { Gallery } from "@/app/gallery";
 import { auth } from "@/auth";
@@ -9,6 +9,7 @@ import type { BidMode } from "./bid-panel";
 import { LiveAuction, type LiveSnapshot } from "./live-auction";
 import { LiveDetails, LiveHistory } from "./live-details";
 import { Questions } from "./questions";
+import { RelistButton } from "./relist-button";
 
 export default async function ListingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -21,6 +22,9 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
   const viewerId = session?.user.id;
 
   const published = listing.status === "PUBLISHED";
+  // The winner and the seller of a sale are pointed to its order.
+  const ordersRes = session && (listing.outcome === "SOLD" || listing.outcome === "NO_SALE") ? await authedApiFetch(`/orders?listingId=${id}`) : null;
+  const order: OrderView | undefined = ordersRes?.ok ? (await ordersRes.json())[0] : undefined;
   const historyRes = published ? await apiFetch(`/listings/${id}/bids?limit=${BID_HISTORY_SHOWN}`) : null;
   const history: { items: BidRow[]; total: number } = historyRes?.ok ? await historyRes.json() : { items: [], total: 0 };
 
@@ -34,7 +38,9 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
       ? "signed-out"
       : isOwner
         ? "owner"
-        : listing.highBidder?.id === viewerId
+        : listing.viewerBlocked
+          ? "blocked"
+          : listing.highBidder?.id === viewerId
           ? "highest"
           : "live";
   const snapshot: LiveSnapshot = {
@@ -56,6 +62,12 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
           <Link href={`/sell/${listing.id}/edit`} className="text-brand underline">
             {listing.status === "DRAFT" ? "Edit and publish" : "Edit description and photos"}
           </Link>
+          {listing.closedAt && (listing.outcome === "NO_SALE" || listing.outcome === "NO_BIDS") && (
+            <>
+              {" "}
+              <RelistButton listingId={listing.id} />
+            </>
+          )}
         </p>
       )}
       <h1 className="border border-line bg-white p-2 text-lg font-bold">{listing.title}</h1>
@@ -66,7 +78,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
             <Gallery images={listing.images} alt={listing.title} />
           </div>
           <div className="min-w-0 space-y-3">
-            <LiveDetails listing={listing} openMode={openMode} viewerId={viewerId} />
+            <LiveDetails listing={listing} openMode={openMode} viewerId={viewerId} order={order} />
           </div>
         </div>
         {published && <LiveHistory viewerId={viewerId} />}

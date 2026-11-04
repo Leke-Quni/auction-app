@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { pickupAddressSchema } from "./shipping";
 
 export const LISTING_CONDITIONS = ["NEW", "LIKE_NEW", "GOOD", "FAIR", "POOR"] as const;
 export type ListingCondition = (typeof LISTING_CONDITIONS)[number];
@@ -47,6 +48,8 @@ const listingFields = z.object({
   durationDays: z
     .number()
     .refine((d): d is AuctionDuration => (AUCTION_DURATIONS as readonly number[]).includes(d), "Choose 1, 3, 5, 7, or 30 days"),
+  // Where our carrier collects the item. Optional while drafting; the API requires it to publish. Never shown to buyers.
+  pickupAddress: pickupAddressSchema.optional(),
 });
 
 const reserveNotBelowStart = {

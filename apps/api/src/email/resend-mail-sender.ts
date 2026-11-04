@@ -1,5 +1,5 @@
 import { Logger, ServiceUnavailableException, UnprocessableEntityException } from "@nestjs/common";
-import type { MailSender } from "./mail-sender";
+import type { MailAttachment, MailSender } from "./mail-sender";
 
 const RESEND_URL = "https://api.resend.com/emails";
 const TIMEOUT_MS = 10_000;
@@ -15,7 +15,7 @@ export class ResendMailSender implements MailSender {
     private readonly fetchImpl: typeof fetch = fetch,
   ) {}
 
-  async send(to: string, subject: string, text: string) {
+  async send(to: string, subject: string, text: string, attachments: MailAttachment[] = []) {
     const unavailable = () => new ServiceUnavailableException("We couldn't send the email. Try again.");
 
     let response: Response;
@@ -23,7 +23,13 @@ export class ResendMailSender implements MailSender {
       response = await this.fetchImpl(RESEND_URL, {
         method: "POST",
         headers: { Authorization: `Bearer ${this.apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ from: this.from, to: [to], subject, text }),
+        body: JSON.stringify({
+          from: this.from,
+          to: [to],
+          subject,
+          text,
+          ...(attachments.length > 0 ? { attachments: attachments.map((a) => ({ filename: a.filename, content: a.content.toString("base64") })) } : {}),
+        }),
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
     } catch (error) {

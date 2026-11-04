@@ -93,4 +93,22 @@ describe("ListingForm", () => {
     render(<ListingForm categories={categories} listing={{ ...listing, status: "PUBLISHED" }} photos={<div data-testid="photos">photos</div>} />);
     expect(screen.queryByTestId("photos")).toBeNull();
   });
+
+  it("offers the seller's default pickup address on a new listing, with a Save as default box only when there is none", () => {
+    const pickup = { name: "Sam Seller", line1: "Rr. Dardania 12", city: "Prizren", postcode: "20000", country: "XK" as const, phone: "+38344000111" };
+    const { unmount } = render(<ListingForm categories={categories} defaultPickup={pickup} />);
+    expect(field("pickup_line1")?.value).toBe("Rr. Dardania 12");
+    expect(field("pickup_phone")?.value).toBe("+38344000111");
+    expect(field("saveAsDefault")?.checked).toBe(false);
+    unmount();
+    render(<ListingForm categories={categories} />);
+    expect(field("pickup_line1")?.value).toBe("");
+    expect(field("saveAsDefault")?.checked).toBe(true);
+  });
+
+  it("shows the listing's own pickup address instead of the default", () => {
+    const own = { name: "Pia", line1: "Ul. Makedonija 8", city: "Skopje", postcode: "1000", country: "MK" as const, phone: "+38970000444" };
+    render(<ListingForm categories={categories} listing={{ ...listing, pickupAddress: own }} defaultPickup={{ ...own, line1: "Elsewhere 1" }} />);
+    expect(field("pickup_line1")?.value).toBe("Ul. Makedonija 8");
+  });
 });

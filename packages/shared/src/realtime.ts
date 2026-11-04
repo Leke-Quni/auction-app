@@ -11,6 +11,7 @@ export const SOCKET_EVENTS = {
   auctionExtended: "auction:extended",
   outbid: "notice:outbid",
   extendedNotice: "notice:extended",
+  wonNotice: "notice:won",
   questionNotice: "notice:question",
   answerNotice: "notice:answer",
   unread: "notifications:unread",
@@ -57,6 +58,15 @@ export interface ExtendedNotice {
   extensionCount: number;
   // True when the end time has reached its ceiling: the auction cannot be extended again.
   final: boolean;
+}
+
+// For the winner of an auction, when it closes in a sale (`notice:won`).
+export interface WonNotice {
+  listingId: string;
+  title: string;
+  finalPriceCents: number;
+  // True when the item is offered to this bidder because the winner did not pay, rather than won outright.
+  offered?: boolean;
 }
 
 // For the seller when someone asks a question on their listing (`notice:question`), and for the asker when the seller

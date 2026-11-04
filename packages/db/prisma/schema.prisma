@@ -22,6 +22,8 @@ model User {
   passwordHash        String
   emailVerified       DateTime?
   role                Role                 @default(USER)
+  // The seller's default pickup address and contact; each listing starts from it and may change it.
+  pickupAddress       Json?
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   loginCodes          LoginCode[]
@@ -29,6 +31,10 @@ model User {
   emailChange         EmailChange?
   listings            Listing[]            @relation("ListingSeller")
   leadingListings     Listing[]            @relation("ListingHighBidder")
+  wonListings         Listing[]            @relation("ListingWinner")
+  strikes             Strike[]
+  purchases           Order[]              @relation("OrderBuyer")
+  sales               Order[]              @relation("OrderSeller")
   bids                Bid[]
   notifications       Notification[]
   questions           Question[]
@@ -101,6 +107,9 @@ model Listing {
   startingPriceCents Int
   reservePriceCents  Int?
   durationDays       Int
+  // Where our carrier collects the item (the seller's name, address and phone). Required to publish, fixed after, and
+  // never sent to buyers. Chosen per listing, starting from the seller's default (User.pickupAddress).
+  pickupAddress      Json?
   status             ListingStatus    @default(DRAFT)
   startsAt           DateTime?
   endsAt             DateTime?
@@ -112,17 +121,84 @@ model Listing {
   extensionCount     Int              @default(0)
   highBidderId       String?
   highBidder         User?            @relation("ListingHighBidder", fields: [highBidderId], references: [id], onDelete: Restrict)
+  // Set once, when the auction is closed after its end time (slice 5). `outcome` says how it ended; `winnerId` and
+  // `finalPriceCents` are only set for a sale.
+  closedAt           DateTime?
+  outcome            ListingOutcome?
+  winnerId           String?
+  winner             User?            @relation("ListingWinner", fields: [winnerId], references: [id], onDelete: Restrict)
+  finalPriceCents    Int?
+  // Set on a draft made by "list it again", so asking again returns that draft instead of making another. A plain column,
+  // not a relation: the old listing is only a record to copy from.
+  relistedFromId     String?
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
   images             ListingImage[]
   bids               Bid[]
   notifications      Notification[]
   questions          Question[]
+  orders             Order[]
 
   @@index([status, endsAt])
   @@index([sellerId])
   @@index([categoryId])
   @@index([highBidderId])
+  @@index([winnerId])
+  @@index([status, closedAt, endsAt])
+  @@index([relistedFromId])
+}
+
+enum OrderStatus {
+  AWAITING_PAYMENT
+  PAID
+  EXPIRED
+  CANCELLED
+}
+
+// A sale: what the winner owes and until when. `feeCents` is the platform's share, taken from the seller; the seller
+// is paid `sellerNetCents` (released in slice 6). `round` counts the people the item was offered to (1 for the winner).
+model Order {
+  id             String      @id @default(cuid())
+  listingId      String
+  listing        Listing     @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  buyerId        String
+  buyer          User        @relation("OrderBuyer", fields: [buyerId], references: [id], onDelete: Restrict)
+  sellerId       String
+  seller         User        @relation("OrderSeller", fields: [sellerId], references: [id], onDelete: Restrict)
+  amountCents    Int
+  feeCents       Int
+  sellerNetCents Int
+  status         OrderStatus @default(AWAITING_PAYMENT)
+  round          Int         @default(1)
+  payBy          DateTime
+  paidAt         DateTime?
+  // The payment provider's checkout session for the latest attempt to pay.
+  paymentRef     String?
+  // Every checkout session started for this order, so a payment on an earlier attempt is still found.
+  paymentRefs    String[]    @default([])
+  // Delivery details the buyer chose before paying: the address and the carrier's option (both validated by the shared
+  // schemas), its price, and the total charged (amountCents + shippingCents). All null until chosen.
+  shippingAddress Json?
+  shippingOption  Json?
+  shippingCents   Int?
+  totalCents      Int?
+  // A copy of the listing's pickup address taken when the sale closes, for the carrier.
+  pickupAddress   Json?
+  // Assigned once, when the order becomes PAID (from the InvoiceNumberSeq sequence), as INV-<year>-<number>.
+  invoiceNumber   String?     @unique
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@unique([listingId, round])
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([status, payBy])
+}
+
+enum ListingOutcome {
+  SOLD
+  NO_SALE
+  NO_BIDS
 }
 
 model ListingImage {
@@ -190,6 +266,35 @@ model PendingOutbidEmail {
 
   @@unique([userId, listingId])
   @@index([dueAt])
+}
+
+// The "auction ended, you did not win" email a bidder is owed, one per person and auction. It is written in the same
+// transaction that closes the auction, so closing and owing the emails cannot come apart, and a sweeper sends what is
+// due with the same lease as PendingOutbidEmail. Plain ids and no relations.
+model PendingEndEmail {
+  id        String       @id @default(cuid())
+  userId    String
+  listingId String
+  kind      EndEmailKind @default(LOST)
+  dueAt     DateTime @default(now())
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, listingId, kind])
+  @@index([dueAt])
+}
+
+// LOST: "the auction ended, you did not win". WON: "you won, pay now".
+enum EndEmailKind {
+  LOST
+  WON
+  // When a buyer did not pay in time: the non-payer's notice with their strike count, and the seller's account of what
+  // happened next (offered to the next bidder, or no sale).
+  EXPIRED
+  NOT_PAID
+  // After payment: the buyer's confirmation with the invoice, and the seller's "sold, ship to" notice.
+  PAID
+  SOLD
 }
 
 enum NotificationType {
@@ -324,5 +429,19 @@ model QuestionVote {
   createdAt  DateTime   @default(now())
 
   @@unique([questionId, userId, target])
+  @@index([userId])
+}
+
+// A mark against a buyer who won an auction and did not pay within the payment window. One per expired order (`orderId`
+// is unique, so however often the expiry runs a missed payment counts once). Strikes never expire; an admin removes them
+// (slice 6). Two strikes block bidding (`MAX_STRIKES` in packages/shared).
+model Strike {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId String
+  orderId   String   @unique
+  createdAt DateTime @default(now())
+
   @@index([userId])
 }

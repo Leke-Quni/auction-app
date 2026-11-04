@@ -1,6 +1,6 @@
 "use client";
 
-import { formatEur, SOCKET_EVENTS, type ExtendedNotice, type OutbidNotice, type QuestionNotice, type UnreadEvent } from "@auction/shared";
+import { formatEur, SOCKET_EVENTS, type ExtendedNotice, type OutbidNotice, type QuestionNotice, type UnreadEvent, type WonNotice } from "@auction/shared";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -12,6 +12,7 @@ import { placeBidAction } from "./listings/[id]/bid-actions";
 type Toast =
   | { id: string; v: number; kind: "outbid"; notice: OutbidNotice; state: "idle" | "confirm" | "pending" | "placed"; error: string }
   | { id: string; v: number; kind: "extended"; notice: ExtendedNotice }
+  | { id: string; v: number; kind: "won"; notice: WonNotice }
   | { id: string; v: number; kind: "question" | "answer"; notice: QuestionNotice };
 type OutbidToast = Extract<Toast, { kind: "outbid" }>;
 
@@ -59,6 +60,9 @@ export function Notifications() {
     socket.on(SOCKET_EVENTS.extendedNotice, (notice: ExtendedNotice) => {
       if (pathRef.current.startsWith(`/listings/${notice.listingId}`)) return;
       show({ id: `extended:${notice.listingId}`, v: 0, kind: "extended", notice });
+    });
+    socket.on(SOCKET_EVENTS.wonNotice, (notice: WonNotice) => {
+      show({ id: `won:${notice.listingId}`, v: 0, kind: "won", notice });
     });
     socket.on(SOCKET_EVENTS.questionNotice, (notice: QuestionNotice) => {
       show({ id: `question:${notice.questionId}`, v: 0, kind: "question", notice });
@@ -124,7 +128,7 @@ export function Notifications() {
                 </span>
               )}
               <div className="min-w-0 flex-1">
-                {toast.kind === "outbid" ? <OutbidBody toast={toast} onAsk={() => ask(toast)} onCancel={() => cancel(toast)} onConfirm={() => bidNow(toast)} /> : toast.kind === "extended" ? <ExtendedBody notice={toast.notice} /> : <QuestionBody kind={toast.kind} notice={toast.notice} />}
+                {toast.kind === "outbid" ? <OutbidBody toast={toast} onAsk={() => ask(toast)} onCancel={() => cancel(toast)} onConfirm={() => bidNow(toast)} /> : toast.kind === "extended" ? <ExtendedBody notice={toast.notice} /> : toast.kind === "won" ? <WonBody notice={toast.notice} /> : <QuestionBody kind={toast.kind} notice={toast.notice} />}
               </div>
             </div>
             <button type="button" aria-label="Dismiss" onClick={() => dismiss(toast.id)} className="absolute right-2 top-1 cursor-pointer text-muted hover:text-black">
@@ -201,6 +205,20 @@ function OutbidBody({ toast, onAsk, onCancel, onConfirm }: { toast: OutbidToast;
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function WonBody({ notice }: { notice: WonNotice }) {
+  return (
+    <div className="space-y-1.5">
+      <p className="font-bold">{notice.offered ? "The item is yours to pay for" : "You won the auction"}</p>
+      <p className="text-muted">
+        {notice.offered ? `The first buyer of ${notice.title} did not pay, so it is offered to you at ${formatEur(notice.finalPriceCents)}.` : `${notice.title} for ${formatEur(notice.finalPriceCents)}.`}
+      </p>
+      <Link href={`/listings/${notice.listingId}`} className="block w-full rounded bg-brand px-3 py-1.5 text-center font-bold text-white hover:bg-brand-dark">
+        Go to the auction
+      </Link>
     </div>
   );
 }

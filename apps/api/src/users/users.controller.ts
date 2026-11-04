@@ -1,16 +1,18 @@
 import {
   changePasswordSchema,
+  pickupAddressSchema,
   confirmEmailChangeSchema,
   startEmailChangeSchema,
   updateProfileSchema,
   updateUsernameSchema,
   type ChangePasswordInput,
   type ConfirmEmailChangeInput,
+  type PickupAddress,
   type StartEmailChangeInput,
   type UpdateProfileInput,
   type UpdateUsernameInput,
 } from "@auction/shared";
-import { Body, Controller, Get, HttpCode, Inject, Patch, Post, Req, UnauthorizedException, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Inject, Patch, Post, Put, Req, UnauthorizedException, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard, type AuthUser } from "../auth/jwt-auth.guard";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { PRISMA, type Prisma } from "../db/db.module";
@@ -34,6 +36,20 @@ export class UsersController {
     });
     if (!user) throw new UnauthorizedException();
     return user;
+  }
+
+  // The seller's default pickup address and contact, offered when they create a listing. Null until they save one.
+  @Get("pickup-address")
+  async pickupAddress(@Req() req: AuthedRequest) {
+    const user = await this.prisma.user.findUnique({ where: { id: req.user.id }, select: { pickupAddress: true } });
+    if (!user) throw new UnauthorizedException();
+    return { pickupAddress: user.pickupAddress };
+  }
+
+  @Put("pickup-address")
+  async savePickupAddress(@Req() req: AuthedRequest, @Body(new ZodValidationPipe(pickupAddressSchema)) body: PickupAddress) {
+    const user = await this.prisma.user.update({ where: { id: req.user.id }, data: { pickupAddress: body }, select: { pickupAddress: true } });
+    return { pickupAddress: user.pickupAddress };
   }
 
   @Patch()

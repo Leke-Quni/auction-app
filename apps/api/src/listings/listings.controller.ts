@@ -1,6 +1,8 @@
 import {
   createListingSchema,
   listingImagesSchema,
+  pickupAddressSchema,
+  type PickupAddress,
   publishListingSchema,
   updateListingSchema,
   type CreateListingInput,
@@ -76,6 +78,13 @@ export class ListingsController {
     return this.listings.setImages(req.user.id, id, body.images);
   }
 
+  // The seller may correct where the carrier collects at any time, even after publishing or a sale: a typo found late must be fixable.
+  @Put("listings/:id/pickup-address")
+  @UseGuards(JwtAuthGuard)
+  setPickupAddress(@Req() req: AuthedRequest, @Param("id") id: string, @Body(new ZodValidationPipe(pickupAddressSchema)) body: PickupAddress) {
+    return this.listings.setPickupAddress(req.user.id, id, body);
+  }
+
   @Post("listings/:id/publish")
   @UseGuards(JwtAuthGuard)
   @HttpCode(200)
@@ -85,6 +94,12 @@ export class ListingsController {
     @Body(new ZodValidationPipe(publishListingSchema)) body: PublishListingInput,
   ) {
     return this.listings.publish(req.user.id, id, body);
+  }
+
+  @Post("listings/:id/relist")
+  @UseGuards(JwtAuthGuard)
+  relist(@Req() req: AuthedRequest, @Param("id") id: string) {
+    return this.listings.relist(req.user.id, id);
   }
 
   @Delete("listings/:id")

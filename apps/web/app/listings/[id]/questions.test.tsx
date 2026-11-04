@@ -51,11 +51,16 @@ describe("votes", () => {
 
   it("sends a like for the question, a dislike for the answer, and takes back the vote that is pressed again", async () => {
     show({ items: [answered()], total: 1, viewerId: "ben" });
-    fireEvent.click(screen.getByRole("button", { name: "Like (3)" }));
+    // The buttons stay disabled while a vote is on its way, so wait for each to be ready before pressing it.
+    const press = async (name: string) => {
+      await waitFor(() => expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(screen.getByRole("button", { name }));
+    };
+    await press("Like (3)");
     await waitFor(() => expect(actions.voteAction).toHaveBeenCalledWith("L1", "q1", "QUESTION", "LIKE"));
-    fireEvent.click(screen.getByRole("button", { name: "Dislike (0)" }));
+    await press("Dislike (0)");
     await waitFor(() => expect(actions.voteAction).toHaveBeenCalledWith("L1", "q1", "ANSWER", "DISLIKE"));
-    fireEvent.click(screen.getByRole("button", { name: "Like (2)" }));
+    await press("Like (2)");
     await waitFor(() => expect(actions.voteAction).toHaveBeenCalledWith("L1", "q1", "ANSWER", null));
   });
 

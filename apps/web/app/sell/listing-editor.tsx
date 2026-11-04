@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { deleteListingAction } from "./actions";
 import { ImageUploader } from "./image-uploader";
 import { ListingForm, type FormListing } from "./listing-form";
+import { PickupAddressEditor } from "./pickup-address-editor";
 import { PublishPanel } from "./publish-panel";
 
 function RemoveListing({ listingId }: { listingId: string }) {
@@ -35,11 +36,13 @@ export function ListingEditor({
   listing,
   userId,
   initialPhotos,
+  defaultPickup,
 }: {
   categories: { id: string; name: string }[];
   listing: FormListing;
   userId: string;
   initialPhotos: string[];
+  defaultPickup?: FormListing["pickupAddress"];
 }) {
   const [count, setCount] = useState(initialPhotos.length);
   const draft = listing.status === "DRAFT";
@@ -49,8 +52,9 @@ export function ListingEditor({
 
   return (
     <>
-      <ListingForm categories={categories} listing={listing} photos={draft ? uploader : undefined} />
+      <ListingForm categories={categories} listing={listing} photos={draft ? uploader : undefined} defaultPickup={defaultPickup} />
       {!draft && uploader}
+      {!draft && <PickupAddressEditor listingId={listing.id} address={listing.pickupAddress ?? null} />}
       {draft ? (
         <PublishPanel listingId={listing.id} photoCount={count} durationDays={listing.durationDays} />
       ) : (
