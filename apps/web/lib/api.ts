@@ -4,13 +4,18 @@ import { encodeJwt } from "@/lib/jwt";
 
 const apiUrl = () => process.env.API_URL ?? "http://localhost:4000";
 
+// Every call is fresh unless the caller says a value may be reused for a while (see `rarelyChanging`).
 export function apiFetch(path: string, init: RequestInit = {}) {
   return fetch(`${apiUrl()}${path}`, {
-    ...init,
     cache: "no-store",
+    ...init,
     headers: { "Content-Type": "application/json", ...init.headers },
   });
 }
+
+// For public data that hardly ever changes, kept by Next for `seconds` and shared by every visitor, so a page does not cross to
+// the API for it each time.
+export const rarelyChanging = (seconds: number): RequestInit => ({ cache: "force-cache", next: { revalidate: seconds } });
 
 export async function authedApiFetch(path: string, init: RequestInit = {}) {
   const session = await auth();
