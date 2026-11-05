@@ -12,6 +12,7 @@
     "migrate:dev": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
     "seed": "tsc -p tsconfig.json && node dist/src/seed.js",
+    "make-admin": "tsc -p tsconfig.json && node dist/src/make-admin.js",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {

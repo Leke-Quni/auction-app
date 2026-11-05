@@ -1,17 +1,31 @@
 @import "tailwindcss";
 @source "../../../packages/ui/src";
 
+/* Admin theme: light, slate and indigo (decided 2026-11-05). A white and grey work area, a dark slate sidebar, an indigo accent;
+   the storefront stays teal so the two are never confused. */
 @theme {
-  --color-brand: #334155;
-  --color-brand-dark: #1e293b;
-  --color-on-brand: #ffffff;
-  --color-line: #cbd5e1;
-  --color-page: #f1f5f9;
-  --color-muted: #64748b;
+  --color-page: #f3f4f7;
+  --color-panel: #ffffff;
+  --color-ink: #1d2230;
+  --color-muted: #636b7c;
+  --color-line: #dfe2e9;
+  --color-side: #1f2433;
+  --color-side-on: #2e3550;
+  --color-side-ink: #b9c0d0;
+  --color-accent: #4f46e5;
+  --color-accent-dark: #4338ca;
+  --color-danger: #b42318;
+  --color-danger-soft: #fdecea;
+  --color-warn: #8a5a00;
+  --color-warn-soft: #fdf0d2;
+  --color-info: #3730a3;
+  --color-info-soft: #e5e7fb;
+  --color-ok: #17663a;
+  --color-ok-soft: #dcf3e4;
 }
 
 body {
   background: var(--color-page);
-  color: #0f172a;
-  font: 12px/1.4 system-ui, sans-serif;
+  color: var(--color-ink);
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
