@@ -9,6 +9,12 @@ const STATUS_LABELS: Record<OrderView["status"], string> = {
   CANCELLED: "Cancelled",
 };
 
+const SHIPMENT_LABELS: Record<NonNullable<OrderView["shipment"]>["status"], string> = {
+  LABEL_CREATED: "Label created",
+  IN_TRANSIT: "In transit",
+  DELIVERED: "Delivered",
+};
+
 // What an order is, to the person looking at it: the buyer sees the price, the seller also sees the fee and their share.
 export function OrderDetails({ order }: { order: OrderView }) {
   const rows: [string, React.ReactNode][] = [
@@ -35,6 +41,16 @@ export function OrderDetails({ order }: { order: OrderView }) {
     [order.viewer === "buyer" ? "Seller" : "Buyer", order.viewer === "buyer" ? order.seller.username : order.buyer.username],
     ["Status", STATUS_LABELS[order.status]],
     order.status === "PAID" && order.paidAt ? ["Paid", <LocalTime key="t" iso={order.paidAt} />] : ["Pay by", <LocalTime key="t" iso={order.payBy} />],
+    ...(order.viewer === "buyer" && order.shipping ? ([["Tracking emails", order.trackingEmails ? "Yes" : "No"]] as [string, React.ReactNode][]) : []),
+    ...(order.shipment
+      ? ([
+          ["Shipment", <span key="s" className="font-bold">{SHIPMENT_LABELS[order.shipment.status]}</span>],
+          ["Tracking code", order.shipment.trackingCode],
+          ["Shipped", <LocalTime key="sh" iso={order.shipment.shippedAt} />],
+          ...(order.shipment.inTransitAt ? ([["In transit", <LocalTime key="it" iso={order.shipment.inTransitAt} />]] as [string, React.ReactNode][]) : []),
+          ...(order.shipment.deliveredAt ? ([["Delivered", <LocalTime key="d" iso={order.shipment.deliveredAt} />]] as [string, React.ReactNode][]) : []),
+        ] as [string, React.ReactNode][])
+      : []),
     ...(order.status === "PAID" && order.invoiceNumber
       ? ([["Invoice", <a key="inv" href={`/orders/${order.id}/invoice`} className="text-brand underline">{order.invoiceNumber} (PDF)</a>]] as [string, React.ReactNode][])
       : []),

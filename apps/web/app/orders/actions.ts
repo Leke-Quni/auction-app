@@ -2,6 +2,7 @@
 
 import { ORDER_REFUSAL_MESSAGES, ORDER_REFUSALS, type OrderRefusal, type ShippingAddress } from "@auction/shared";
 import { apiErrorMessage } from "@/lib/api-error";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { authedApiFetch } from "@/lib/api";
@@ -49,12 +50,25 @@ export async function payWithTestCardAction(orderId: string): Promise<OrderActio
   redirect(`/orders/${orderId}`);
 }
 
+// The seller hands a paid order to the carrier. The order page reloads with the new status.
+export async function markShippedAction(orderId: string): Promise<OrderActionState> {
+  if (!(await auth())) return { error: "Sign in to continue." };
+  try {
+    const res = await authedApiFetch(`/orders/${orderId}/ship`, { method: "POST" });
+    if (!res.ok) return { error: await failure(res) };
+  } catch {
+    return { error: "Could not reach the server. Try again." };
+  }
+  revalidatePath(`/orders/${orderId}`);
+  return {};
+}
+
 // Saves the address and the chosen option, then goes straight to the payment provider's checkout for the new total.
-export async function saveShippingAndPayAction(orderId: string, address: ShippingAddress, optionId: string): Promise<OrderActionState> {
+export async function saveShippingAndPayAction(orderId: string, address: ShippingAddress, optionId: string, trackingEmails: boolean): Promise<OrderActionState> {
   if (!(await auth())) return { error: "Sign in to pay." };
   let res: Response;
   try {
-    const saved = await authedApiFetch(`/orders/${orderId}/shipping`, { method: "PUT", body: JSON.stringify({ address, optionId }) });
+    const saved = await authedApiFetch(`/orders/${orderId}/shipping`, { method: "PUT", body: JSON.stringify({ address, optionId, trackingEmails }) });
     if (!saved.ok) return { error: await failure(saved) };
     res = await authedApiFetch(`/orders/${orderId}/checkout`, { method: "POST" });
   } catch {

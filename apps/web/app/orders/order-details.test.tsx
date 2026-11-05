@@ -20,6 +20,7 @@ const order = (over: Partial<OrderView> = {}): OrderView => ({
   shipping: null,
   totalCents: null,
   invoiceNumber: null,
+  shipment: null,
   ...over,
 });
 
@@ -96,5 +97,16 @@ describe("OrderDetails", () => {
     expect(screen.getByText("Express, about 3 days, tracked")).toBeTruthy();
     expect(screen.queryByText(/Nene Tereza/)).toBeNull();
     expect(screen.getByText("€29.92")).toBeTruthy();
+  });
+
+  it("shows the shipment's status, tracking code and times once the seller has shipped", () => {
+    render(
+      <OrderDetails
+        order={order({ status: "PAID", paidAt: "2026-11-05T10:00:00.000Z", shipment: { status: "IN_TRANSIT", trackingCode: "FAKE123", shippedAt: "2026-11-05T11:00:00.000Z", inTransitAt: "2026-11-05T11:01:00.000Z", deliveredAt: null } })}
+      />,
+    );
+    expect(screen.getByText("In transit", { selector: "span" })).toBeTruthy();
+    expect(screen.getByText("FAKE123")).toBeTruthy();
+    expect(screen.queryByText("Delivered")).toBeNull();
   });
 });
