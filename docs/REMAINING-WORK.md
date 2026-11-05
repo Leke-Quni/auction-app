@@ -3,7 +3,7 @@
 Updated 2026-11-05, during slice 7. `docs/DESIGN.md` is the source of truth for every decision; this file lists what is still to do, in the order to do it, plus the working rules.
 
 ## Where things stand
-Slices 1 to 6 are done and merged to `main` (slice 6 in PR #14). Slice 7 (admin) is in progress on branch `slice-7-admin`: step 1 (roles and bans read from the database on every request, `AdminGuard`, `GET /admin/me`) is committed; step 2 (the admin app shell, admin-only sign-in and the slate and indigo theme) is committed; step 3 (reports queue and question log) is committed; step 4 (listing removal, ban and unban, clearing strikes) is done. `DESIGN.md` section 7 records every step.
+Slices 1 to 6 are done and merged to `main` (slice 6 in PR #14). Slice 7 (admin) is in progress on branch `slice-7-admin`: step 1 (roles and bans read from the database on every request, `AdminGuard`, `GET /admin/me`) is committed; step 2 (the admin app shell, admin-only sign-in and the slate and indigo theme) is committed; step 3 (reports queue and question log) is committed; step 4 (listing removal, ban and unban, clearing strikes) is done; step 5 (the order view with both addresses) is done. `DESIGN.md` section 7 records every step.
 
 Production is behind: the API on Fly and the Neon database were last set up at the end of slice 5 (30 migrations). The repository now has 40, and slice 6 and the slice 7 work are not deployed.
 
@@ -13,7 +13,7 @@ Done-criteria are in `DESIGN.md` section 8. Build order (decided 2026-11-05), on
 2. ~~Admin app shell, admin-only sign-in, theme.~~ Done.
 3. ~~**Reports queue and `QuestionLog`.**~~ Built 2026-11-05 (questions and answers only; rating comments still undecided, section 4). Listed open `Report` rows (the reporter, reason, the words as written, `postedAt`, status `OPEN` or `HANDLED`, and the automatic `CONTACT_DETAILS` ones), mark one handled, and read `QuestionLog` (every post, edit and deletion). Handled reports are deleted by the existing clean-up 30 days later.
 4. ~~**Moderation.**~~ Done 2026-11-05: remove a listing (ends it early with no sale), ban and unban (open sockets are cut at once, the storefront shows a suspended page), clear a strike. See `DESIGN.md`.
-5. **An order with both addresses.** The admin reads the full order: the buyer's delivery address and phone, the seller's pickup address, the amounts and the payout.
+5. ~~**An order with both addresses.**~~ Done 2026-11-05: read only, with search, linked from users and listings. See `DESIGN.md`.
 6. **Deploy the admin app** as its own Vercel project (`AUTH_SECRET` the same as the API, `API_URL`, `ADMIN_URL`) and make the first admin with `yarn workspace @auction/db make-admin <email>`.
 
 Decided: a ban does not hold back a seller's payout; the API checks the database for the role on every request; the admin theme is light, slate and indigo.

@@ -30,7 +30,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
   if (res.status === 404) notFound();
   if (!res.ok) throw new Error(`API /admin/users failed: ${res.status}`);
   const u = (await res.json()) as User;
-  const rows: [string, string][] = [
+  const rows: [string, React.ReactNode][] = [
     ["Name", u.name],
     ["Email", `${u.email}${u.emailVerified ? "" : " (not verified)"}`],
     ["Role", u.role],
@@ -38,6 +38,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
     ["Listings", String(u.listingCount)],
     ["Bids", String(u.bidCount)],
     ["Strikes", `${u.strikeCount} (bidding is blocked at ${MAX_STRIKES})`],
+    ["Orders", <Link key="o" href={`/orders?q=${encodeURIComponent(u.username)}`} className="text-accent underline">Orders as buyer or seller</Link>],
   ];
   return (
     <div className="max-w-2xl space-y-3">

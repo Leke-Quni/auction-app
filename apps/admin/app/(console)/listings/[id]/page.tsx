@@ -58,6 +58,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
     ["Starts", when(l.startsAt)],
     ["Ends", when(l.endsAt)],
     ["Result", l.outcome ?? "-"],
+    ["Orders", <Link key="o" href={`/orders?q=${l.id}`} className="text-accent underline">Orders for this listing</Link>],
   ];
   return (
     <div className="max-w-2xl space-y-3">
