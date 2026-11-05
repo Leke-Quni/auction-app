@@ -20,6 +20,7 @@ const order = (over: Partial<OrderView> = {}): OrderView => ({
   shipping: null,
   totalCents: null,
   invoiceNumber: null,
+  shipment: null,
   ...over,
 });
 
@@ -96,5 +97,27 @@ describe("OrderDetails", () => {
     expect(screen.getByText("Express, about 3 days, tracked")).toBeTruthy();
     expect(screen.queryByText(/Nene Tereza/)).toBeNull();
     expect(screen.getByText("€29.92")).toBeTruthy();
+  });
+
+  it("shows the shipment's status, tracking code and times once the seller has shipped", () => {
+    render(
+      <OrderDetails
+        order={order({ status: "PAID", paidAt: "2026-11-05T10:00:00.000Z", shipment: { status: "IN_TRANSIT", trackingCode: "FAKE123", shippedAt: "2026-11-05T11:00:00.000Z", inTransitAt: "2026-11-05T11:01:00.000Z", deliveredAt: null } })}
+      />,
+    );
+    expect(screen.getByText("In transit", { selector: "span" })).toBeTruthy();
+    expect(screen.getByText("FAKE123")).toBeTruthy();
+    expect(screen.queryByText("Delivered")).toBeNull();
+  });
+
+  it("shows the buyer's rating to the seller and links the buyer to the seller's profile", () => {
+    const rated = order({ status: "PAID", paidAt: "2026-11-05T10:00:00.000Z", rating: { stars: 5, comment: "Great seller", createdAt: "2026-11-06T10:00:00.000Z" } });
+    const { unmount } = render(<OrderDetails order={rated} />);
+    expect(screen.getByText("Your rating")).toBeTruthy();
+    expect(screen.getByText("Great seller")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "sam" }).getAttribute("href")).toBe("/sellers/sam");
+    unmount();
+    render(<OrderDetails order={{ ...rated, viewer: "seller" }} />);
+    expect(screen.getByText("Buyer's rating")).toBeTruthy();
   });
 });

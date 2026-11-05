@@ -19,7 +19,7 @@ export interface ListingSummary {
 export function ListingCard({ listing }: { listing: ListingSummary }) {
   const cover = listing.images[0];
   return (
-    <Link href={`/listings/${listing.id}`} className="block border border-line bg-white hover:border-brand">
+    <Link href={`/listings/${listing.id}`} className="flex h-full flex-col border border-line bg-white hover:border-brand">
       <div className="relative">
         {cover ? (
           <img src={cover.url} alt="" className="aspect-square w-full bg-[#ddd] object-cover" loading="lazy" />
@@ -30,30 +30,30 @@ export function ListingCard({ listing }: { listing: ListingSummary }) {
           <span className="absolute left-1.5 top-1.5 rounded-md bg-[#fef08a]/80 px-2 py-0.5 text-xs font-bold text-[#422006] backdrop-blur-[2px]">Final chance to bid</span>
         )}
       </div>
-      <div className="space-y-0.5 p-2">
+      <div className="flex flex-1 flex-col gap-0.5 p-2">
         <p className="line-clamp-2 font-bold">{listing.title}</p>
         <p>
           {formatEur(listing.currentBidCents ?? listing.startingPriceCents)}{" "}
           <span className="text-xs text-muted">{listing.currentBidCents != null ? "current bid" : "starting"}</span>
-          {(listing.bidCount ?? 0) > 0 && (
-            <span className="text-xs text-muted">
-              {" "}
-              · {listing.bidCount} {listing.bidCount === 1 ? "bid" : "bids"}
-            </span>
-          )}
         </p>
+        {(listing.bidCount ?? 0) > 0 && (
+          <p className="text-sm font-bold text-brand">
+            {listing.bidCount} {listing.bidCount === 1 ? "bid" : "bids"}
+          </p>
+        )}
+        {/* The time sits at the bottom of the card, so it lines up across a row whatever the title and price take. */}
         {listing.phase === "upcoming" && listing.startsAt ? (
-          <p className="text-xs text-muted">
+          <p className="mt-auto text-xs text-muted">
             Starts <LocalTime iso={listing.startsAt} />
           </p>
         ) : (
           listing.endsAt &&
           (listing.phase === "live" && listing.startsAt ? (
-            <p className="text-xs">
+            <p className="mt-auto text-xs">
               <Countdown iso={listing.endsAt} startIso={listing.startsAt} />
             </p>
           ) : (
-            <p className="text-xs text-muted">
+            <p className="mt-auto text-xs text-muted">
               Ends <LocalTime iso={listing.endsAt} />
             </p>
           ))

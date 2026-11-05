@@ -24,6 +24,8 @@ model User {
   role                Role                 @default(USER)
   // The seller's default pickup address and contact; each listing starts from it and may change it.
   pickupAddress       Json?
+  // The seller's connected payment account at the payment provider, created when they first ask to get paid.
+  payoutAccountId     String?             @unique
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   loginCodes          LoginCode[]
@@ -37,6 +39,9 @@ model User {
   sales               Order[]              @relation("OrderSeller")
   bids                Bid[]
   notifications       Notification[]
+  watches             Watch[]
+  ratingsGiven        Rating[]             @relation("RatingBuyer")
+  ratingsReceived     Rating[]             @relation("RatingSeller")
   questions           Question[]
   questionVotes       QuestionVote[]
 }
@@ -138,6 +143,7 @@ model Listing {
   notifications      Notification[]
   questions          Question[]
   orders             Order[]
+  watches            Watch[]
 
   @@index([status, endsAt])
   @@index([sellerId])
@@ -146,6 +152,19 @@ model Listing {
   @@index([winnerId])
   @@index([status, closedAt, endsAt])
   @@index([relistedFromId])
+}
+
+// A listing a user keeps an eye on. Gone with the user or the listing; the "ending soon" email owed for it is a
+// PendingEndEmail row, removed when the watch is.
+model Watch {
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([userId, listingId])
+  @@index([listingId])
 }
 
 enum OrderStatus {
@@ -186,6 +205,16 @@ model Order {
   pickupAddress   Json?
   // Assigned once, when the order becomes PAID (from the InvoiceNumberSeq sequence), as INV-<year>-<number>.
   invoiceNumber   String?     @unique
+  // Set when the seller marks a paid order shipped; the fake carrier then moves it on. Null until shipped.
+  // Whether the buyer asked, when choosing delivery, for emails about the parcel's progress. Off unless ticked.
+  trackingEmails  Boolean     @default(false)
+  shipmentStatus  ShipmentStatus?
+  trackingCode    String?
+  shippedAt       DateTime?
+  inTransitAt     DateTime?
+  deliveredAt     DateTime?
+  payout          Payout?
+  rating          Rating?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -193,6 +222,44 @@ model Order {
   @@index([buyerId])
   @@index([sellerId])
   @@index([status, payBy])
+  @@index([shipmentStatus])
+}
+
+// What a buyer thought of the seller after a delivered order: one per order, never changed. The stars are checked 1 to 5 by the
+// database (see the migration).
+model Rating {
+  id        String   @id @default(cuid())
+  orderId   String   @unique
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  buyerId   String
+  buyer     User     @relation("RatingBuyer", fields: [buyerId], references: [id], onDelete: Restrict)
+  sellerId  String
+  seller    User     @relation("RatingSeller", fields: [sellerId], references: [id], onDelete: Restrict)
+  stars     Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  @@index([sellerId, createdAt(sort: Desc)])
+}
+
+// A seller's share of a delivered order, paid out through the PaymentProvider. One row per order, written only once the
+// money has gone; `reference` is the provider's id for the transfer.
+model Payout {
+  id          String   @id @default(cuid())
+  orderId     String   @unique
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  sellerId    String
+  amountCents Int
+  reference   String
+  paidAt      DateTime @default(now())
+
+  @@index([sellerId])
+}
+
+enum ShipmentStatus {
+  LABEL_CREATED
+  IN_TRANSIT
+  DELIVERED
 }
 
 enum ListingOutcome {
@@ -295,6 +362,14 @@ enum EndEmailKind {
   // After payment: the buyer's confirmation with the invoice, and the seller's "sold, ship to" notice.
   PAID
   SOLD
+  // Shipping updates for the buyer.
+  SHIPPED
+  IN_TRANSIT
+  DELIVERED
+  // The seller's share has been paid out.
+  PAYOUT
+  // A watched auction ends in about 24 hours.
+  ENDING_SOON
 }
 
 enum NotificationType {
@@ -302,6 +377,8 @@ enum NotificationType {
   AUCTION_EXTENDED
   QUESTION_ASKED
   QUESTION_ANSWERED
+  // "You won" or "the item is yours to pay for": links to the order to pay.
+  WON
 }
 
 // What a person can read later in the bell: each notice the API pushes live is saved here too. `key` says what the

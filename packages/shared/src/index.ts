@@ -7,3 +7,4 @@ export * from "./questions";
 export * from "./viewer-ip";
 export * from "./orders";
 export * from "./shipping";
+export * from "./ratings";

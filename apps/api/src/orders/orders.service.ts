@@ -1,9 +1,10 @@
-import { ORDER_REFUSAL_MESSAGES, deliveryOptions, type OrderRefusal, type OrderView, type SaveShippingInput, type ShippingAddress, type ShippingOption } from "@auction/shared";
-import { deliveryRule } from "../config";
+import { ORDER_REFUSAL_MESSAGES, deliveryOptions, type OrderPayout, type RateSellerInput, type OrderRefusal, type OrderView, type SaveShippingInput, type ShippingAddress, type ShippingOption } from "@auction/shared";
+import { deliveryRule, payoutDelayDays } from "../config";
 import { HttpException, HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { FakePaymentProvider } from "../payments/fake-payment-provider";
 import { PAYMENT_PROVIDER, type PaymentProvider } from "../payments/payment-provider";
+import { SHIPPING_PROVIDER, type ShippingProvider } from "../shipping/shipping-provider";
 import { deliveryOf, invoiceDataOf, renderInvoice } from "./invoice";
 
 const STATUS: Record<OrderRefusal, HttpStatus> = {
@@ -14,6 +15,10 @@ const STATUS: Record<OrderRefusal, HttpStatus> = {
   SHIPPING_REQUIRED: HttpStatus.CONFLICT,
   SHIPPING_OPTION_UNAVAILABLE: HttpStatus.CONFLICT,
   NOT_PAID: HttpStatus.CONFLICT,
+  NOT_SELLER: HttpStatus.FORBIDDEN,
+  ALREADY_SHIPPED: HttpStatus.CONFLICT,
+  NOT_DELIVERED: HttpStatus.CONFLICT,
+  ALREADY_RATED: HttpStatus.CONFLICT,
 };
 const refuse = (code: OrderRefusal) => new HttpException({ code, message: ORDER_REFUSAL_MESSAGES[code] }, STATUS[code]);
 
@@ -24,7 +29,9 @@ const testPaymentsAllowed = () => [undefined, "development", "test"].includes(pr
 const include = {
   listing: { select: { title: true } },
   buyer: { select: { id: true, username: true, email: true } },
-  seller: { select: { id: true, username: true } },
+  seller: { select: { id: true, username: true, payoutAccountId: true } },
+  payout: true,
+  rating: true,
 } as const;
 
 @Injectable()
@@ -34,6 +41,7 @@ export class OrdersService {
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
     @Inject(PAYMENT_PROVIDER) private readonly payments: PaymentProvider,
+    @Inject(SHIPPING_PROVIDER) private readonly carrier: ShippingProvider,
   ) {}
 
   // Only the buyer and the seller can see an order; anyone else is told it does not exist.
@@ -169,6 +177,8 @@ export class OrdersService {
         data: { invoiceNumber: `INV-${new Date().getUTCFullYear()}-${String(n).padStart(6, "0")}` },
         select: { buyerId: true, sellerId: true, listingId: true },
       });
+      // The "pay now" notice has done its job.
+      await tx.notification.deleteMany({ where: { userId: order.buyerId, key: `won:${order.listingId}` } });
       await tx.pendingEndEmail.createMany({
         data: [
           { userId: order.buyerId, listingId: order.listingId, kind: "PAID" },
@@ -200,7 +210,7 @@ export class OrdersService {
       const totalCents = order.amountCents + option.priceCents;
       await tx.order.update({
         where: { id: orderId },
-        data: { shippingAddress: input.address, shippingOption: { ...option }, shippingCents: option.priceCents, totalCents },
+        data: { shippingAddress: input.address, shippingOption: { ...option }, shippingCents: option.priceCents, totalCents, trackingEmails: input.trackingEmails },
       });
       // Saving the same delivery again (a second tab, a retry) changes nothing the payment page shows, so an open page stays.
       return order.totalCents === totalCents ? [] : order.paymentRefs;
@@ -212,6 +222,51 @@ export class OrdersService {
         this.log.error(`Could not close session ${ref} of order ${orderId}: ${(error as Error).message}`);
       }
     }
+    return this.get(userId, orderId);
+  }
+
+  // The seller hands a paid order to the carrier: the carrier creates the label, the order is marked LABEL_CREATED and the
+  // buyer is owed a "shipped" email. The update only matches a paid order that has not been shipped, so a double click or a
+  // second tab changes nothing twice (the second answers ALREADY_SHIPPED).
+  async ship(userId: string, orderId: string): Promise<OrderView> {
+    const order = await this.find(userId, orderId);
+    if (order.sellerId !== userId) throw refuse("NOT_SELLER");
+    if (order.status !== "PAID") throw refuse("NOT_PAID");
+    if (order.shipmentStatus) throw refuse("ALREADY_SHIPPED");
+    const delivery = deliveryOf(order);
+    if (!delivery) throw refuse("NOT_PAID");
+    const label = await this.carrier.createLabel({ orderId, pickup: (order.pickupAddress as ShippingAddress | null) ?? null, delivery: delivery.address as ShippingAddress, optionId: delivery.optionId });
+    const marked = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.order.updateMany({
+        where: { id: orderId, status: "PAID", shipmentStatus: null },
+        data: { shipmentStatus: "LABEL_CREATED", trackingCode: label.trackingCode, shippedAt: new Date() },
+      });
+      if (result.count === 0) return false;
+      if (order.trackingEmails) {
+        await tx.pendingEndEmail.upsert({
+          where: { userId_listingId_kind: { userId: order.buyerId, listingId: order.listingId, kind: "SHIPPED" } },
+          create: { userId: order.buyerId, listingId: order.listingId, kind: "SHIPPED" },
+          update: {},
+        });
+      }
+      return true;
+    });
+    if (!marked) throw refuse("ALREADY_SHIPPED");
+    return this.get(userId, orderId);
+  }
+
+  // The buyer rates the seller, once per order, after the parcel was delivered. The unique order id makes a double click or two
+  // tabs rate once (the second answers ALREADY_RATED); a rating cannot be changed afterwards.
+  async rate(userId: string, orderId: string, input: RateSellerInput): Promise<OrderView> {
+    const order = await this.find(userId, orderId);
+    if (order.buyerId !== userId) throw refuse("NOT_BUYER");
+    if (order.status !== "PAID" || order.shipmentStatus !== "DELIVERED") throw refuse("NOT_DELIVERED");
+    if (order.rating) throw refuse("ALREADY_RATED");
+    const saved = await this.prisma.rating.createMany({
+      data: { orderId, buyerId: userId, sellerId: order.sellerId, stars: input.stars, comment: input.comment ?? null },
+      skipDuplicates: true,
+    });
+    if (saved.count === 0) throw refuse("ALREADY_RATED");
     return this.get(userId, orderId);
   }
 
@@ -262,9 +317,24 @@ export class OrdersService {
       shipping: this.shippingFor(order, seller),
       totalCents: seller ? null : order.totalCents, // what the buyer paid in all is the buyer's business
       invoiceNumber: order.invoiceNumber,
+      rating: order.rating ? { stars: order.rating.stars, comment: order.rating.comment, createdAt: order.rating.createdAt.toISOString() } : null,
+      ...(seller ? {} : { trackingEmails: order.trackingEmails }),
+      shipment: order.shipmentStatus && order.trackingCode && order.shippedAt
+        ? { status: order.shipmentStatus, trackingCode: order.trackingCode, shippedAt: order.shippedAt.toISOString(), inTransitAt: order.inTransitAt?.toISOString() ?? null, deliveredAt: order.deliveredAt?.toISOString() ?? null }
+        : null,
       ...(seller && order.pickupAddress ? { pickupAddress: order.pickupAddress as ShippingAddress } : {}),
       ...(seller ? { feeCents: order.feeCents, sellerNetCents: order.sellerNetCents } : {}),
+      ...(seller && order.status === "PAID" ? { payout: this.payoutFor(order) } : {}),
     };
+  }
+
+  private payoutFor(order: Awaited<ReturnType<OrdersService["find"]>>): OrderPayout {
+    const dueAt = order.deliveredAt ? new Date(order.deliveredAt.getTime() + payoutDelayDays() * 86_400_000) : null;
+    const base = { dueAt: dueAt?.toISOString() ?? null, amountCents: order.sellerNetCents };
+    if (order.payout) return { ...base, status: "PAID", paidAt: order.payout.paidAt.toISOString() };
+    // Without a payment account there is nothing to wait for but the seller, so they are asked before the parcel arrives.
+    if (!order.seller.payoutAccountId) return { ...base, status: "WAITING_FOR_ACCOUNT", paidAt: null };
+    return { ...base, status: dueAt ? "SCHEDULED" : "NOT_DELIVERED", paidAt: null };
   }
 
   // The buyer sees the whole delivery address and its price; the seller only the city and country, as our carrier handles the delivery.

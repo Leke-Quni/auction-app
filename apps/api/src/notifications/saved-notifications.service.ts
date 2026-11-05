@@ -87,6 +87,18 @@ export class SavedNotificationsService implements OnModuleInit, OnModuleDestroy 
     return { unreadCount: await this.unreadCount(userId) };
   }
 
+  // Removes one of the person's notifications (the X on it). Someone else's, or one already gone, changes nothing.
+  async dismiss(userId: string, id: string): Promise<{ unreadCount: number }> {
+    await this.prisma.notification.deleteMany({ where: { id, userId } });
+    return { unreadCount: await this.unreadCount(userId) };
+  }
+
+  // Empties the person's inbox. A newer notice about the same thing later brings it back as a new one.
+  async clear(userId: string): Promise<{ unreadCount: number }> {
+    await this.prisma.notification.deleteMany({ where: { userId } });
+    return { unreadCount: 0 };
+  }
+
   unreadCount(userId: string, now = new Date()) {
     return this.prisma.notification.count({ where: { userId, readAt: null, expiresAt: { gt: now } } });
   }

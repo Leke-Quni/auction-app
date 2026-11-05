@@ -13,14 +13,17 @@ export function ShippingForm({
   options,
   saved,
   savedOptionId,
+  savedTrackingEmails,
 }: {
   orderId: string;
   amountCents: number;
   options: ShippingOption[];
   saved: ShippingAddress | null;
   savedOptionId: string | null;
+  savedTrackingEmails: boolean;
 }) {
   const [choice, setChoice] = useState(options.find((o) => o.id === savedOptionId)?.id ?? options[0]?.id ?? "");
+  const [trackingEmails, setTrackingEmails] = useState(savedTrackingEmails);
   const [error, setError] = useState("");
   const [pending, start] = useTransition();
   const chosen = options.find((o) => o.id === choice);
@@ -30,7 +33,7 @@ export function ShippingForm({
     if (!address || !choice) return;
     setError("");
     start(async () => {
-      const result = await saveShippingAndPayAction(orderId, address as unknown as ShippingAddress, choice);
+      const result = await saveShippingAndPayAction(orderId, address as unknown as ShippingAddress, choice, trackingEmails);
       if (result?.error) setError(result.error);
     });
   };
@@ -63,6 +66,10 @@ export function ShippingForm({
             <b>{formatEur(o.priceCents)}</b>
           </label>
         ))}
+        <label className="flex cursor-pointer items-center gap-2 pt-1">
+          <input type="checkbox" name="trackingEmails" checked={trackingEmails} onChange={(e) => setTrackingEmails(e.target.checked)} />
+          <span>Email me tracking updates (shipped, in transit, delivered)</span>
+        </label>
         <p className="pt-1 font-bold">Total: {chosen ? formatEur(amountCents + chosen.priceCents) : "-"}</p>
         {error && (
           <p role="alert" className="text-urgent">

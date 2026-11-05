@@ -10,6 +10,8 @@ import { LiveAuction, type LiveSnapshot } from "./live-auction";
 import { LiveDetails, LiveHistory } from "./live-details";
 import { Questions } from "./questions";
 import { RelistButton } from "./relist-button";
+import { SellerInfo } from "../../seller-info";
+import { WatchButton } from "../../watch-button";
 
 export default async function ListingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -76,6 +78,18 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
         <div className="grid items-start gap-3 sm:grid-cols-[1fr_2fr]">
           <div className="min-w-0">
             <Gallery images={listing.images} alt={listing.title} />
+            {published && (
+              <div className="mt-2">
+                {session && !isOwner && (listing.phase !== "ended" || listing.watching) ? (
+                  <WatchButton key={`${listing.watching}-${listing.watcherCount}`} listingId={listing.id} watching={!!listing.watching} watcherCount={listing.watcherCount ?? 0} />
+                ) : (
+                  <span className="text-xs text-muted">
+                    {listing.watcherCount ?? 0} {listing.watcherCount === 1 ? "person" : "people"} interested
+                  </span>
+                )}
+              </div>
+            )}
+            <SellerInfo username={listing.seller.username} average={listing.sellerRating?.average ?? null} count={listing.sellerRating?.count ?? 0} isOwner={isOwner} />
           </div>
           <div className="min-w-0 space-y-3">
             <LiveDetails listing={listing} openMode={openMode} viewerId={viewerId} order={order} />

@@ -94,6 +94,8 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
       const [{ now }] = await tx.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS "now"`;
       const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { listingId: true, buyerId: true, sellerId: true, round: true } });
       await tx.strike.create({ data: { userId: order.buyerId, listingId: order.listingId, orderId } });
+      // Their "pay now" notice no longer applies.
+      await tx.notification.deleteMany({ where: { userId: order.buyerId, key: `won:${order.listingId}` } });
       const listing = await tx.listing.findUniqueOrThrow({ where: { id: order.listingId }, select: { reservePriceCents: true, pickupAddress: true } });
 
       // The next bidder, by their own highest bid, who has not already been offered this item and is not blocked from bidding.

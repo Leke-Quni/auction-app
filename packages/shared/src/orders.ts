@@ -22,7 +22,11 @@ export function platformFeeCents(amountCents: number, percent: number, capCents?
   return capCents === undefined ? fee : Math.min(fee, capCents);
 }
 
-export const ORDER_REFUSALS = ["NOT_FOUND", "NOT_BUYER", "NOT_PAYABLE", "PAYMENT_WINDOW_CLOSED", "SHIPPING_REQUIRED", "SHIPPING_OPTION_UNAVAILABLE", "NOT_PAID"] as const;
+// Where a paid order's parcel is, once the seller has marked it shipped. The carrier moves it on by itself.
+export const SHIPMENT_STATUSES = ["LABEL_CREATED", "IN_TRANSIT", "DELIVERED"] as const;
+export type ShipmentStatus = (typeof SHIPMENT_STATUSES)[number];
+
+export const ORDER_REFUSALS = ["NOT_FOUND", "NOT_BUYER", "NOT_PAYABLE", "PAYMENT_WINDOW_CLOSED", "SHIPPING_REQUIRED", "SHIPPING_OPTION_UNAVAILABLE", "NOT_PAID", "NOT_SELLER", "ALREADY_SHIPPED", "NOT_DELIVERED", "ALREADY_RATED"] as const;
 export type OrderRefusal = (typeof ORDER_REFUSALS)[number];
 
 export const ORDER_REFUSAL_MESSAGES: Record<OrderRefusal, string> = {
@@ -33,6 +37,10 @@ export const ORDER_REFUSAL_MESSAGES: Record<OrderRefusal, string> = {
   SHIPPING_REQUIRED: "Enter the delivery address and choose a delivery option before paying.",
   SHIPPING_OPTION_UNAVAILABLE: "That delivery option is no longer available. Choose another.",
   NOT_PAID: "There is no invoice until the order is paid.",
+  NOT_SELLER: "Only the seller can mark this order as shipped.",
+  ALREADY_SHIPPED: "This order is already marked as shipped.",
+  NOT_DELIVERED: "You can rate the seller once the item has been delivered.",
+  ALREADY_RATED: "You have already rated this seller for this order.",
 };
 
 // An order as its buyer or seller sees it. The fee and the seller's share are only sent to the seller; the delivery price
@@ -52,6 +60,14 @@ export interface OrderView {
   shipping: OrderShipping | null;
   totalCents: number | null;
   invoiceNumber: string | null;
+  // Whether the buyer asked for emails about the parcel's progress. Only the buyer is sent it.
+  trackingEmails?: boolean;
+  // Null until the seller marks the paid order shipped.
+  shipment: OrderShipment | null;
+  // What the buyer rated the seller, once they have (both sides see it).
+  rating?: import("./ratings").RatingView | null;
+  // The seller's payout for a paid order (never sent to the buyer).
+  payout?: OrderPayout;
   feeCents?: number;
   sellerNetCents?: number;
   // Where the carrier collects the item. Only the seller is sent it.
@@ -68,4 +84,24 @@ export interface OrderShipping {
   insured: boolean;
   // The delivery price. Only the buyer is sent it: the seller never sees what the buyer paid for delivery.
   priceCents?: number;
+}
+
+// What a seller is told about getting paid for a paid order. Only the seller is sent it.
+export interface OrderPayout {
+  // SCHEDULED: due after the delivery delay. WAITING_FOR_ACCOUNT: due, but the seller has not set up their payment account.
+  status: "NOT_DELIVERED" | "SCHEDULED" | "WAITING_FOR_ACCOUNT" | "PAID";
+  // When it becomes due (3 days after delivery); null until the parcel is delivered.
+  dueAt: string | null;
+  paidAt: string | null;
+  amountCents: number;
+}
+
+export type PayoutAccountStatus = "NOT_STARTED" | "PENDING" | "READY";
+
+export interface OrderShipment {
+  status: ShipmentStatus;
+  trackingCode: string;
+  shippedAt: string;
+  inTransitAt: string | null;
+  deliveredAt: string | null;
 }

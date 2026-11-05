@@ -24,7 +24,7 @@ export default async function ShippingPage({ params }: { params: Promise<{ id: s
       <p className="border border-line bg-white p-2">
         Price {formatEur(order.amountCents)} plus delivery. Our carrier collects it from the seller and brings it to you. Delivery is a share of the price plus the option you choose.
       </p>
-      <ShippingForm orderId={order.id} amountCents={order.amountCents} options={options} saved={(order.shipping?.address as ShippingAddress | undefined) ?? null} savedOptionId={order.shipping?.optionId ?? null} />
+      <ShippingForm orderId={order.id} amountCents={order.amountCents} options={options} saved={(order.shipping?.address as ShippingAddress | undefined) ?? null} savedOptionId={order.shipping?.optionId ?? null} savedTrackingEmails={order.trackingEmails ?? false} />
     </div>
   );
 }

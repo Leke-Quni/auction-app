@@ -23,8 +23,10 @@ const seconds = (date: Date) => Math.floor(date.getTime() / 1000);
 const SORT_BY: Record<SearchSort, string> = {
   relevance: "_text_match:desc,ends_at:asc",
   endingSoon: "ends_at:asc",
+  endingLatest: "ends_at:desc",
   newest: "published_at:desc",
   mostBids: "bid_count:desc,ends_at:asc",
+  fewestBids: "bid_count:asc,ends_at:asc",
   priceAsc: "price_cents:asc",
   priceDesc: "price_cents:desc",
 };

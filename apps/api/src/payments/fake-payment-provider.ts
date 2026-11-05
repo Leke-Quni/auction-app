@@ -13,7 +13,9 @@ interface FakeSession extends CheckoutRequest {
 // process restarts, so a buyer then simply starts the payment again.
 export class FakePaymentProvider implements PaymentProvider {
   readonly sessions = new Map<string, FakeSession>();
-  readonly payouts: { orderId: string; sellerId: string; amountCents: number }[] = [];
+  readonly payouts: { orderId: string; sellerId: string; accountId: string; amountCents: number; paymentRef: string }[] = [];
+  // Accounts the "seller finished onboarding" step has been done for; tests call `completeOnboarding`.
+  readonly readyAccounts = new Set<string>();
 
   async createCheckout(request: CheckoutRequest): Promise<CheckoutSession> {
     const id = `fake_${randomUUID()}`;
@@ -42,8 +44,24 @@ export class FakePaymentProvider implements PaymentProvider {
     if (session?.paid) session.refunded = true;
   }
 
-  async payout(request: { orderId: string; sellerId: string; amountCents: number }) {
-    this.payouts.push(request);
+  async createPayoutAccount(request: { sellerId: string }) {
+    return { accountId: `fake_acct_${request.sellerId}` };
+  }
+
+  async createOnboardingLink(request: { accountId: string; returnUrl: string }) {
+    // The fake has no onboarding page: coming back at once, with the account ready, stands in for finishing it.
+    this.readyAccounts.add(request.accountId);
+    return { url: request.returnUrl };
+  }
+
+  async isPayoutAccountReady(accountId: string) {
+    return this.readyAccounts.has(accountId);
+  }
+
+  async payout(request: { orderId: string; sellerId: string; accountId: string; amountCents: number; paymentRef: string }) {
+    // One payout per order, however often it is asked for.
+    if (!this.payouts.some((p) => p.orderId === request.orderId)) this.payouts.push(request);
+    return { reference: `fake_tr_${request.orderId}` };
   }
 
   /** Marks a session paid, as the buyer's card going through would. Returns false for an unknown session. */

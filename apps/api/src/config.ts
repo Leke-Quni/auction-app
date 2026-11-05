@@ -52,6 +52,16 @@ export const deliveryRule = (): DeliveryRule => {
     maxCents: intFromEnv("DELIVERY_MAX_CENTS", DEFAULT_DELIVERY_RULE.maxCents),
   };
 };
+// How long the fake carrier takes to pick a parcel up (label created to in transit) and to deliver it (from the label).
+// Real carriers take days; these default to minutes so the whole path can be watched. Read on every call so tests can change them.
+export const fakeCarrierTimes = () => ({
+  inTransitAfterSeconds: intFromEnv("FAKE_CARRIER_IN_TRANSIT_SECONDS", 60),
+  deliveredAfterSeconds: intFromEnv("FAKE_CARRIER_DELIVERED_SECONDS", 180),
+});
+// How long after delivery a seller's share is paid out, and the country their connected payment account is created in (Stripe
+// cannot pay out in Kosovo, Albania or North Macedonia, so test accounts use a supported country).
+export const payoutDelayDays = () => intFromEnv("PAYOUT_DELAY_DAYS", 3);
+export const connectAccountCountry = () => (process.env.STRIPE_CONNECT_COUNTRY || "de").toLowerCase();
 export const paymentWindowHours = () => intFromEnv("PAYMENT_WINDOW_HOURS", PAYMENT_WINDOW_HOURS);
 
 // Stripe test or live keys. With both set the API takes payments through Stripe; without them it uses the in-memory fake.

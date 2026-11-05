@@ -4,7 +4,7 @@ import { formatEur, type NotificationItem, type NotificationList } from "@auctio
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useNotificationStore } from "@/lib/notification-store";
-import { loadNotificationsAction, markNotificationReadAction } from "./notification-actions";
+import { clearNotificationsAction, dismissNotificationAction, loadNotificationsAction, markNotificationReadAction } from "./notification-actions";
 
 const MINUTE = 60_000;
 
@@ -17,9 +17,17 @@ export function timeAgo(iso: string, now = Date.now()) {
   return `${Math.floor(hours / 24)} d ago`;
 }
 
+// Where a notification leads: the order to pay for a win, otherwise its listing.
+export const notificationHref = (item: NotificationItem) => (item.type === "WON" && item.data.orderId ? `/orders/${item.data.orderId}` : `/listings/${item.listingId}`);
+
 export function describe(item: NotificationItem): { heading: string; text: string } {
   if (item.type === "OUTBID") {
     return { heading: "You've been outbid", text: `${item.title} is now at ${formatEur(item.data.currentBidCents)}.` };
+  }
+  if (item.type === "WON") {
+    return item.data.offered
+      ? { heading: "The item is yours to pay for", text: `The first buyer of ${item.title} did not pay, so it is offered to you at ${formatEur(item.data.finalPriceCents)}. Pay now.` }
+      : { heading: "You won the auction", text: `${item.title} for ${formatEur(item.data.finalPriceCents)}. Pay now.` };
   }
   if (item.type === "QUESTION_ASKED") return { heading: "New question", text: `${item.data.from} asked on ${item.title}: "${item.data.excerpt}"` };
   if (item.type === "QUESTION_ANSWERED") return { heading: "Your question was answered", text: `${item.data.from} answered on ${item.title}: "${item.data.excerpt}"` };
@@ -31,7 +39,7 @@ export function describe(item: NotificationItem): { heading: string; text: strin
 // The bell in the header: an unread count and the latest saved notifications. The list the server rendered with the
 // page is used until a live notice makes it stale, and then it is fetched again when the bell is opened.
 export function NotificationBell({ initial }: { initial: NotificationList | null }) {
-  const { items, unreadCount, seed, markRead, reset } = useNotificationStore();
+  const { items, unreadCount, seed, markRead, remove, clear, reset } = useNotificationStore();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -75,6 +83,19 @@ export function NotificationBell({ initial }: { initial: NotificationList | null
     if (count !== null) markRead(item.id, count);
   };
 
+  // The X on a notification and "Clear all": gone at once, and put back (by loading the list again) if the server refused.
+  const dismiss = async (item: NotificationItem) => {
+    remove(item.id);
+    const count = await dismissNotificationAction(item.id);
+    if (count === null) seed(await loadNotificationsAction());
+    else remove(item.id, count);
+  };
+
+  const clearAll = async () => {
+    clear();
+    if (!(await clearNotificationsAction())) seed(await loadNotificationsAction());
+  };
+
   return (
     <div ref={ref} className="relative">
       <button
@@ -97,22 +118,29 @@ export function NotificationBell({ initial }: { initial: NotificationList | null
       </button>
       {open && (
         <div role="menu" className="absolute right-0 z-10 mt-2 w-80 max-w-[calc(100vw-1rem)] whitespace-normal border border-line bg-white text-[#222] shadow-md">
-          <p className="border-b border-line px-3 py-2 font-bold">Notifications</p>
+          <div className="flex items-center justify-between border-b border-line px-3 py-2">
+            <p className="font-bold">Notifications</p>
+            {items.length > 0 && (
+              <button type="button" onClick={() => void clearAll()} aria-label="Clear all notifications" className="cursor-pointer text-xs text-muted underline hover:text-urgent">
+                Clear all
+              </button>
+            )}
+          </div>
           {loading && items.length === 0 ? (
             <p className="px-3 py-3 text-muted">Loading...</p>
           ) : items.length === 0 ? (
-            <p className="px-3 py-3 text-muted">Nothing yet. Outbid, extended-auction, question and answer notices show up here for 14 days.</p>
+            <p className="px-3 py-3 text-muted">You have no new notifications.</p>
           ) : (
             <ul className="max-h-96 overflow-y-auto">
               {items.map((item) => {
                 const { heading, text } = describe(item);
                 return (
-                  <li key={item.id} className="border-b border-line last:border-b-0">
+                  <li key={item.id} className="relative border-b border-line last:border-b-0">
                     <Link
                       role="menuitem"
-                      href={`/listings/${item.listingId}`}
+                      href={notificationHref(item)}
                       onClick={() => void choose(item)}
-                      className={`block px-3 py-2 hover:bg-[#f0f0f0] ${item.readAt === null ? "bg-[#f0fbf9]" : ""}`}
+                      className={`block py-2 pl-3 pr-9 hover:bg-[#f0f0f0] ${item.readAt === null ? "bg-[#f0fbf9]" : ""}`}
                     >
                       <span className="flex items-center gap-1.5">
                         {item.readAt === null && <span aria-label="Unread" className="h-2 w-2 shrink-0 rounded-full bg-brand" />}
@@ -121,6 +149,14 @@ export function NotificationBell({ initial }: { initial: NotificationList | null
                       <span className="block text-muted">{text}</span>
                       <span className="block text-xs text-muted">{timeAgo(item.createdAt)}</span>
                     </Link>
+                    <button
+                      type="button"
+                      onClick={() => void dismiss(item)}
+                      aria-label={`Dismiss: ${heading}`}
+                      className="absolute right-1.5 top-1.5 flex h-6 w-6 cursor-pointer items-center justify-center text-muted hover:text-urgent"
+                    >
+                      <span aria-hidden="true">✕</span>
+                    </button>
                   </li>
                 );
               })}

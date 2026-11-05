@@ -17,15 +17,18 @@ Slices 1 to 4b are done and merged to `main`. Slice 5 (auction close and payment
 
 ## 2. Left over from earlier slices
 - **Database connection pool and timeouts.** `packages/db/src/index.ts` uses the default pool, and a bid waits up to 15 seconds for the row lock. Set an explicit pool size, then test a burst of bids on one hot auction to check that other requests still get through.
-- **Sockets after a token expires or a user is banned.** The sign-in token is checked only when a socket connects, so an old socket keeps its private room. Handle this with the admin slice and the role freshness decision below.
+- **Sockets after a token expires or a user is banned.** The sign-in token is checked only when a socket connects, so an old socket keeps its private room. Handle this in slice 7 (admin) with the role freshness decision below.
 - **Playwright end-to-end tests** (sign up, list, bid, win, pay) are in the quality plan (`DESIGN.md` section 6) but not in the repo. The pay step now works end to end, so this can be added.
 
-## 3. Slice 6: shipping, notifications, admin
-Done-criteria are in `DESIGN.md` section 8 (fake shipping, watchlist and "ending soon" emails, seller ratings, `apps/admin` with moderation and the reports queue behind the `ADMIN` role). Decide **role freshness** first (how the API gets a current role so a demoted admin or banned user loses access), and choose the admin theme. The admin app also reads `QuestionLog` and `Report`, clears strikes, shows an order with both addresses, and handles reports (handled reports are deleted by the clean-up 30 days later). Shipping releases the seller payout (`PaymentProvider.payout`, 3 days after delivery); sellers have no Stripe onboarding yet, so decide how they are paid.
+## 3. Slice 6: shipping, payout, watchlist, ratings
+Done-criteria are in `DESIGN.md` section 8. Build one step at a time, in this order: (1) shipping and payout: the seller marks a paid order shipped, the fake carrier (`ShippingProvider`) moves it `label created → in transit → delivered` on a timer, shipping-update emails, and the payout released 3 days after delivery or on the buyer's confirmation through `PaymentProvider.payout` (decide first what a payout is while sellers have no Stripe onboarding: record it as paid with no money moving, or Stripe Connect test mode); (2) watchlist and "ending soon" emails; (3) seller profiles with post-sale ratings from the buyer.
 
-## 4. Open decisions still to make (from `DESIGN.md` section 7)
+## 4. Slice 7: admin
+Done-criteria are in `DESIGN.md` section 8. Decide **role freshness** first (how the API gets a current role so a demoted admin or banned user loses access) and choose the admin theme. Then `apps/admin` (a separate Next.js app and Vercel project, no public sign-up, admin-only API routes guarded by `ADMIN`): moderation (remove listings, ban users), the reports queue (handled reports are deleted by the clean-up 30 days later), clearing strikes, reading `QuestionLog` and `Report`, and an order with both addresses. Decide whether a ban holds back a seller's payout.
+
+## 5. Open decisions still to make (from `DESIGN.md` section 7)
 - Query library for server data: React Query or SWR.
-- Role freshness (see slice 6).
+- Role freshness (see slice 7).
 - Username squatting: a cleanup rule for stale unverified accounts, before launch.
 - Whether to keep `BidAudit` rows for ever (no clean-up exists).
 

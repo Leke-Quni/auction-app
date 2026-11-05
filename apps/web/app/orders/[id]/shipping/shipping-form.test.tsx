@@ -27,7 +27,7 @@ afterEach(cleanup);
 
 describe("ShippingForm", () => {
   it("lists the options with their prices and totals the chosen one with the item price", () => {
-    render(<ShippingForm orderId="o1" amountCents={3150} options={options} saved={null} savedOptionId={null} />);
+    render(<ShippingForm orderId="o1" amountCents={3150} options={options} saved={null} savedOptionId={null} savedTrackingEmails={false} />);
     expect(screen.getByText("Total: €34.50")).toBeTruthy(); // the first option is chosen: 31.50 + 3.00
     fireEvent.click(screen.getByLabelText(/Express/));
     expect(screen.getByText("Total: €40.50")).toBeTruthy();
@@ -35,7 +35,7 @@ describe("ShippingForm", () => {
   });
 
   it("starts from the delivery chosen before, if any", () => {
-    render(<ShippingForm orderId="o1" amountCents={3150} options={options} saved={{ name: "Ada Buyer", line1: "Rr. Nene Tereza 1", city: "Prishtina", postcode: "10000", country: "XK", phone: "+38344111222" }} savedOptionId="express" />);
+    render(<ShippingForm orderId="o1" amountCents={3150} options={options} saved={{ name: "Ada Buyer", line1: "Rr. Nene Tereza 1", city: "Prishtina", postcode: "10000", country: "XK", phone: "+38344111222" }} savedOptionId="express" savedTrackingEmails={false} />);
     expect((screen.getByLabelText(/Express/) as HTMLInputElement).checked).toBe(true);
     expect((screen.getByLabelText(/street address/i) as HTMLInputElement).value).toBe("Rr. Nene Tereza 1");
     expect((screen.getByLabelText("Phone country code") as HTMLSelectElement).value).toBe("383");
@@ -43,25 +43,25 @@ describe("ShippingForm", () => {
   });
 
   it("sends the address and the chosen option id, not a price, to pay", async () => {
-    render(<ShippingForm orderId="o1" amountCents={3150} options={options} saved={null} savedOptionId={null} />);
+    render(<ShippingForm orderId="o1" amountCents={3150} options={options} saved={null} savedOptionId={null} savedTrackingEmails={false} />);
     fill();
     fireEvent.click(screen.getByLabelText(/Express/));
     fireEvent.click(screen.getByRole("button", { name: /continue to payment/i }));
     await waitFor(() =>
-      expect(saveShippingAndPayAction).toHaveBeenCalledWith("o1", expect.objectContaining({ name: "Ada Buyer", city: "Prishtina", country: "XK", phone: "+38344111222" }), "express"),
+      expect(saveShippingAndPayAction).toHaveBeenCalledWith("o1", expect.objectContaining({ name: "Ada Buyer", city: "Prishtina", country: "XK", phone: "+38344111222" }), "express", false),
     );
   });
 
   it("shows why the save or payment failed", async () => {
     saveShippingAndPayAction.mockResolvedValue({ error: "That delivery option is no longer available. Choose another." });
-    render(<ShippingForm orderId="o1" amountCents={3150} options={options} saved={null} savedOptionId={null} />);
+    render(<ShippingForm orderId="o1" amountCents={3150} options={options} saved={null} savedOptionId={null} savedTrackingEmails={false} />);
     fill();
     fireEvent.click(screen.getByRole("button", { name: /continue to payment/i }));
     expect((await screen.findByRole("alert")).textContent).toContain("no longer available");
   });
 
   it("fills the phone prefix from the chosen country until the person picks a code themselves", () => {
-    render(<ShippingForm orderId="o1" amountCents={3150} options={options} saved={null} savedOptionId={null} />);
+    render(<ShippingForm orderId="o1" amountCents={3150} options={options} saved={null} savedOptionId={null} savedTrackingEmails={false} />);
     const code = () => (screen.getByLabelText("Phone country code") as HTMLSelectElement).value;
     expect(code()).toBe("1"); // +1 to start with
     fireEvent.change(screen.getByLabelText("Country"), { target: { value: "AL" } });
@@ -74,14 +74,14 @@ describe("ShippingForm", () => {
   });
 
   it("sends the phone as one international number", async () => {
-    render(<ShippingForm orderId="o1" amountCents={3150} options={options} saved={null} savedOptionId={null} />);
+    render(<ShippingForm orderId="o1" amountCents={3150} options={options} saved={null} savedOptionId={null} savedTrackingEmails={false} />);
     fill();
     fireEvent.click(screen.getByRole("button", { name: /continue to payment/i }));
-    await waitFor(() => expect(saveShippingAndPayAction).toHaveBeenCalledWith("o1", expect.objectContaining({ phone: "+38344111222" }), "standard"));
+    await waitFor(() => expect(saveShippingAndPayAction).toHaveBeenCalledWith("o1", expect.objectContaining({ phone: "+38344111222" }), "standard", false));
   });
 
   it("lists each code as a flag and the code, without country names or help text", () => {
-    render(<ShippingForm orderId="o1" amountCents={3150} options={options} saved={null} savedOptionId={null} />);
+    render(<ShippingForm orderId="o1" amountCents={3150} options={options} saved={null} savedOptionId={null} savedTrackingEmails={false} />);
     const labels = Array.from((screen.getByLabelText("Phone country code") as HTMLSelectElement).options).map((o) => o.textContent);
     expect(labels[0]).toBe("\u{1F1FA}\u{1F1F8} +1");
     expect(labels).toContain("\u{1F1E6}\u{1F1F1} +355");
@@ -90,5 +90,15 @@ describe("ShippingForm", () => {
     expect(screen.getByText("Phone")).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/carrier calls|leading 0/);
     expect((screen.getByLabelText("Phone number") as HTMLInputElement).placeholder).toBe("");
+  });
+
+  it("sends the tracking-emails choice, off unless the buyer ticks it", async () => {
+    render(<ShippingForm orderId="o1" amountCents={3150} options={options} saved={null} savedOptionId={null} savedTrackingEmails={false} />);
+    fill();
+    const box = screen.getByLabelText(/email me tracking updates/i) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    fireEvent.click(screen.getByRole("button", { name: /continue to payment/i }));
+    await waitFor(() => expect(saveShippingAndPayAction).toHaveBeenCalledWith("o1", expect.anything(), "standard", true));
   });
 });

@@ -119,7 +119,6 @@ export function LiveDetails({ listing, openMode, viewerId, order }: { listing: D
     ["Reserve price", listing.reservePriceCents == null ? "None" : `${formatEur(listing.reservePriceCents)}${reserveNote}`],
     ["Condition", CONDITION_LABELS[listing.condition]],
     ["Category", listing.category.name],
-    ["Seller", listing.seller.username],
     ["Duration", formatDuration(listing.durationDays)],
     ...(listing.startsAt ? ([["Starts", <LocalTime key="s" iso={listing.startsAt} />]] as [string, React.ReactNode][]) : []),
     ...(live.endsAt

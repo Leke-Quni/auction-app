@@ -12,6 +12,10 @@ const SWEEP_EVERY_MS = 30_000;
 // A send holds its row this long; if the machine stops mid-send the row comes due again afterwards.
 const LEASE_MS = 2 * 60_000;
 const MAX_ATTEMPTS = 3;
+// Reminders are the least urgent mail, so a sweep sends only a few; a burst of them (everyone watching one popular auction)
+// never holds up the pay-now and payment emails that share this queue, and the rest go out on the next sweeps.
+const REMINDER_BATCH = 25;
+type EndEmailKind = "LOST" | "WON" | "PAID" | "SOLD" | "EXPIRED" | "NOT_PAID" | "SHIPPED" | "IN_TRANSIT" | "DELIVERED" | "PAYOUT" | "ENDING_SOON";
 
 // Sends every bidder who did not win one email when the auction ends, with the final price. The rows are written by the
 // close itself (see AuctionCloseService), so this only has to send what is due: a row is claimed by moving its due time
@@ -19,6 +23,14 @@ const MAX_ATTEMPTS = 3;
 // again, up to MAX_ATTEMPTS times. Safe to run on several machines.
 // A stable form of an address for comparing two of them: the same parts in the same order.
 const sortedKeys = (value: unknown) => Object.fromEntries(Object.entries((value ?? {}) as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)));
+
+// "3 days", "5 hours" or "40 minutes", rounded to the nearest whole unit.
+const timeLeft = (ms: number) => {
+  const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
+  if (ms >= 48 * 3600_000) return plural(Math.round(ms / (24 * 3600_000)), "day");
+  if (ms >= 2 * 3600_000) return plural(Math.round(ms / 3600_000), "hour");
+  return plural(Math.max(1, Math.round(ms / 60_000)), "minute");
+};
 
 @Injectable()
 export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
@@ -67,9 +79,13 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
 
   private async run() {
     try {
-      const due = await this.prisma.pendingEndEmail.findMany({ where: { dueAt: { lte: new Date() } }, orderBy: { dueAt: "asc" }, take: 100 });
-      for (const candidate of due) {
-        const claimed = await this.prisma.$queryRaw<{ id: string; userId: string; listingId: string; kind: "LOST" | "WON" | "PAID" | "SOLD" | "EXPIRED" | "NOT_PAID"; attempts: number }[]>`
+      const now = new Date();
+      const [urgent, reminders] = await Promise.all([
+        this.prisma.pendingEndEmail.findMany({ where: { dueAt: { lte: now }, kind: { not: "ENDING_SOON" } }, orderBy: { dueAt: "asc" }, take: 100 }),
+        this.prisma.pendingEndEmail.findMany({ where: { dueAt: { lte: now }, kind: "ENDING_SOON" }, orderBy: { dueAt: "asc" }, take: REMINDER_BATCH }),
+      ]);
+      for (const candidate of [...urgent, ...reminders]) {
+        const claimed = await this.prisma.$queryRaw<{ id: string; userId: string; listingId: string; kind: EndEmailKind; attempts: number }[]>`
           UPDATE "PendingEndEmail" SET "dueAt" = ${new Date(Date.now() + LEASE_MS)}, "attempts" = "attempts" + 1
           WHERE "id" = ${candidate.id} AND "dueAt" <= ${new Date()}
           RETURNING "id", "userId", "listingId", "kind", "attempts"`;
@@ -93,9 +109,12 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Returns normally when the email was sent or is no longer needed; throws when it should be tried again.
-  private async send(userId: string, listingId: string, kind: "LOST" | "WON" | "PAID" | "SOLD" | "EXPIRED" | "NOT_PAID") {
+  private async send(userId: string, listingId: string, kind: EndEmailKind) {
     if (kind === "PAID" || kind === "SOLD") return this.sendPaid(userId, listingId, kind);
     if (kind === "EXPIRED" || kind === "NOT_PAID") return this.sendExpired(userId, listingId, kind);
+    if (kind === "PAYOUT") return this.sendPayout(userId, listingId);
+    if (kind === "ENDING_SOON") return this.sendEndingSoon(userId, listingId);
+    if (kind === "SHIPPED" || kind === "IN_TRANSIT" || kind === "DELIVERED") return this.sendShipping(userId, listingId, kind);
     const [listing, user] = await Promise.all([
       this.prisma.listing.findUnique({ where: { id: listingId }, select: { title: true, outcome: true, currentBidCents: true, finalPriceCents: true } }),
       this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
@@ -179,6 +198,69 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
       `${webUrl()}/orders/${order.id}`,
     ];
     await this.mail.send(order.buyer.email, `Payment completed: ${order.listing.title}`, lines.join("\n"), [{ filename: `${data.invoiceNumber}.pdf`, content: await renderInvoice(data) }]);
+  }
+
+  // One reminder, about 24 hours before a watched auction ends. Nothing is sent if the person stopped watching, the auction is
+  // over or already closed, or they are the one winning it anyway.
+  private async sendEndingSoon(userId: string, listingId: string) {
+    const [watch, listing, user] = await Promise.all([
+      this.prisma.watch.findUnique({ where: { userId_listingId: { userId, listingId } }, select: { userId: true } }),
+      this.prisma.listing.findUnique({ where: { id: listingId }, select: { title: true, status: true, endsAt: true, closedAt: true, sellerId: true, highBidderId: true, currentBidCents: true, startingPriceCents: true, bidCount: true } }),
+      this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
+    ]);
+    if (!watch || !listing || !user || listing.status !== "PUBLISHED" || !listing.endsAt || listing.closedAt) return;
+    if (listing.endsAt.getTime() <= Date.now() || listing.sellerId === userId || listing.highBidderId === userId) return;
+    const lines = [
+      // Said from the clock, not from the plan: a reminder held up by a stopped machine or a retry must not claim a day is left.
+      `"${listing.title}", which you are watching, ends in about ${timeLeft(listing.endsAt.getTime() - Date.now())}.`,
+      "",
+      `Ends: ${utc(listing.endsAt)}`,
+      listing.bidCount > 0 ? `Current highest bid: ${formatEur(listing.currentBidCents ?? listing.startingPriceCents)} (${listing.bidCount} ${listing.bidCount === 1 ? "bid" : "bids"})` : `Starting price: ${formatEur(listing.startingPriceCents)}, no bids yet`,
+      "",
+      `${webUrl()}/listings/${listingId}`,
+    ];
+    await this.mail.send(user.email, `Ending soon: ${listing.title}`, lines.join("\n"));
+  }
+
+  // The seller's share has been paid out.
+  private async sendPayout(userId: string, listingId: string) {
+    const order = await this.prisma.order.findFirst({
+      where: { listingId, sellerId: userId, payout: { isNot: null } },
+      include: { listing: { select: { title: true } }, seller: { select: { email: true } }, payout: true },
+    });
+    if (!order?.payout) return;
+    const title = order.listing.title;
+    const lines = [
+      `Your payout for "${title}" has been sent: ${formatEur(order.payout.amountCents)}.`,
+      "",
+      `That is the ${formatEur(order.amountCents)} price less the ${formatEur(order.feeCents)} platform fee.`,
+      `Reference: ${order.payout.reference}`,
+      "",
+      `${webUrl()}/orders/${order.id}`,
+    ];
+    await this.mail.send(order.seller.email, `You have been paid for ${title}`, lines.join("\n"));
+  }
+
+  // The buyer's shipping updates: the seller handed the item over, the carrier has it, it was delivered. Sent only while the
+  // parcel is at that stage or later, and the tracking code is always the order's own.
+  private async sendShipping(userId: string, listingId: string, kind: "SHIPPED" | "IN_TRANSIT" | "DELIVERED") {
+    const order = await this.prisma.order.findFirst({
+      where: { listingId, buyerId: userId, status: "PAID", shipmentStatus: { not: null } },
+      include: { listing: { select: { title: true } }, buyer: { select: { email: true } } },
+    });
+    if (!order?.trackingCode) return;
+    // A retry that comes due after the parcel has moved on would say "on its way" after "delivered": the later email covers it.
+    const stage = { SHIPPED: "LABEL_CREATED", IN_TRANSIT: "IN_TRANSIT", DELIVERED: "DELIVERED" } as const;
+    if (order.shipmentStatus !== stage[kind]) return;
+    const title = order.listing.title;
+    const delivery = deliveryOf(order);
+    const text: Record<typeof kind, [string, string]> = {
+      SHIPPED: [`${title} is on its way`, `The seller has handed "${title}" to our carrier. The label is created and the parcel will be collected shortly.`],
+      IN_TRANSIT: [`${title} is in transit`, `The carrier has "${title}" and it is on its way to you${delivery ? ` (about ${delivery.estimatedDays} days in all)` : ""}.`],
+      DELIVERED: [`${title} was delivered`, `"${title}" has been delivered. We hope you enjoy it!`],
+    };
+    const [subject, line] = text[kind];
+    await this.mail.send(order.buyer.email, subject, [line, "", `Tracking code: ${order.trackingCode}`, "", `${webUrl()}/orders/${order.id}`].join("\n"));
   }
 
   // When a buyer did not pay in time. The buyer is told they were struck and what that means; the seller is told what happens

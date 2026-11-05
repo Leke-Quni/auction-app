@@ -214,6 +214,19 @@ describe("orders", () => {
       expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).paidAt).toEqual(paidAt);
     });
 
+    it("removes the winner's saved pay-now notification once the order is paid", async () => {
+      const [buyer] = await makePeople(1);
+      const { listing, order } = await sale(buyer);
+      // Closing the auction saved it (a moment after the close, since the notice is sent from the close event).
+      const saved = () => prisma.notification.count({ where: { userId: buyer.id, key: `won:${listing.id}` } });
+      for (let i = 0; i < 40 && (await saved()) === 0; i++) await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(await saved()).toBe(1);
+      await api().post(`/orders/${order.id}/checkout`).set(as(buyer)).expect(201);
+      await api().post(`/orders/${order.id}/test-pay`).set(as(buyer)).expect(201);
+      await api().post(`/orders/${order.id}/confirm`).set(as(buyer)).expect(201);
+      expect(await prisma.notification.count({ where: { userId: buyer.id, key: `won:${listing.id}` } })).toBe(0);
+    });
+
     it("lets only the buyer pay, and only while the order is waiting and the time has not run out", async () => {
       const [buyer, stranger] = await makePeople(2);
       const { order } = await sale(buyer);
