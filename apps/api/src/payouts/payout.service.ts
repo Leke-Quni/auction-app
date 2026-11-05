@@ -85,6 +85,9 @@ export class PayoutService implements OnModuleInit, OnModuleDestroy {
       for (const { id } of due) {
         try {
           if (await this.release(id)) paid++;
+          // Due but not payable yet (the seller has not finished setting up their account): look again later, so a pile of
+          // these cannot fill every batch or ask the provider about the same accounts every minute.
+          else this.failedUntil.set(id, Date.now() + RETRY_FAILED_AFTER_MS);
         } catch (error) {
           this.failedUntil.set(id, Date.now() + RETRY_FAILED_AFTER_MS);
           this.log.error(`Could not pay out order ${id}: ${(error as Error).message}`);

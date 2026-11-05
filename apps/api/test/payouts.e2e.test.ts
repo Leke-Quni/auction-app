@@ -202,4 +202,22 @@ describe("seller payouts", () => {
     expect(await prisma.payout.count({ where: { orderId: b.id } })).toBe(1);
     expect(await payouts.release(a.id)).toBe(true);
   });
+
+  it("leaves an order whose seller has not finished setting up for later, instead of asking about it every sweep", async () => {
+    const [seller, buyer] = [await makePerson(), await makePerson()];
+    await setUp(seller);
+    provider.readyAccounts.delete(`fake_acct_${seller.id}`);
+    const order = await paidOrder(buyer, seller, DELIVERY_DAYS_AGO(5));
+    let asked = 0;
+    const original = provider.isPayoutAccountReady.bind(provider);
+    provider.isPayoutAccountReady = async (id) => {
+      if (id === `fake_acct_${seller.id}`) asked++;
+      return original(id);
+    };
+    await payouts.sweep();
+    await payouts.sweep();
+    provider.isPayoutAccountReady = original;
+    expect(asked).toBe(1);
+    expect(await prisma.payout.count({ where: { orderId: order.id } })).toBe(0);
+  });
 });
