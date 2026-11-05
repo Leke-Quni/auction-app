@@ -146,7 +146,7 @@ describe("watchlist", () => {
     const got = sent.slice(before).filter((m) => m.to === a.email && m.text.includes(`/listings/${l.id}`));
     expect(got).toHaveLength(1);
     expect(got[0].subject).toBe(`Ending soon: ${l.title}`);
-    expect(got[0].text).toContain("Current bid: €25.00 (3 bids)");
+    expect(got[0].text).toContain("Current highest bid: €25.00 (3 bids)");
     expect(got[0].text).toContain("ends in about 24 hours");
     expect(await pending(a.id, l.id)).toBeNull();
   });

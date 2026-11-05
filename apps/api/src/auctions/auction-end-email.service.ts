@@ -215,7 +215,7 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
       `"${listing.title}", which you are watching, ends in about ${timeLeft(listing.endsAt.getTime() - Date.now())}.`,
       "",
       `Ends: ${utc(listing.endsAt)}`,
-      listing.bidCount > 0 ? `Current bid: ${formatEur(listing.currentBidCents ?? listing.startingPriceCents)} (${listing.bidCount} ${listing.bidCount === 1 ? "bid" : "bids"})` : `Starting price: ${formatEur(listing.startingPriceCents)}, no bids yet`,
+      listing.bidCount > 0 ? `Current highest bid: ${formatEur(listing.currentBidCents ?? listing.startingPriceCents)} (${listing.bidCount} ${listing.bidCount === 1 ? "bid" : "bids"})` : `Starting price: ${formatEur(listing.startingPriceCents)}, no bids yet`,
       "",
       `${webUrl()}/listings/${listingId}`,
     ];
