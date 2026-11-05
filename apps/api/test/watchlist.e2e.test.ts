@@ -189,6 +189,14 @@ describe("watchlist", () => {
     expect((await watch(a, extra.id).expect(409)).body.code).toBe("WATCHLIST_FULL");
     await watch(a, first.id).expect(200);
     await unwatch(a, rows[0].id).expect(200);
+    // Several at once cannot slip past the cap: one place is free, so exactly one gets it.
+    const racers = await Promise.all([listing(seller), listing(seller), listing(seller)]);
+    const results = await Promise.all(racers.map((r) => watch(a, r.id)));
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+    expect(await prisma.watch.count({ where: { userId: a.id } })).toBe(200);
+    await unwatch(a, racers[0].id);
+    await unwatch(a, racers[1].id);
+    await unwatch(a, racers[2].id);
     await watch(a, extra.id).expect(200);
   });
 

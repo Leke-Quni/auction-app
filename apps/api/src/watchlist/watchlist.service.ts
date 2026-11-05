@@ -21,6 +21,8 @@ export class WatchlistService {
     const dueAt = new Date(listing.endsAt.getTime() - DAY_MS);
     try {
       await this.prisma.$transaction(async (tx) => {
+        // One person's watches take turns, so two at once cannot both slip under the cap.
+        await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
         // Already watching is fine (a double click); a new watch past the cap is not.
         if ((await tx.watch.count({ where: { userId, listingId } })) === 0 && (await tx.watch.count({ where: { userId } })) >= WATCHLIST_LIMIT) {
           throw new HttpException({ code: "WATCHLIST_FULL", message: `You can watch up to ${WATCHLIST_LIMIT} auctions. Stop watching one first.` }, HttpStatus.CONFLICT);
