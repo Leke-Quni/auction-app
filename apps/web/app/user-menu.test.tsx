@@ -27,6 +27,7 @@ describe("UserMenu", () => {
     expect(screen.getByText("ana_k")).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Sell an item" }).getAttribute("href")).toBe("/sell/new");
     expect(screen.getByRole("menuitem", { name: "My listings" }).getAttribute("href")).toBe("/sell");
+    expect(screen.getByRole("menuitem", { name: "My orders" }).getAttribute("href")).toBe("/orders");
     expect(screen.getByRole("menuitem", { name: "Watchlist" }).getAttribute("href")).toBe("/watchlist");
     expect(screen.getByRole("menuitem", { name: "Account info" }).getAttribute("href")).toBe("/account");
     expect(screen.getByRole("menuitem", { name: "Settings" }).getAttribute("href")).toBe("/account/settings");

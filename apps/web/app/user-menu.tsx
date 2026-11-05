@@ -52,6 +52,9 @@ export function UserMenu({ username, signOutAction }: { username: string; signOu
           <Link role="menuitem" href="/sell" onClick={() => setOpen(false)} className={itemClass}>
             My listings
           </Link>
+          <Link role="menuitem" href="/orders" onClick={() => setOpen(false)} className={itemClass}>
+            My orders
+          </Link>
           <Link role="menuitem" href="/watchlist" onClick={() => setOpen(false)} className={itemClass}>
             Watchlist
           </Link>
