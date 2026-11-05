@@ -23,6 +23,8 @@ export function openRealtime(): { socket: Socket; close: () => void } {
   // Why the server hung up, sent just before it does. A suspended account is not retried: it would be refused every time.
   socket.on("connect_error_auth", (info: { code?: string }) => {
     refusal = info?.code;
+    // The page the person has open is told at once, whether they were just banned or connected as a banned account.
+    if (refusal === "BANNED" && typeof window !== "undefined" && window.location.pathname !== "/suspended") window.location.assign("/suspended");
   });
   socket.on("disconnect", (reason) => {
     if (reason === "io server disconnect" && refusal !== "BANNED") retry = setTimeout(() => socket.connect(), 2000);

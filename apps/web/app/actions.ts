@@ -17,7 +17,7 @@ import type { ZodError } from "zod";
 import { AuthError } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { signIn, unstable_update } from "@/auth";
+import { signIn, signOut, unstable_update } from "@/auth";
 import { apiFetch, authedApiFetch } from "@/lib/api";
 import { readAddress } from "@/lib/address";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -52,9 +52,15 @@ export async function signInAction(_: FormState, formData: FormData): Promise<Fo
   if (!parsed.success) return { error: "Enter your email and password." };
   const res = await apiFetch("/auth/login/start", { method: "POST", body: JSON.stringify(parsed.data) });
   if (res.status === 401) return { error: "Invalid email or password." };
+  if (res.status === 403) return { error: "This account has been suspended." };
   if (res.status === 422 || res.status === 429) return { error: await apiErrorMessage(res) };
   if (!res.ok) return { error: "Something went wrong. Try again." };
   redirect(`/sign-in/code?email=${encodeURIComponent(parsed.data.email)}`);
+}
+
+// Ends the session without a redirect: used by the suspended-account page, which stays where it is.
+export async function endSessionAction() {
+  await signOut({ redirect: false });
 }
 
 export async function verifyCodeAction(_: FormState, formData: FormData): Promise<FormState> {
