@@ -67,6 +67,8 @@ export interface WonNotice {
   finalPriceCents: number;
   // True when the item is offered to this bidder because the winner did not pay, rather than won outright.
   offered?: boolean;
+  // The order to pay, so the bell can link straight to the pay page.
+  orderId?: string;
 }
 
 // For the seller when someone asks a question on their listing (`notice:question`), and for the asker when the seller
@@ -100,7 +102,8 @@ export type NotificationItem =
   | (NotificationBase & { type: "OUTBID"; data: OutbidNotice })
   | (NotificationBase & { type: "AUCTION_EXTENDED"; data: ExtendedNotice })
   | (NotificationBase & { type: "QUESTION_ASKED"; data: QuestionNotice })
-  | (NotificationBase & { type: "QUESTION_ANSWERED"; data: QuestionNotice });
+  | (NotificationBase & { type: "QUESTION_ANSWERED"; data: QuestionNotice })
+  | (NotificationBase & { type: "WON"; data: WonNotice });
 
 export interface NotificationList {
   items: NotificationItem[];

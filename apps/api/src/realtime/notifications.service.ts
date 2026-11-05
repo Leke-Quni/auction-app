@@ -68,11 +68,17 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     this.subscription?.unsubscribe();
   }
 
-  // A live toast for the winner on any page they have open. Not saved and not replayed; the "you won" email covers it.
+  // The winner (or the next bidder, when the item is offered on) is told on any page they have open, and the notice is saved for
+  // the bell with a link to the order to pay, like the "you won: pay now" email. The toast is live only and not replayed.
   private async tellWinner(listingId: string, winnerId: string, finalPriceCents: number, offered = false) {
-    const listing = await this.prisma.listing.findUnique({ where: { id: listingId }, select: { title: true } });
+    const [listing, order] = await Promise.all([
+      this.prisma.listing.findUnique({ where: { id: listingId }, select: { title: true } }),
+      this.prisma.order.findFirst({ where: { listingId, buyerId: winnerId }, orderBy: { round: "desc" }, select: { id: true } }),
+    ]);
     if (!listing) return;
-    this.gateway.emitToUsers([winnerId], SOCKET_EVENTS.wonNotice, { listingId, title: listing.title, finalPriceCents, ...(offered ? { offered } : {}) } satisfies WonNotice);
+    const notice: WonNotice = { listingId, title: listing.title, finalPriceCents, ...(offered ? { offered } : {}), ...(order ? { orderId: order.id } : {}) };
+    await this.saveAndTellUnread([winnerId], { type: "WON", key: `won:${listingId}`, listingId, title: listing.title, data: notice });
+    this.gateway.emitToUsers([winnerId], SOCKET_EVENTS.wonNotice, notice);
   }
 
   private async onBid(listingId: string, result: BidResult) {

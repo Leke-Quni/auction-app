@@ -129,6 +129,24 @@ describe("helpers", () => {
     expect([ago(10_000), ago(5 * 60_000), ago(3 * 3600_000), ago(2 * 86400_000)]).toEqual(["just now", "5 min ago", "3 h ago", "2 d ago"]);
   });
 
+  it("shows a win as a pay-now notice that leads to the order, and an offer as such", () => {
+    const won = (offered?: boolean) =>
+      ({
+        id: "w1",
+        type: "WON",
+        listingId: "l9",
+        title: "Brass lamp",
+        readAt: null,
+        createdAt: new Date().toISOString(),
+        data: { listingId: "l9", title: "Brass lamp", finalPriceCents: 3150, orderId: "o9", ...(offered ? { offered } : {}) },
+      }) as NotificationItem;
+    expect(describeItem(won())).toEqual({ heading: "You won the auction", text: "Brass lamp for €31.50. Pay now." });
+    expect(describeItem(won(true)).heading).toBe("The item is yours to pay for");
+    render(<NotificationBell initial={list([won()])} />);
+    fireEvent.click(screen.getByRole("button", { name: /Notifications/ }));
+    expect(screen.getByRole("menuitem").getAttribute("href")).toBe("/orders/o9");
+  });
+
   it("removes one notification with its X and updates the unread count", async () => {
     dismissNotificationAction.mockResolvedValue(0);
     render(<NotificationBell initial={list([outbid(), extended(false)])} />);

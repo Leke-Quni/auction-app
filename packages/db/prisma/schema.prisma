@@ -377,6 +377,8 @@ enum NotificationType {
   AUCTION_EXTENDED
   QUESTION_ASKED
   QUESTION_ANSWERED
+  // "You won" or "the item is yours to pay for": links to the order to pay.
+  WON
 }
 
 // What a person can read later in the bell: each notice the API pushes live is saved here too. `key` says what the

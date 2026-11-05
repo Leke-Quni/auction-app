@@ -17,9 +17,17 @@ export function timeAgo(iso: string, now = Date.now()) {
   return `${Math.floor(hours / 24)} d ago`;
 }
 
+// Where a notification leads: the order to pay for a win, otherwise its listing.
+export const notificationHref = (item: NotificationItem) => (item.type === "WON" && item.data.orderId ? `/orders/${item.data.orderId}` : `/listings/${item.listingId}`);
+
 export function describe(item: NotificationItem): { heading: string; text: string } {
   if (item.type === "OUTBID") {
     return { heading: "You've been outbid", text: `${item.title} is now at ${formatEur(item.data.currentBidCents)}.` };
+  }
+  if (item.type === "WON") {
+    return item.data.offered
+      ? { heading: "The item is yours to pay for", text: `The first buyer of ${item.title} did not pay, so it is offered to you at ${formatEur(item.data.finalPriceCents)}. Pay now.` }
+      : { heading: "You won the auction", text: `${item.title} for ${formatEur(item.data.finalPriceCents)}. Pay now.` };
   }
   if (item.type === "QUESTION_ASKED") return { heading: "New question", text: `${item.data.from} asked on ${item.title}: "${item.data.excerpt}"` };
   if (item.type === "QUESTION_ANSWERED") return { heading: "Your question was answered", text: `${item.data.from} answered on ${item.title}: "${item.data.excerpt}"` };
@@ -130,7 +138,7 @@ export function NotificationBell({ initial }: { initial: NotificationList | null
                   <li key={item.id} className="relative border-b border-line last:border-b-0">
                     <Link
                       role="menuitem"
-                      href={`/listings/${item.listingId}`}
+                      href={notificationHref(item)}
                       onClick={() => void choose(item)}
                       className={`block py-2 pl-3 pr-9 hover:bg-[#f0f0f0] ${item.readAt === null ? "bg-[#f0fbf9]" : ""}`}
                     >

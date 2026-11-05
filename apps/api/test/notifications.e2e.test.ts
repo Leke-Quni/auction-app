@@ -383,8 +383,27 @@ describe("bid notifications", () => {
       await prisma.listing.updateMany({ where: { id: { in: [sold.id, noSale.id] } }, data: { endsAt: new Date(Date.now() - 1000) } });
       for (const l of [sold, noSale]) await app.get(AuctionCloseService).close(l.id);
       await settle();
-      expect(benWon).toEqual([{ listingId: sold.id, title: "Notice test listing", finalPriceCents: 1200 }]);
+      const order = await prisma.order.findFirstOrThrow({ where: { listingId: sold.id } });
+      expect(benWon).toEqual([{ listingId: sold.id, title: "Notice test listing", finalPriceCents: 1200, orderId: order.id }]);
       expect(annaWon).toEqual([]);
+    });
+
+    it("saves the win for the bell, linking to the order to pay, for the winner only and only for a sale", async () => {
+      const [anna, ben] = await makePeople(2);
+      const sold = await makeListing();
+      const noSale = await makeListing({ reservePriceCents: 90_000 });
+      for (const l of [sold, noSale]) {
+        await bid(anna, l.id, 1000).expect(201);
+        await bid(ben, l.id, 1200).expect(201);
+      }
+      await prisma.listing.updateMany({ where: { id: { in: [sold.id, noSale.id] } }, data: { endsAt: new Date(Date.now() - 1000) } });
+      for (const l of [sold, noSale]) await app.get(AuctionCloseService).close(l.id);
+      await settle();
+      const won = (person: Person) => request(url).get("/notifications").set("Authorization", `Bearer ${person.token}`).then((r) => (r.body.items as { type: string; listingId: string; data: unknown }[]).filter((n) => n.type === "WON"));
+      const order = await prisma.order.findFirstOrThrow({ where: { listingId: sold.id } });
+      expect(await won(ben)).toMatchObject([{ listingId: sold.id, data: { finalPriceCents: 1200, orderId: order.id } }]);
+      expect(await won(anna)).toEqual([]);
+
     });
 
     it("sends the next bidder an offer toast, and nobody else, when the winner does not pay", async () => {
@@ -404,7 +423,12 @@ describe("bid notifications", () => {
       await prisma.order.update({ where: { id: order.id }, data: { payBy: new Date(Date.now() - 1000) } });
       await app.get(OrderExpiryService).expire(order.id);
       await settle();
-      expect(benWon).toEqual([{ listingId: listing.id, title: "Notice test listing", finalPriceCents: 1200, offered: true }]);
+      const offer = await prisma.order.findFirstOrThrow({ where: { listingId: listing.id, buyerId: ben.id } });
+      expect(benWon).toEqual([{ listingId: listing.id, title: "Notice test listing", finalPriceCents: 1200, offered: true, orderId: offer.id }]);
+      // The first buyer's "pay now" notice is gone, and the next bidder has theirs, worded as an offer.
+      const mine = async (person: Person) => (await request(url).get("/notifications").set("Authorization", `Bearer ${person.token}`)).body.items.filter((n: { type: string }) => n.type === "WON");
+      expect(await mine(anna)).toEqual([]);
+      expect(await mine(ben)).toMatchObject([{ data: { offered: true, orderId: offer.id } }]);
       expect(annaWon).toEqual([]);
       expect(caraWon).toEqual([]);
     });

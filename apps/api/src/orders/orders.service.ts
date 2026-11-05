@@ -178,6 +178,8 @@ export class OrdersService {
         data: { invoiceNumber: `INV-${new Date().getUTCFullYear()}-${String(n).padStart(6, "0")}` },
         select: { buyerId: true, sellerId: true, listingId: true },
       });
+      // The "pay now" notice has done its job.
+      await tx.notification.deleteMany({ where: { userId: order.buyerId, key: `won:${order.listingId}` } });
       await tx.pendingEndEmail.createMany({
         data: [
           { userId: order.buyerId, listingId: order.listingId, kind: "PAID" },
