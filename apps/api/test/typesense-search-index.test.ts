@@ -153,7 +153,9 @@ describe("TypesenseSearchIndex.search", () => {
 
   it("sorts by ending time, bids and price", async () => {
     expect((await run({ sort: "endingSoon" })).titles).toEqual(["Vintage wristwatch", "Film camera", "Upcoming painting", "Blue ceramic vase"]);
+    expect((await run({ sort: "endingLatest" })).titles).toEqual(["Blue ceramic vase", "Upcoming painting", "Film camera", "Vintage wristwatch"]);
     expect((await run({ sort: "mostBids" })).titles.slice(0, 2)).toEqual(["Film camera", "Vintage wristwatch"]);
+    expect((await run({ sort: "fewestBids" })).titles).toEqual(["Upcoming painting", "Blue ceramic vase", "Vintage wristwatch", "Film camera"]);
     expect((await run({ sort: "priceDesc" })).titles[0]).toBe("Upcoming painting");
     expect((await run({ sort: "priceAsc" })).titles[0]).toBe("Blue ceramic vase");
   });

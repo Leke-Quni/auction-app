@@ -1,14 +1,16 @@
 import { z } from "zod";
 import { LISTING_CONDITIONS, MAX_PRICE_CENTS } from "./listings";
 
-export const SEARCH_SORTS = ["relevance", "endingSoon", "newest", "mostBids", "priceAsc", "priceDesc"] as const;
+export const SEARCH_SORTS = ["relevance", "endingSoon", "endingLatest", "newest", "mostBids", "fewestBids", "priceAsc", "priceDesc"] as const;
 export type SearchSort = (typeof SEARCH_SORTS)[number];
 
 export const SEARCH_SORT_LABELS: Record<SearchSort, string> = {
   relevance: "Best match",
   endingSoon: "Ending soonest",
+  endingLatest: "Ending latest",
   newest: "Newest",
   mostBids: "Most bids",
+  fewestBids: "Fewest bids",
   priceAsc: "Price: low to high",
   priceDesc: "Price: high to low",
 };

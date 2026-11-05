@@ -142,6 +142,10 @@ describe("PostgresSearchIndex", () => {
     expect((await find({ sort: "priceDesc" }))[0]).toBe(`${word} pricey new`);
     expect((await find({ sort: "endingSoon" }))[0]).toBe(`${word} soon`);
     expect((await find({ sort: "mostBids" }))[0]).toBe(`${word} soon`);
+    expect((await find({ sort: "endingLatest" }))[0]).toBe(`${word} upcoming`);
+    const fewest = await find({ sort: "fewestBids" });
+    expect(fewest.at(-1)).toBe(`${word} soon`);
+    expect(fewest[0]).not.toBe(`${word} soon`);
     const page = await index.search({ q: word, sort: "newest", endingSoon: false, page: 2, pageSize: 3, now: new Date() });
     expect(page.total).toBe(4);
     expect(page.documents).toHaveLength(1);

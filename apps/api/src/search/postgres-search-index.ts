@@ -111,8 +111,10 @@ export class PostgresSearchIndex implements SearchIndex {
     const orderBy: Record<SearchSort, ReturnType<typeof Sql.sql>> = {
       relevance: Sql.sql`${matched}(${titleHits}) DESC, l."endsAt" ASC`,
       endingSoon: Sql.sql`l."endsAt" ASC`,
+      endingLatest: Sql.sql`l."endsAt" DESC`,
       newest: Sql.sql`l."publishedAt" DESC`,
       mostBids: Sql.sql`l."bidCount" DESC, l."endsAt" ASC`,
+      fewestBids: Sql.sql`l."bidCount" ASC, l."endsAt" ASC`,
       priceAsc: Sql.sql`${price} ASC`,
       priceDesc: Sql.sql`${price} DESC`,
     };
