@@ -115,6 +115,13 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnMo
     this.server.to(userIds.map(userRoom)).emit(event, payload);
   }
 
+  // A banned account's open pages are told why and hung up at once (the client does not reconnect after BANNED), instead of
+  // keeping their private room until they next reconnect. Works across machines through the Redis adapter.
+  suspendUser(userId: string) {
+    this.server.to(userRoom(userId)).emit("connect_error_auth", { code: "BANNED", message: "This account has been suspended." });
+    this.server.in(userRoom(userId)).disconnectSockets(true);
+  }
+
   private publish(event: AuctionEvent) {
     const serverTime = new Date().toISOString();
     if (event.type === "BidPlaced") {

@@ -7,5 +7,5 @@ import { PaymentReminderService } from "./payment-reminder.service";
 import { QuestionNotificationsService } from "./question-notifications.service";
 import { RealtimeGateway } from "./realtime.gateway";
 
-@Module({ imports: [BidsModule, NotificationsModule, QuestionsModule], providers: [RealtimeGateway, NotificationsService, QuestionNotificationsService, PaymentReminderService] })
+@Module({ imports: [BidsModule, NotificationsModule, QuestionsModule], providers: [RealtimeGateway, NotificationsService, QuestionNotificationsService, PaymentReminderService], exports: [RealtimeGateway] })
 export class RealtimeModule {}

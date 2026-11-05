@@ -1,11 +1,18 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { z } from "zod";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { AdminGuard, JwtAuthGuard, type AuthUser } from "../auth/jwt-auth.guard";
 import { AdminListingsService } from "./admin-listings.service";
 import { AdminReportsService } from "./admin-reports.service";
+import { AdminUsersService } from "./admin-users.service";
 
 const reportsQuerySchema = z.object({ status: z.enum(["OPEN", "HANDLED"]).default("OPEN"), limit: z.coerce.number().int().min(1).max(200).default(100) });
+const usersQuerySchema = z.object({
+  q: z.string().trim().max(100).optional(),
+  banned: z.enum(["true", "false"]).optional().transform((v) => v === "true"),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+const banSchema = z.object({ reason: z.string().trim().min(1).max(500) });
 const removeListingSchema = z.object({ reason: z.string().trim().min(1).max(500) });
 const logQuerySchema = z.object({
   questionId: z.string().min(1).optional(),
@@ -22,6 +29,7 @@ export class AdminController {
   constructor(
     private readonly reports: AdminReportsService,
     private readonly listings: AdminListingsService,
+    private readonly users: AdminUsersService,
   ) {}
 
   // Who the admin app is talking to. It also tells the admin app whether a signed-in person may use it at all.
@@ -58,5 +66,34 @@ export class AdminController {
   @HttpCode(200)
   removeListing(@Param("id") id: string, @Req() req: { user: AuthUser }, @Body(new ZodValidationPipe(removeListingSchema)) body: z.infer<typeof removeListingSchema>) {
     return this.listings.remove(req.user.id, id, body.reason);
+  }
+
+  @Get("users")
+  listUsers(@Query(new ZodValidationPipe(usersQuerySchema)) query: z.infer<typeof usersQuerySchema>) {
+    return this.users.list(query);
+  }
+
+  @Get("users/:id")
+  getUser(@Param("id") id: string) {
+    return this.users.get(id);
+  }
+
+  // Suspends the account: every request is refused from now on, and any page they have open is told and disconnected.
+  @Post("users/:id/ban")
+  @HttpCode(200)
+  banUser(@Param("id") id: string, @Body(new ZodValidationPipe(banSchema)) body: z.infer<typeof banSchema>) {
+    return this.users.ban(id, body.reason);
+  }
+
+  @Post("users/:id/unban")
+  @HttpCode(200)
+  unbanUser(@Param("id") id: string) {
+    return this.users.unban(id);
+  }
+
+  // Removes one strike, so a person at the limit can bid again.
+  @Delete("strikes/:id")
+  clearStrike(@Param("id") id: string) {
+    return this.users.clearStrike(id);
   }
 }
