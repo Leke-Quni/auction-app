@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { adminApiFetch } from "@/lib/api";
 import { requireAdmin } from "@/lib/require-admin";
@@ -27,7 +28,18 @@ interface Listing {
 
 const eur = (cents: number | null) => (cents === null ? "-" : new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR" }).format(cents / 100));
 const when = (iso: string | null) => (iso ? new Date(iso).toISOString().replace("T", " ").slice(0, 16) + " UTC" : "-");
-const name = (p: Person | null) => (p ? (p.username ? `@${p.username}` : "deleted user") : "-");
+const name = (p: Person | null) =>
+  p ? (
+    p.username ? (
+      <Link href={`/users/${p.id}`} className="text-accent underline">
+        @{p.username}
+      </Link>
+    ) : (
+      "deleted user"
+    )
+  ) : (
+    "-"
+  );
 
 export default async function ListingPage({ params }: { params: Promise<{ id: string }> }) {
   await requireAdmin();
@@ -36,7 +48,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
   if (res.status === 404) notFound();
   if (!res.ok) throw new Error(`API /admin/listings failed: ${res.status}`);
   const l = (await res.json()) as Listing;
-  const rows: [string, string][] = [
+  const rows: [string, React.ReactNode][] = [
     ["State", l.phase],
     ["Seller", name(l.seller)],
     ["Starting price", eur(l.startingPriceCents)],

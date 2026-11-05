@@ -24,7 +24,18 @@ interface Report {
 }
 
 const when = (iso: string) => new Date(iso).toISOString().replace("T", " ").slice(0, 16) + " UTC";
-const who = (p: Person | null, none: string) => (p ? (p.username ? `@${p.username}` : "deleted user") : none);
+const who = (p: Person | null, none: string) =>
+  p ? (
+    p.username ? (
+      <Link href={`/users/${p.id}`} className="text-accent underline">
+        @{p.username}
+      </Link>
+    ) : (
+      "deleted user"
+    )
+  ) : (
+    none
+  );
 
 export default async function Reports({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
   await requireAdmin();
