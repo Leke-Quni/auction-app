@@ -69,7 +69,7 @@ Rules:
 - Decided 2026-10-30 after comparing eBay, Yahoo Auctions Japan and ZenMarket mockups: dense, information-first layout like Yahoo Auctions Japan, facts in tables, compact spacing, a prominent bid input.
 - Brand accent teal `#0f766e` (header, links, buttons, tags). Urgency uses its own red/orange so it stays distinct.
 - Countdown: on the listing page it follows the server's clock (the API sends its time), so everyone agrees; cards count from the viewer's clock. Colour: green above 50% of total time left, orange from 50% to 10%, red at 10% or less.
-- Each app has its own theme tokens. The admin theme is not chosen yet.
+- Each app has its own theme tokens. The admin theme is chosen (2026-11-05): light, slate and indigo. A white/grey table area, a dark slate sidebar (`#1f2433`), indigo accent (`#4f46e5`), amber/blue/green status pills; clearly different from the teal storefront.
 
 ## 6. Quality and process
 
@@ -83,10 +83,10 @@ Rules:
 Data model: designed per slice; see `packages/db/prisma/schema.prisma`. Upcoming/live/ended are derived from `startsAt`/`endsAt` (`listingPhase`); closing adds `closedAt` and `outcome`.
 
 **Open**
-- Role freshness: the role is copied into a 30-day JWT at sign-in and the API trusts it. Before slice 7 or any ban feature, decide how the API gets a current role (for example reading it from the database on admin routes).
+- Role freshness (decided 2026-11-05, slice 7): the role is still copied into the 30-day JWT at sign-in, but the API no longer trusts it. `JwtAuthGuard` looks the user up in the database on every authenticated request (one primary-key query) and uses the database's role and email; a missing user is 401, a banned user (`User.bannedAt` set) is 403 `BANNED`, and `OptionalJwtAuthGuard` treats a banned user as signed out. A demoted admin or banned user therefore loses access on their next request, and a promoted user gains it at once. `AdminGuard` (after `JwtAuthGuard`) allows only `role = ADMIN`. A banned user cannot start a sign-in (403 `BANNED` after the right password) or finish one, and a socket connecting with a banned user's token is refused (the account is checked in a Socket.IO middleware, so the private room is joined before the client hears `connect`). A socket that is already connected when the ban lands keeps its private room until it reconnects; the ban action (step 4) disconnects it.
 - Username squatting: an unverified sign-up holds its username. Decide a cleanup rule for stale unverified accounts before launch.
 - Query library for server data: React Query or SWR.
-- Payout while sellers have no Stripe onboarding (slice 6), and whether a ban holds back payout (slice 7).
+- Payout while sellers have no Stripe onboarding (slice 6), and whether a ban holds back payout (slice 7): decided 2026-11-05, no, a ban does not hold back a payout; payouts run on schedule.
 - Account deletion must refuse or anonymise accounts with bids.
 
 **Tooling and hosting**
@@ -154,4 +154,4 @@ Thin vertical slices. Each works end to end, with tests passing, before the next
 4b. **Contacting the seller.** Public Q&A with live notification and email, no self-questions, rate limits and reports.
 5. **Auction close and payment.** QStash closes idempotently; winner gets the pay-now email, chooses delivery, pays in Stripe test mode, and gets a confirmation with PDF invoice; 48-hour expiry triggers the runner-up offer and strikes; fee applied; every outbid bidder gets one "you did not win" email.
 6. **Shipping, payout, watchlist, ratings.** Seller marks a paid order shipped; the fake carrier advances it on a timer with shipping emails; payout is released 3 days after delivery (timer only) through `PaymentProvider.payout`; watchlist and "ending soon" emails; seller profiles with buyer ratings.
-7. **Admin.** `apps/admin` (own theme and Vercel project, no public sign-up, `ADMIN`-guarded routes) supports moderation, the reports queue, clearing strikes, reading `QuestionLog` and an order with both addresses; a demoted admin or banned user loses access at once; the admin theme is chosen. Split from slice 6 on 2026-11-04.
+7. **Admin.** `apps/admin` (own theme and Vercel project, no public sign-up, `ADMIN`-guarded routes) supports moderation, the reports queue, clearing strikes, reading `QuestionLog` and an order with both addresses; a demoted admin or banned user loses access at once; the admin theme is chosen. Build order (decided 2026-11-05): (1) role and ban freshness in the API, `AdminGuard` and `GET /admin/me`; (2) the admin app shell, admin-only sign-in and the slate/indigo theme; (3) the reports queue and `QuestionLog`; (4) moderation: remove listings, ban and unban users, clear strikes; (5) reading an order with both addresses. Split from slice 6 on 2026-11-04.
