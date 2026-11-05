@@ -40,6 +40,16 @@ describe("ResendMailSender", () => {
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it("does not send to a sample account's address (seed.local), and does not fail", async () => {
+    const fetchMock = respond(200);
+    const sender = new ResendMailSender(KEY, "Auctionly <a@b.co>", fetchMock as unknown as typeof fetch);
+    await expect(sender.send("seed-user-0001@seed.local", "Outbid", "text")).resolves.toBeUndefined();
+    await expect(sender.send("SEED-USER-0002@SEED.LOCAL", "Outbid", "text")).resolves.toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+    await sender.send("ana@seed.local.example.com", "Real", "text");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("turns a rejection into a 503 and logs the reason without the API key", async () => {
     const sender = new ResendMailSender(KEY, "x", respond(401, '{"message":"API key is invalid","name":"validation_error"}') as unknown as typeof fetch);
     const failure = await sender.send("other@example.com", "s", "t").catch((e) => e);
