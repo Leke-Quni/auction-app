@@ -39,6 +39,7 @@ model User {
   sales               Order[]              @relation("OrderSeller")
   bids                Bid[]
   notifications       Notification[]
+  watches             Watch[]
   questions           Question[]
   questionVotes       QuestionVote[]
 }
@@ -140,6 +141,7 @@ model Listing {
   notifications      Notification[]
   questions          Question[]
   orders             Order[]
+  watches            Watch[]
 
   @@index([status, endsAt])
   @@index([sellerId])
@@ -148,6 +150,19 @@ model Listing {
   @@index([winnerId])
   @@index([status, closedAt, endsAt])
   @@index([relistedFromId])
+}
+
+// A listing a user keeps an eye on. Gone with the user or the listing; the "ending soon" email owed for it is a
+// PendingEndEmail row, removed when the watch is.
+model Watch {
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([userId, listingId])
+  @@index([listingId])
 }
 
 enum OrderStatus {
@@ -333,6 +348,8 @@ enum EndEmailKind {
   DELIVERED
   // The seller's share has been paid out.
   PAYOUT
+  // A watched auction ends in about 24 hours.
+  ENDING_SOON
 }
 
 enum NotificationType {

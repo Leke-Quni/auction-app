@@ -13,7 +13,8 @@ export interface LabelRequest {
 // Everything the app needs from a carrier, so the fake one can be swapped for a real one. Delivery prices are not quoted by
 // it: they are ours (see the delivery options in `packages/shared`).
 export interface ShippingProvider {
-  // Creates the shipment and its label; the parcel is then LABEL_CREATED.
+  // Creates the shipment and its label; the parcel is then LABEL_CREATED. Two simultaneous calls for one order can both reach
+  // the carrier (only one is kept), so a real implementation must treat `orderId` as an idempotency key.
   createLabel(request: LabelRequest): Promise<{ trackingCode: string }>;
   // Where the parcel is now. `shippedAt` is when the label was created. Safe to call any number of times; it only moves forward.
   track(request: { trackingCode: string; shippedAt: Date }): Promise<ShipmentStatus>;
