@@ -66,7 +66,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
             <p className="font-semibold text-danger">Removed {when(l.removal.at)} by {name(l.removal.by)}</p>
             <p className="whitespace-pre-wrap break-words">{l.removal.reason}</p>
           </>
-        ) : l.status === "PUBLISHED" && !l.closedAt ? (
+        ) : l.status === "PUBLISHED" && !l.closedAt && l.phase !== "ended" ? (
           <>
             <h2 className="font-bold">Remove this listing</h2>
             <p className="text-muted">The auction ends now with no sale, whatever the bids and the reserve. Every bidder is emailed that nobody won. The seller cannot list it again.</p>

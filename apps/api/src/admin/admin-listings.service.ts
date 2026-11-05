@@ -6,7 +6,7 @@ import { SEARCH_INDEX, type SearchIndex } from "../search/search-index";
 
 // An admin taking a listing down. A removal ends the auction at once with no sale, whatever the bids and the reserve (see
 // AuctionCloseService.closeRemoved): every bidder is told there is no winner and nobody has to pay. The listing then shows as
-// ended, the seller cannot list it again, and a sold auction (it has an order) cannot be removed this way.
+// ended, the seller cannot list it again, and an auction whose end time has passed (it may be a sale) cannot be removed this way.
 @Injectable()
 export class AdminListingsService {
   private readonly log = new Logger(AdminListingsService.name);
@@ -51,9 +51,12 @@ export class AdminListingsService {
   async remove(adminId: string, id: string, reason: string) {
     const done = await this.closer.closeRemoved(id, { adminId, reason });
     if (!done) {
-      const l = await this.prisma.listing.findUnique({ where: { id }, select: { status: true, closedAt: true } });
+      const l = await this.prisma.listing.findUnique({ where: { id }, select: { status: true, closedAt: true, endsAt: true } });
       if (!l) throw new NotFoundException();
       if (l.status !== "PUBLISHED") throw new ConflictException({ code: "NOT_PUBLISHED", message: "Only a published listing can be removed" });
+      if (!l.closedAt && l.endsAt && l.endsAt.getTime() <= Date.now() + 1000) {
+        throw new ConflictException({ code: "AUCTION_ENDED", message: "This auction has just ended and is being closed, so it cannot be removed. Check it again in a moment." });
+      }
       throw new ConflictException({ code: "ALREADY_CLOSED", message: "This auction has already ended" });
     }
     try {

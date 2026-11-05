@@ -56,7 +56,8 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
 
   // An admin takes the auction down: it ends now with no sale, whatever the bids and the reserve, in the same transaction as
   // the close below, so the end, the result and the emails to the bidders all land together. Only a published auction that
-  // has not been closed qualifies; a bid that holds the row's lock finishes first. Returns false when nothing matched.
+  // is still running qualifies: one whose end time has passed is left to the normal close, so a sale that was won is never
+  // turned into "no sale". A bid that holds the row's lock finishes first. Returns false when nothing matched.
   async closeRemoved(listingId: string, removal: { adminId: string; reason: string }): Promise<boolean> {
     return this.run(listingId, removal);
   }
@@ -67,10 +68,10 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
       if (removal) {
         const ended = await tx.$executeRaw`
           UPDATE "Listing" SET
-            "endsAt" = LEAST("endsAt", clock_timestamp()),
+            "endsAt" = clock_timestamp(),
             "startsAt" = LEAST("startsAt", clock_timestamp()),
             "removedAt" = clock_timestamp(), "removedById" = ${removal.adminId}, "removalReason" = ${removal.reason}
-          WHERE "id" = ${listingId} AND "status" = 'PUBLISHED' AND "closedAt" IS NULL`;
+          WHERE "id" = ${listingId} AND "status" = 'PUBLISHED' AND "closedAt" IS NULL AND "endsAt" > clock_timestamp()`;
         if (ended === 0) return null;
       }
       const [closed] = await tx.$queryRaw<ClosedRow[]>`

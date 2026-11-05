@@ -19,7 +19,11 @@ export async function removeListingAction(_: RemoveState, formData: FormData): P
   if (res.status === 409) {
     const body = await res.json().catch(() => null);
     revalidatePath(`/listings/${id}`);
-    return { error: body?.code === "NOT_PUBLISHED" ? "Only a published listing can be removed." : "This auction has already ended." };
+    const message: Record<string, string> = {
+      NOT_PUBLISHED: "Only a published listing can be removed.",
+      AUCTION_ENDED: "This auction has just ended and is being closed, so it cannot be removed. Check it again in a moment.",
+    };
+    return { error: message[body?.code] ?? "This auction has already ended." };
   }
   if (res.status === 404) return { error: "That listing no longer exists." };
   if (!res.ok) return { error: "Something went wrong. Try again." };

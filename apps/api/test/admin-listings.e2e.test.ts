@@ -7,6 +7,7 @@ import type { AddressInfo } from "node:net";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
+import { AuctionCloseService } from "../src/auctions/auction-close.service";
 import { AuctionEvents, type AuctionEvent } from "../src/bids/auction-events";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
@@ -154,6 +155,18 @@ describe("an admin removing a listing", () => {
     await remove(admin, fresh.id, { reason: "   " }).expect(400);
     await remove(admin, fresh.id, { reason: "x".repeat(501) }).expect(400);
     expect((await prisma.listing.findUniqueOrThrow({ where: { id: fresh.id } })).closedAt).toBeNull();
+  });
+
+  it("does not turn a won auction into 'no sale' when it has ended but is not closed yet: the removal is refused and the normal close sells it", async () => {
+    const admin = await person("ADMIN");
+    const seller = await person();
+    const { l, b } = await biddingWar(seller, { startsAt: new Date(Date.now() - 4 * DAY), endsAt: new Date(Date.now() - 5000) });
+    const refused = await remove(admin, l.id).expect(409);
+    expect(refused.body.code).toBe("AUCTION_ENDED");
+    expect(await prisma.listing.findUniqueOrThrow({ where: { id: l.id }, select: { removedAt: true, closedAt: true } })).toEqual({ removedAt: null, closedAt: null });
+    await app.get(AuctionCloseService).close(l.id);
+    expect(await prisma.listing.findUniqueOrThrow({ where: { id: l.id } })).toMatchObject({ outcome: "SOLD", winnerId: b.id, finalPriceCents: 3000, removedAt: null });
+    expect(await prisma.order.count({ where: { listingId: l.id, buyerId: b.id } })).toBe(1);
   });
 
   it("lets a bid that is already in finish first, then closes with that bid counted and still no sale", async () => {
