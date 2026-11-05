@@ -78,6 +78,15 @@ describe("the result of an ended auction", () => {
     expect(screen.getByText("Not sold: no buyer paid")).toBeTruthy();
   });
 
+  it("says a moderator ended it, not that nobody paid, when a listing was removed", () => {
+    show(listing({ outcome: "NO_SALE", reservePriceCents: 2000, removed: true })); // the top bid met the reserve
+    expect(screen.getByText("Ended by a moderator: no sale")).toBeTruthy();
+    expect(screen.queryByText(/no buyer paid/)).toBeNull();
+    cleanup();
+    show(listing({ outcome: "NO_BIDS", removed: true }));
+    expect(screen.getByText("Ended by a moderator: no sale")).toBeTruthy();
+  });
+
   it("shows no result for an auction that is still live", () => {
     show(listing({ phase: "live" }), undefined, { ...snapshot, endsAt: "2026-11-05T10:00:00.000Z" });
     expect(screen.getByText("Live")).toBeTruthy();

@@ -23,6 +23,8 @@ export interface DetailsListing {
   startsAt: string | null;
   // Set once the auction has been closed, a moment after it ends.
   outcome: "SOLD" | "NO_SALE" | "NO_BIDS" | null;
+  // True when a moderator ended the auction early: whatever the bids, nobody won.
+  removed?: boolean;
   winner: { id: string; username: string } | null;
   finalPriceCents: number | null;
 }
@@ -30,6 +32,7 @@ export interface DetailsListing {
 const RESULT_CHECK_MS = 10_000;
 
 function resultText(listing: DetailsListing, viewerId?: string, topBidCents?: number | null): string {
+  if (listing.removed && listing.outcome) return "Ended by a moderator: no sale";
   if (listing.outcome === "SOLD" && listing.winner && listing.finalPriceCents != null) {
     return `Sold for ${formatEur(listing.finalPriceCents)} to ${listing.winner.id === viewerId ? `${listing.winner.username} (you)` : listing.winner.username}`;
   }
