@@ -61,11 +61,12 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnMo
           await socket.join(userRoom(result.user.id));
           socket.data.auth = "ok";
         } else {
-          socket.data.auth = "refused";
+          socket.data.auth = result?.status === "banned" ? "banned" : "refused";
         }
       } catch (error) {
+        // The database could not be asked: that is not the visitor's fault, so say so and let the client try again soon.
         this.log.error(`Could not check a socket's token: ${(error as Error).message}`);
-        socket.data.auth = "refused";
+        socket.data.auth = "unavailable";
       }
       next();
     });
@@ -74,8 +75,14 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnMo
   // Anyone may connect and watch an auction. A valid token also put the socket in its own private room (see afterInit); the room
   // name comes from the verified token, never from the client, so nobody can ask to join someone else's.
   handleConnection(client: Socket) {
-    if (client.data.auth !== "refused") return;
-    client.emit("connect_error_auth", { message: "Invalid or expired token" });
+    const messages: Record<string, { code: string; message: string }> = {
+      refused: { code: "INVALID_TOKEN", message: "Invalid or expired token" },
+      banned: { code: "BANNED", message: "This account has been suspended." },
+      unavailable: { code: "UNAVAILABLE", message: "Could not check the token right now. Try again." },
+    };
+    const refusal = messages[client.data.auth];
+    if (!refusal) return;
+    client.emit("connect_error_auth", refusal);
     client.disconnect(true);
   }
 

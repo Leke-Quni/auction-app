@@ -146,7 +146,8 @@ describe("roles and bans are read from the database on every request", () => {
       return socket;
     };
     const refused = await open(banned);
-    await new Promise<void>((resolve) => refused.on("connect_error_auth", () => resolve()));
+    const why = await new Promise<{ code: string }>((resolve) => refused.on("connect_error_auth", resolve));
+    expect(why.code).toBe("BANNED");
     await new Promise((r) => setTimeout(r, 300));
     expect(refused.connected).toBe(false);
     const ok = await open(fine);

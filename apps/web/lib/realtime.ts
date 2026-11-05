@@ -12,15 +12,20 @@ async function realtimeToken(): Promise<string | null> {
 }
 
 // A WebSocket to the API. A signed-in visitor sends a fresh short-lived token on every (re)connect, which also puts
-// them in their own private room. The server hangs up on a token it rejects, so the connection is reopened after a pause.
+// them in their own private room. The server hangs up on a token it rejects, so the connection is reopened after a pause (not for a suspended account).
 export function openRealtime(): { socket: Socket; close: () => void } {
   let retry: ReturnType<typeof setTimeout> | undefined;
+  let refusal: string | undefined;
   const socket = io(apiUrl(), {
     transports: ["websocket"],
     auth: (give) => void realtimeToken().then((token) => give(token ? { token } : {})),
   });
+  // Why the server hung up, sent just before it does. A suspended account is not retried: it would be refused every time.
+  socket.on("connect_error_auth", (info: { code?: string }) => {
+    refusal = info?.code;
+  });
   socket.on("disconnect", (reason) => {
-    if (reason === "io server disconnect") retry = setTimeout(() => socket.connect(), 2000);
+    if (reason === "io server disconnect" && refusal !== "BANNED") retry = setTimeout(() => socket.connect(), 2000);
   });
   return {
     socket,
