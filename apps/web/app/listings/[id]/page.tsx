@@ -10,6 +10,7 @@ import { LiveAuction, type LiveSnapshot } from "./live-auction";
 import { LiveDetails, LiveHistory } from "./live-details";
 import { Questions } from "./questions";
 import { RelistButton } from "./relist-button";
+import { WatchButton } from "../../watch-button";
 
 export default async function ListingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -71,6 +72,17 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
         </p>
       )}
       <h1 className="border border-line bg-white p-2 text-lg font-bold">{listing.title}</h1>
+      {published && (
+        <div>
+          {session && !isOwner && (listing.phase !== "ended" || listing.watching) ? (
+            <WatchButton key={`${listing.watching}-${listing.watcherCount}`} listingId={listing.id} watching={!!listing.watching} watcherCount={listing.watcherCount ?? 0} />
+          ) : (
+            <span className="text-xs text-muted">
+              {listing.watcherCount ?? 0} {listing.watcherCount === 1 ? "watcher" : "watchers"}
+            </span>
+          )}
+        </div>
+      )}
       <LiveAuction listingId={listing.id} snapshot={snapshot} connect={published && listing.phase !== "ended"}>
         {/* items-start: the photo is a square, and stretching it to the taller details column would widen its column. */}
         <div className="grid items-start gap-3 sm:grid-cols-[1fr_2fr]">
