@@ -3,8 +3,13 @@ import type { NotificationItem, NotificationList } from "@auction/shared";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { loadNotificationsAction, markNotificationReadAction } = vi.hoisted(() => ({ loadNotificationsAction: vi.fn(), markNotificationReadAction: vi.fn() }));
-vi.mock("./notification-actions", () => ({ loadNotificationsAction, markNotificationReadAction }));
+const { loadNotificationsAction, markNotificationReadAction, dismissNotificationAction, clearNotificationsAction } = vi.hoisted(() => ({
+  loadNotificationsAction: vi.fn(),
+  markNotificationReadAction: vi.fn(),
+  dismissNotificationAction: vi.fn(),
+  clearNotificationsAction: vi.fn(),
+}));
+vi.mock("./notification-actions", () => ({ loadNotificationsAction, markNotificationReadAction, dismissNotificationAction, clearNotificationsAction }));
 
 import { useNotificationStore } from "@/lib/notification-store";
 import { describe as describeItem, NotificationBell, timeAgo } from "./notification-bell";
@@ -35,6 +40,8 @@ const list = (items: NotificationItem[], unreadCount = items.filter((i) => i.rea
 beforeEach(() => {
   loadNotificationsAction.mockReset();
   markNotificationReadAction.mockReset();
+  dismissNotificationAction.mockReset();
+  clearNotificationsAction.mockReset();
   useNotificationStore.getState().reset();
 });
 afterEach(cleanup);
@@ -61,7 +68,7 @@ describe("NotificationBell", () => {
   it("says so when there is nothing yet", () => {
     render(<NotificationBell initial={list([])} />);
     fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
-    expect(screen.getByText(/Nothing yet/)).toBeTruthy();
+    expect(screen.getByText(/You have no new notifications/)).toBeTruthy();
   });
 
   it("marks a notification read when it is clicked, and uses the count the server answers", async () => {
@@ -120,5 +127,35 @@ describe("helpers", () => {
     const now = Date.parse("2026-11-03T12:00:00Z");
     const ago = (ms: number) => timeAgo(new Date(now - ms).toISOString(), now);
     expect([ago(10_000), ago(5 * 60_000), ago(3 * 3600_000), ago(2 * 86400_000)]).toEqual(["just now", "5 min ago", "3 h ago", "2 d ago"]);
+  });
+
+  it("removes one notification with its X and updates the unread count", async () => {
+    dismissNotificationAction.mockResolvedValue(0);
+    render(<NotificationBell initial={list([outbid(), extended(false)])} />);
+    fireEvent.click(screen.getByRole("button", { name: /Notifications/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss: You've been outbid" }));
+    await waitFor(() => expect(dismissNotificationAction).toHaveBeenCalledWith("n1"));
+    expect(screen.queryByText("You've been outbid")).toBeNull();
+    expect(screen.getByText("Auction extended")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Notifications" })).toBeTruthy();
+  });
+
+  it("clears the whole inbox with Clear all", async () => {
+    clearNotificationsAction.mockResolvedValue(true);
+    render(<NotificationBell initial={list([outbid(), extended(true)])} />);
+    fireEvent.click(screen.getByRole("button", { name: /Notifications/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear all notifications" }));
+    await waitFor(() => expect(clearNotificationsAction).toHaveBeenCalled());
+    expect(screen.getByText(/You have no new notifications/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Clear all notifications" })).toBeNull();
+  });
+
+  it("puts the notifications back when the server could not remove them", async () => {
+    dismissNotificationAction.mockResolvedValue(null);
+    loadNotificationsAction.mockResolvedValue(list([outbid()]));
+    render(<NotificationBell initial={list([outbid()])} />);
+    fireEvent.click(screen.getByRole("button", { name: /Notifications/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss: You've been outbid" }));
+    expect(await screen.findByText("You've been outbid")).toBeTruthy();
   });
 });

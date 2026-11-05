@@ -109,6 +109,8 @@ describe("saved notifications", () => {
   it("requires sign-in", async () => {
     await request(url).get("/notifications").expect(401);
     await request(url).post("/notifications/x/read").expect(401);
+    await request(url).delete("/notifications/x").expect(401);
+    await request(url).delete("/notifications").expect(401);
   });
 
   it("saves the outbid notice for the outbid bidder only, and tells their pages the unread count", async () => {
@@ -174,6 +176,38 @@ describe("saved notifications", () => {
     const after = (await list(anna)).body as NotificationList;
     expect(after.items[0].readAt).not.toBeNull();
     await request(url).post(`/notifications/${note.id}/read`).set("Authorization", `Bearer ${anna.token}`).expect(201); // again: no change
+  });
+
+  it("lets a person dismiss one notification, or clear the whole inbox, and nobody else's", async () => {
+    const [anna, ben, cara, dan] = await makePeople(4);
+    const first = await makeListing();
+    const second = await makeListing();
+    for (const l of [first, second]) {
+      await bid(anna, l.id, 1000).expect(201);
+      await bid(ben, l.id, 1100).expect(201);
+    }
+    await settle();
+    const [newer, older] = ((await list(anna)).body as NotificationList).items;
+    expect(((await list(anna)).body as NotificationList).unreadCount).toBe(2);
+
+    const stranger = await request(url).delete(`/notifications/${newer.id}`).set("Authorization", `Bearer ${cara.token}`).expect(200);
+    expect(stranger.body).toEqual({ unreadCount: 0 });
+    expect(((await list(anna)).body as NotificationList).items).toHaveLength(2);
+
+    const dismissed = await request(url).delete(`/notifications/${newer.id}`).set("Authorization", `Bearer ${anna.token}`).expect(200);
+    expect(dismissed.body).toEqual({ unreadCount: 1 });
+    expect(((await list(anna)).body as NotificationList).items.map((i) => i.id)).toEqual([older.id]);
+    await request(url).delete(`/notifications/${newer.id}`).set("Authorization", `Bearer ${anna.token}`).expect(200); // again: no change
+
+    // Clearing empties only the caller's inbox.
+    await bid(cara, first.id, 1300).expect(201);
+    await bid(dan, first.id, 1400).expect(201);
+    await settle();
+    expect(((await list(cara)).body as NotificationList).items).toHaveLength(1);
+    const cleared = await request(url).delete("/notifications").set("Authorization", `Bearer ${anna.token}`).expect(200);
+    expect(cleared.body).toEqual({ unreadCount: 0 });
+    expect(await list(anna).then((r) => r.body)).toEqual({ items: [], unreadCount: 0 });
+    expect(((await list(cara)).body as NotificationList).items).toHaveLength(1);
   });
 
   it("saves the extension notice for the other bidders, not the new high bidder, the outbid bidder or the seller", async () => {

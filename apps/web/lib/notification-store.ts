@@ -9,6 +9,9 @@ interface NotificationState {
   seed: (list: NotificationList | null) => void;
   setUnread: (unreadCount: number) => void;
   markRead: (id: string, unreadCount?: number) => void;
+  // Takes a notification out of the list (dismissed), and empties the whole list.
+  remove: (id: string, unreadCount?: number) => void;
+  clear: () => void;
   reset: () => void;
 }
 
@@ -29,5 +32,15 @@ export const useNotificationStore = create<NotificationState>((set) => ({
         unreadCount: unreadCount ?? Math.max(0, state.unreadCount - (wasUnread ? 1 : 0)),
       };
     }),
+  remove: (id, unreadCount) =>
+    set((state) => {
+      const target = state.items.find((item) => item.id === id);
+      const wasUnread = target !== undefined && target.readAt === null;
+      return {
+        items: state.items.filter((item) => item.id !== id),
+        unreadCount: unreadCount ?? Math.max(0, state.unreadCount - (wasUnread ? 1 : 0)),
+      };
+    }),
+  clear: () => set({ items: [], unreadCount: 0 }),
   reset: () => set({ items: [], unreadCount: 0, stale: true }),
 }));
