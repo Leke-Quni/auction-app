@@ -69,7 +69,13 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
                 <td className="max-w-md whitespace-pre-wrap break-words p-2">{r.body}</td>
                 <td className="p-2">{who(r.author, "gone")}</td>
                 <td className="p-2">{r.reporter ? who(r.reporter, "") : <span className="text-muted">Flagged by the site</span>}</td>
-                <td className="p-2">{r.listing ? <span title={r.listing.id}>{r.listing.title}</span> : <span className="text-muted">removed</span>}</td>
+                <td className="p-2">{r.listing ? (
+                    <Link href={`/listings/${r.listing.id}`} className="text-accent underline">
+                      {r.listing.title}
+                    </Link>
+                  ) : (
+                    <span className="text-muted">removed</span>
+                  )}</td>
                 <td className="whitespace-nowrap p-2 text-muted">{when(status === "OPEN" ? r.createdAt : (r.handledAt ?? r.createdAt))}</td>
                 <td className="p-2 text-right">
                   <div className="flex justify-end gap-2">

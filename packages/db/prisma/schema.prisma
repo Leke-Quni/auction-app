@@ -136,6 +136,11 @@ model Listing {
   winnerId           String?
   winner             User?            @relation("ListingWinner", fields: [winnerId], references: [id], onDelete: Restrict)
   finalPriceCents    Int?
+  // Set when an admin took the auction down: it ends at that moment with no sale (`outcome` NO_SALE, or NO_BIDS when nobody
+  // had bid) and cannot be listed again. `removedById` is a plain column, not a relation, so the record outlives the admin.
+  removedAt          DateTime?
+  removedById        String?
+  removalReason      String?
   // Set on a draft made by "list it again", so asking again returns that draft instead of making another. A plain column,
   // not a relation: the old listing is only a record to copy from.
   relistedFromId     String?

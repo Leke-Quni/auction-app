@@ -3,23 +3,23 @@
 Updated 2026-11-05, during slice 7. `docs/DESIGN.md` is the source of truth for every decision; this file lists what is still to do, in the order to do it, plus the working rules.
 
 ## Where things stand
-Slices 1 to 6 are done and merged to `main` (slice 6 in PR #14). Slice 7 (admin) is in progress on branch `slice-7-admin`: step 1 (roles and bans read from the database on every request, `AdminGuard`, `GET /admin/me`) is committed; step 2 (the admin app shell, admin-only sign-in and the slate and indigo theme) is committed; step 3 (reports queue and question log) is built and tested, not yet committed. `DESIGN.md` section 7 records every step.
+Slices 1 to 6 are done and merged to `main` (slice 6 in PR #14). Slice 7 (admin) is in progress on branch `slice-7-admin`: step 1 (roles and bans read from the database on every request, `AdminGuard`, `GET /admin/me`) is committed; step 2 (the admin app shell, admin-only sign-in and the slate and indigo theme) is committed; step 3 (reports queue and question log) is committed; step 4 is half built: listing removal is done and tested (not yet committed), ban and unban and clearing strikes are left. `DESIGN.md` section 7 records every step.
 
-Production is behind: the API on Fly and the Neon database were last set up at the end of slice 5 (30 migrations). The repository now has 37, and slice 6 and the slice 7 work are not deployed.
+Production is behind: the API on Fly and the Neon database were last set up at the end of slice 5 (30 migrations). The repository now has 38, and slice 6 and the slice 7 work are not deployed.
 
 ## 1. Slice 7: admin (what is left)
 Done-criteria are in `DESIGN.md` section 8. Build order (decided 2026-11-05), one step at a time:
 1. ~~Role and ban freshness in the API.~~ Done.
 2. ~~Admin app shell, admin-only sign-in, theme.~~ Done.
 3. ~~**Reports queue and `QuestionLog`.**~~ Built 2026-11-05 (questions and answers only; rating comments still undecided, section 4). Listed open `Report` rows (the reporter, reason, the words as written, `postedAt`, status `OPEN` or `HANDLED`, and the automatic `CONTACT_DETAILS` ones), mark one handled, and read `QuestionLog` (every post, edit and deletion). Handled reports are deleted by the existing clean-up 30 days later.
-4. **Moderation.** Remove a listing; ban and unban a user (`User.bannedAt`, `banReason`); clear a strike. A ban must also disconnect that user's open sockets and tell their open storefront pages what happened. Decide first (see section 4) what an admin removal does to a listing that already has bids.
+4. **Moderation.** Remove a listing (**done 2026-11-05**: ends it early with no sale, see `DESIGN.md`); ban and unban a user (`User.bannedAt`, `banReason`) and clear a strike are still to do. A ban must also disconnect that user's open sockets and tell their open storefront pages what happened (the suspended-account page, section 3).
 5. **An order with both addresses.** The admin reads the full order: the buyer's delivery address and phone, the seller's pickup address, the amounts and the payout.
 6. **Deploy the admin app** as its own Vercel project (`AUTH_SECRET` the same as the API, `API_URL`, `ADMIN_URL`) and make the first admin with `yarn workspace @auction/db make-admin <email>`.
 
 Decided: a ban does not hold back a seller's payout; the API checks the database for the role on every request; the admin theme is light, slate and indigo.
 
 ## 2. Production and deploy (only the owner can do these)
-- **Run the 7 new migrations on Neon** (`yarn workspace @auction/db migrate:deploy` against the Neon `DATABASE_URL`) **before** deploying the new API.
+- **Run the 8 new migrations on Neon** (`yarn workspace @auction/db migrate:deploy` against the Neon `DATABASE_URL`) **before** deploying the new API.
 - **Stripe:** `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` on Fly, plus a webhook endpoint at `https://auction-api-leke.fly.dev/payments/stripe/webhook`. Until then production uses the fake payment provider. Payouts also need Connect and Accounts v2 enabled on the Stripe account and the platform's loss-liability acknowledgement accepted (Platform profile in the Dashboard); both were done on the test sandbox.
 - A verified Resend domain, so won, pay-now, shipping, ending-soon and outbid emails reach people other than the Resend account owner (`MAIL_FROM` too).
 - `REDIS_URL` (Upstash) on Fly, and `NEXT_PUBLIC_API_URL` on Vercel pointing at the Fly address. Deployed environments search Postgres until Typesense is hosted.
@@ -46,7 +46,7 @@ Decided: a ban does not hold back a seller's payout; the API checks the database
 - **Flaky tests under a full run.** `full-workflow` and a few others occasionally fail in a full API run and always pass alone. The likely cause (not proven) is that the test files share one database and run in parallel, so one file's background email sweep can send another file's pending emails through the wrong fake sender. Running API test files one at a time would probably fix it, at roughly twice the run time.
 
 ## 4. Open decisions still to make (from `DESIGN.md` section 7)
-- **An admin removing a listing that has bids.** A seller cannot remove one (the database refuses), and a listing with a bid must name its high bidder. Decide what an admin removal does: refuse, end the auction early with no sale, or cancel it and tell the bidders.
+- ~~An admin removing a listing that has bids.~~ Decided 2026-11-05: end it early with no sale.
 - **Rating comments.** Whether they get the same report button and queue as questions and answers, or admin-only removal. Decide in slice 7 step 3 or 4.
 - Query library for server data: React Query or SWR.
 - Username squatting: a cleanup rule for stale unverified accounts, before launch.

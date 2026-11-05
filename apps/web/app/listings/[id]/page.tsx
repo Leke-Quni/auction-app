@@ -64,12 +64,18 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
           <Link href={`/sell/${listing.id}/edit`} className="text-brand underline">
             {listing.status === "DRAFT" ? "Edit and publish" : "Edit description and photos"}
           </Link>
-          {listing.closedAt && (listing.outcome === "NO_SALE" || listing.outcome === "NO_BIDS") && (
+          {listing.closedAt && !listing.removed && (listing.outcome === "NO_SALE" || listing.outcome === "NO_BIDS") && (
             <>
               {" "}
               <RelistButton listingId={listing.id} />
             </>
           )}
+        </p>
+      )}
+      {listing.removed && (
+        <p className="border border-red-300 bg-red-50 p-2 text-red-900">
+          A moderator removed this listing and ended the auction with no sale.
+          {isOwner && listing.removalReason ? ` Reason: ${listing.removalReason}` : ""}
         </p>
       )}
       <h1 className="border border-line bg-white p-2 text-lg font-bold">{listing.title}</h1>

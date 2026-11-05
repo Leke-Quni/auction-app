@@ -68,6 +68,9 @@ const toDto = (l: ListingRow, now = new Date(), forSeller = false) => ({
   // Null until the close job has run for an ended auction.
   closedAt: l.closedAt,
   outcome: l.outcome,
+  // True when a moderator took the auction down; the reason is for the seller only.
+  removed: l.removedAt !== null,
+  ...(forSeller ? { removalReason: l.removalReason } : {}),
   winner: l.winner,
   finalPriceCents: l.finalPriceCents,
   startsAt: l.startsAt,
@@ -332,6 +335,7 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
     if (old.closedAt === null || (old.outcome !== "NO_SALE" && old.outcome !== "NO_BIDS")) {
       throw new ConflictException("Only an auction that ended without a sale can be listed again");
     }
+    if (old.removedAt) throw new ConflictException("A listing that a moderator removed cannot be listed again");
     // Asking again (a double click, a second tab) returns the draft that is already there instead of making another. The
     // lock makes two calls at the same moment take turns.
     const draft = await this.prisma.$transaction(async (tx) => {

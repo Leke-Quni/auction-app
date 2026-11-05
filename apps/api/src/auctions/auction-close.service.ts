@@ -51,20 +51,42 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
   // "auction ended" email, any outbid email still waiting for this auction is dropped (that email covers it), and the
   // auction's notifications expire (the latest "You've been outbid" of each loser stays).
   async close(listingId: string): Promise<boolean> {
+    return this.run(listingId);
+  }
+
+  // An admin takes the auction down: it ends now with no sale, whatever the bids and the reserve, in the same transaction as
+  // the close below, so the end, the result and the emails to the bidders all land together. Only a published auction that
+  // has not been closed qualifies; a bid that holds the row's lock finishes first. Returns false when nothing matched.
+  async closeRemoved(listingId: string, removal: { adminId: string; reason: string }): Promise<boolean> {
+    return this.run(listingId, removal);
+  }
+
+  private async run(listingId: string, removal?: { adminId: string; reason: string }): Promise<boolean> {
     let order: { id: string; payBy: Date } | undefined;
     const row = await this.prisma.$transaction(async (tx) => {
+      if (removal) {
+        const ended = await tx.$executeRaw`
+          UPDATE "Listing" SET
+            "endsAt" = LEAST("endsAt", clock_timestamp()),
+            "startsAt" = LEAST("startsAt", clock_timestamp()),
+            "removedAt" = clock_timestamp(), "removedById" = ${removal.adminId}, "removalReason" = ${removal.reason}
+          WHERE "id" = ${listingId} AND "status" = 'PUBLISHED' AND "closedAt" IS NULL`;
+        if (ended === 0) return null;
+      }
       const [closed] = await tx.$queryRaw<ClosedRow[]>`
         UPDATE "Listing" SET
           "closedAt" = clock_timestamp(),
           "outcome" = CASE
             WHEN "highBidderId" IS NULL THEN 'NO_BIDS'::"ListingOutcome"
-            WHEN "reservePriceCents" IS NOT NULL AND "currentBidCents" < "reservePriceCents" THEN 'NO_SALE'::"ListingOutcome"
+            WHEN "removedAt" IS NOT NULL OR ("reservePriceCents" IS NOT NULL AND "currentBidCents" < "reservePriceCents") THEN 'NO_SALE'::"ListingOutcome"
             ELSE 'SOLD'::"ListingOutcome"
           END,
-          "winnerId" = CASE WHEN "highBidderId" IS NOT NULL AND ("reservePriceCents" IS NULL OR "currentBidCents" >= "reservePriceCents") THEN "highBidderId" END,
-          "finalPriceCents" = CASE WHEN "highBidderId" IS NOT NULL AND ("reservePriceCents" IS NULL OR "currentBidCents" >= "reservePriceCents") THEN "currentBidCents" END
-        WHERE "id" = ${listingId} AND "status" = 'PUBLISHED' AND "closedAt" IS NULL AND "endsAt" <= clock_timestamp()
+          "winnerId" = CASE WHEN "highBidderId" IS NOT NULL AND "removedAt" IS NULL AND ("reservePriceCents" IS NULL OR "currentBidCents" >= "reservePriceCents") THEN "highBidderId" END,
+          "finalPriceCents" = CASE WHEN "highBidderId" IS NOT NULL AND "removedAt" IS NULL AND ("reservePriceCents" IS NULL OR "currentBidCents" >= "reservePriceCents") THEN "currentBidCents" END
+        WHERE "id" = ${listingId} AND "status" = 'PUBLISHED' AND "closedAt" IS NULL AND ("endsAt" <= clock_timestamp() OR "removedAt" IS NOT NULL)
         RETURNING "id", "sellerId", "outcome", "winnerId", "finalPriceCents", "closedAt"`;
+      // A removal already ended the auction in this transaction, so a miss here must undo it rather than leave it half done.
+      if (!closed && removal) throw new Error(`Could not close the removed listing ${listingId}`);
       if (!closed) return null;
       await tx.$executeRaw`
         INSERT INTO "PendingEndEmail" ("id", "userId", "listingId", "kind")
