@@ -40,6 +40,8 @@ model User {
   bids                Bid[]
   notifications       Notification[]
   watches             Watch[]
+  ratingsGiven        Rating[]             @relation("RatingBuyer")
+  ratingsReceived     Rating[]             @relation("RatingSeller")
   questions           Question[]
   questionVotes       QuestionVote[]
 }
@@ -212,6 +214,7 @@ model Order {
   inTransitAt     DateTime?
   deliveredAt     DateTime?
   payout          Payout?
+  rating          Rating?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -220,6 +223,23 @@ model Order {
   @@index([sellerId])
   @@index([status, payBy])
   @@index([shipmentStatus])
+}
+
+// What a buyer thought of the seller after a delivered order: one per order, never changed. The stars are checked 1 to 5 by the
+// database (see the migration).
+model Rating {
+  id        String   @id @default(cuid())
+  orderId   String   @unique
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  buyerId   String
+  buyer     User     @relation("RatingBuyer", fields: [buyerId], references: [id], onDelete: Restrict)
+  sellerId  String
+  seller    User     @relation("RatingSeller", fields: [sellerId], references: [id], onDelete: Restrict)
+  stars     Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  @@index([sellerId, createdAt(sort: Desc)])
 }
 
 // A seller's share of a delivered order, paid out through the PaymentProvider. One row per order, written only once the

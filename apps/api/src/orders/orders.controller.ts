@@ -1,4 +1,4 @@
-import { saveShippingSchema } from "@auction/shared";
+import { rateSellerSchema, saveShippingSchema } from "@auction/shared";
 import { BadRequestException, Body, Controller, Get, Param, Post, Put, Query, Req, StreamableFile, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard, type AuthUser } from "../auth/jwt-auth.guard";
 import { OrdersService } from "./orders.service";
@@ -45,6 +45,13 @@ export class OrdersController {
   @Post(":id/ship")
   ship(@Req() req: { user: AuthUser }, @Param("id") id: string) {
     return this.orders.ship(req.user.id, id);
+  }
+
+  @Post(":id/rating")
+  rate(@Req() req: { user: AuthUser }, @Param("id") id: string, @Body() body: unknown) {
+    const parsed = rateSellerSchema.safeParse(body);
+    if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
+    return this.orders.rate(req.user.id, id, parsed.data);
   }
 
   @Post(":id/confirm")

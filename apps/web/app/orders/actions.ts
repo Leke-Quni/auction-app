@@ -94,3 +94,16 @@ export async function startPayoutOnboardingAction(orderId?: string): Promise<Ord
   const { url } = (await res.json()) as { url: string };
   redirect(url);
 }
+
+// The buyer rates the seller after delivery. The order page reloads showing the rating in place of the form.
+export async function rateSellerAction(orderId: string, stars: number, comment: string): Promise<OrderActionState> {
+  if (!(await auth())) return { error: "Sign in to rate the seller." };
+  try {
+    const res = await authedApiFetch(`/orders/${orderId}/rating`, { method: "POST", body: JSON.stringify({ stars, comment }) });
+    if (!res.ok) return { error: await failure(res) };
+  } catch {
+    return { error: "Could not reach the server. Try again." };
+  }
+  revalidatePath(`/orders/${orderId}`);
+  return {};
+}

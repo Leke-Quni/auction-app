@@ -1,4 +1,4 @@
-import { ORDER_REFUSAL_MESSAGES, deliveryOptions, type OrderPayout, type OrderRefusal, type OrderView, type SaveShippingInput, type ShippingAddress, type ShippingOption } from "@auction/shared";
+import { ORDER_REFUSAL_MESSAGES, deliveryOptions, type OrderPayout, type RateSellerInput, type OrderRefusal, type OrderView, type SaveShippingInput, type ShippingAddress, type ShippingOption } from "@auction/shared";
 import { deliveryRule } from "../config";
 import { HttpException, HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
@@ -18,6 +18,8 @@ const STATUS: Record<OrderRefusal, HttpStatus> = {
   NOT_PAID: HttpStatus.CONFLICT,
   NOT_SELLER: HttpStatus.FORBIDDEN,
   ALREADY_SHIPPED: HttpStatus.CONFLICT,
+  NOT_DELIVERED: HttpStatus.CONFLICT,
+  ALREADY_RATED: HttpStatus.CONFLICT,
 };
 const refuse = (code: OrderRefusal) => new HttpException({ code, message: ORDER_REFUSAL_MESSAGES[code] }, STATUS[code]);
 
@@ -30,6 +32,7 @@ const include = {
   buyer: { select: { id: true, username: true, email: true } },
   seller: { select: { id: true, username: true, payoutAccountId: true } },
   payout: true,
+  rating: true,
 } as const;
 
 @Injectable()
@@ -251,6 +254,21 @@ export class OrdersService {
     return this.get(userId, orderId);
   }
 
+  // The buyer rates the seller, once per order, after the parcel was delivered. The unique order id makes a double click or two
+  // tabs rate once (the second answers ALREADY_RATED); a rating cannot be changed afterwards.
+  async rate(userId: string, orderId: string, input: RateSellerInput): Promise<OrderView> {
+    const order = await this.find(userId, orderId);
+    if (order.buyerId !== userId) throw refuse("NOT_BUYER");
+    if (order.status !== "PAID" || order.shipmentStatus !== "DELIVERED") throw refuse("NOT_DELIVERED");
+    if (order.rating) throw refuse("ALREADY_RATED");
+    const saved = await this.prisma.rating.createMany({
+      data: { orderId, buyerId: userId, sellerId: order.sellerId, stars: input.stars, comment: input.comment ?? null },
+      skipDuplicates: true,
+    });
+    if (saved.count === 0) throw refuse("ALREADY_RATED");
+    return this.get(userId, orderId);
+  }
+
   // The invoice as a PDF, for the buyer or the seller of a paid order.
   async invoice(userId: string, orderId: string): Promise<{ filename: string; pdf: Buffer }> {
     const order = await this.find(userId, orderId);
@@ -298,6 +316,7 @@ export class OrdersService {
       shipping: this.shippingFor(order, seller),
       totalCents: seller ? null : order.totalCents, // what the buyer paid in all is the buyer's business
       invoiceNumber: order.invoiceNumber,
+      rating: order.rating ? { stars: order.rating.stars, comment: order.rating.comment, createdAt: order.rating.createdAt.toISOString() } : null,
       ...(seller ? {} : { trackingEmails: order.trackingEmails }),
       shipment: order.shipmentStatus && order.trackingCode && order.shippedAt
         ? { status: order.shipmentStatus, trackingCode: order.trackingCode, shippedAt: order.shippedAt.toISOString(), inTransitAt: order.inTransitAt?.toISOString() ?? null, deliveredAt: order.deliveredAt?.toISOString() ?? null }

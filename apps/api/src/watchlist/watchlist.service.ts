@@ -1,7 +1,7 @@
-import { extensionCeiling, isFinalChance, listingPhase } from "@auction/shared";
 import { Prisma as PrismaNamespace } from "@auction/db";
 import { ForbiddenException, HttpException, HttpStatus, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { listingCardInclude, toListingCard } from "../listings/listing-card";
 
 const DAY_MS = 24 * 3600_000;
 // The most auctions a person can have on their watchlist page at once.
@@ -66,20 +66,9 @@ export class WatchlistService {
       where: { userId },
       orderBy: { createdAt: "desc" },
       take: WATCHLIST_LIMIT,
-      include: { listing: { include: { images: { orderBy: { position: "asc" }, take: 1 } } } },
+      include: { listing: { include: listingCardInclude } },
     });
-    const items = rows.map(({ listing: l }) => ({
-      id: l.id,
-      title: l.title,
-      startingPriceCents: l.startingPriceCents,
-      phase: listingPhase(l, now),
-      startsAt: l.startsAt,
-      endsAt: l.endsAt,
-      images: l.images.map((i) => ({ id: i.id, url: i.url })),
-      finalChance: l.startsAt && l.endsAt ? isFinalChance(l.endsAt, extensionCeiling(l.startsAt, l.durationDays)) : false,
-      currentBidCents: l.currentBidCents,
-      bidCount: l.bidCount,
-    }));
+    const items = rows.map(({ listing }) => toListingCard(listing, now));
     const group = { live: 0, upcoming: 1, ended: 2, draft: 3 } as const;
     const time = (d: Date | null) => d?.getTime() ?? 0;
     items.sort((a, b) => group[a.phase] - group[b.phase] || (a.phase === "ended" ? time(b.endsAt) - time(a.endsAt) : a.phase === "upcoming" ? time(a.startsAt) - time(b.startsAt) : time(a.endsAt) - time(b.endsAt)));

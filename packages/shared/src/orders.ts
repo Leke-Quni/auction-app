@@ -26,7 +26,7 @@ export function platformFeeCents(amountCents: number, percent: number, capCents?
 export const SHIPMENT_STATUSES = ["LABEL_CREATED", "IN_TRANSIT", "DELIVERED"] as const;
 export type ShipmentStatus = (typeof SHIPMENT_STATUSES)[number];
 
-export const ORDER_REFUSALS = ["NOT_FOUND", "NOT_BUYER", "NOT_PAYABLE", "PAYMENT_WINDOW_CLOSED", "SHIPPING_REQUIRED", "SHIPPING_OPTION_UNAVAILABLE", "NOT_PAID", "NOT_SELLER", "ALREADY_SHIPPED"] as const;
+export const ORDER_REFUSALS = ["NOT_FOUND", "NOT_BUYER", "NOT_PAYABLE", "PAYMENT_WINDOW_CLOSED", "SHIPPING_REQUIRED", "SHIPPING_OPTION_UNAVAILABLE", "NOT_PAID", "NOT_SELLER", "ALREADY_SHIPPED", "NOT_DELIVERED", "ALREADY_RATED"] as const;
 export type OrderRefusal = (typeof ORDER_REFUSALS)[number];
 
 export const ORDER_REFUSAL_MESSAGES: Record<OrderRefusal, string> = {
@@ -39,6 +39,8 @@ export const ORDER_REFUSAL_MESSAGES: Record<OrderRefusal, string> = {
   NOT_PAID: "There is no invoice until the order is paid.",
   NOT_SELLER: "Only the seller can mark this order as shipped.",
   ALREADY_SHIPPED: "This order is already marked as shipped.",
+  NOT_DELIVERED: "You can rate the seller once the item has been delivered.",
+  ALREADY_RATED: "You have already rated this seller for this order.",
 };
 
 // An order as its buyer or seller sees it. The fee and the seller's share are only sent to the seller; the delivery price
@@ -62,6 +64,8 @@ export interface OrderView {
   trackingEmails?: boolean;
   // Null until the seller marks the paid order shipped.
   shipment: OrderShipment | null;
+  // What the buyer rated the seller, once they have (both sides see it).
+  rating?: import("./ratings").RatingView | null;
   // The seller's payout for a paid order (never sent to the buyer).
   payout?: OrderPayout;
   feeCents?: number;

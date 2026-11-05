@@ -10,6 +10,7 @@ import { LiveAuction, type LiveSnapshot } from "./live-auction";
 import { LiveDetails, LiveHistory } from "./live-details";
 import { Questions } from "./questions";
 import { RelistButton } from "./relist-button";
+import { SellerInfo } from "../../seller-info";
 import { WatchButton } from "../../watch-button";
 
 export default async function ListingPage({ params }: { params: Promise<{ id: string }> }) {
@@ -88,6 +89,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
                 )}
               </div>
             )}
+            <SellerInfo username={listing.seller.username} average={listing.sellerRating?.average ?? null} count={listing.sellerRating?.count ?? 0} isOwner={isOwner} />
           </div>
           <div className="min-w-0 space-y-3">
             <LiveDetails listing={listing} openMode={openMode} viewerId={viewerId} order={order} />

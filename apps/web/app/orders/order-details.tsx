@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SHIPPING_COUNTRIES, formatEur, type OrderView, type ShippingCountry } from "@auction/shared";
 import { LocalTime } from "@/app/local-time";
+import { Stars } from "@/app/stars";
 
 const STATUS_LABELS: Record<OrderView["status"], string> = {
   AWAITING_PAYMENT: "Waiting for payment",
@@ -45,10 +46,24 @@ export function OrderDetails({ order }: { order: OrderView }) {
           ["You receive", <span key="n" className="font-bold">{formatEur(order.sellerNetCents)}</span>],
         ] as [string, React.ReactNode][])
       : []),
-    [order.viewer === "buyer" ? "Seller" : "Buyer", order.viewer === "buyer" ? order.seller.username : order.buyer.username],
+    [
+      order.viewer === "buyer" ? "Seller" : "Buyer",
+      order.viewer === "buyer" ? <Link key="sp" href={`/sellers/${order.seller.username}`} className="text-brand underline">{order.seller.username}</Link> : order.buyer.username,
+    ],
     ["Status", STATUS_LABELS[order.status]],
     order.status === "PAID" && order.paidAt ? ["Paid", <LocalTime key="t" iso={order.paidAt} />] : ["Pay by", <LocalTime key="t" iso={order.payBy} />],
     ...(order.viewer === "buyer" && order.shipping ? ([["Tracking emails", order.trackingEmails ? "Yes" : "No"]] as [string, React.ReactNode][]) : []),
+    ...(order.rating
+      ? ([
+          [
+            order.viewer === "buyer" ? "Your rating" : "Buyer's rating",
+            <span key="rt">
+              <Stars value={order.rating.stars} />
+              {order.rating.comment ? <span className="ml-2 whitespace-pre-wrap">{order.rating.comment}</span> : null}
+            </span>,
+          ],
+        ] as [string, React.ReactNode][])
+      : []),
     ...(order.viewer === "seller" && order.payout
       ? ([
           ["Payout", <span key="po" className="font-bold">{PAYOUT_LABELS[order.payout.status]}</span>],

@@ -114,3 +114,17 @@ export function listingPhase(
   if (now < new Date(listing.endsAt)) return "live";
   return "ended";
 }
+
+// What a listing card shows, as the API sends it (the home page, search, the watchlist and a seller's profile all use it).
+export interface ListingCardData {
+  id: string;
+  title: string;
+  startingPriceCents: number;
+  phase: ListingPhase;
+  startsAt: string | null;
+  endsAt: string | null;
+  images: { id: string; url: string }[];
+  finalChance: boolean;
+  currentBidCents: number | null;
+  bidCount: number;
+}

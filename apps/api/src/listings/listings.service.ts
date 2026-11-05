@@ -167,13 +167,16 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
     const dto = toDto(listing, new Date(), listing.sellerId === viewerId);
     // How many watch it, and, for a signed-in viewer, whether they are blocked from bidding (two strikes), so the page says
     // so instead of offering a bid box, and whether they are watching it. One round trip, not one after another.
-    const [watcherCount, strikes, watching] = await Promise.all([
+    const [watcherCount, sellerStats, strikes, watching] = await Promise.all([
       this.prisma.watch.count({ where: { listingId: id } }),
+      this.prisma.rating.aggregate({ where: { sellerId: listing.sellerId }, _avg: { stars: true }, _count: true }),
       viewerId ? this.prisma.strike.count({ where: { userId: viewerId } }) : 0,
       viewerId ? this.prisma.watch.count({ where: { userId: viewerId, listingId: id } }) : 0,
     ]);
-    if (!viewerId) return { ...dto, watcherCount };
-    return { ...dto, watcherCount, viewerBlocked: strikes >= MAX_STRIKES, watching: watching > 0 };
+    // How buyers have rated the seller: the average to one decimal (null until someone has) and how many ratings.
+    const sellerRating = { average: sellerStats._avg.stars === null ? null : Math.round(sellerStats._avg.stars * 10) / 10, count: sellerStats._count };
+    if (!viewerId) return { ...dto, watcherCount, sellerRating };
+    return { ...dto, watcherCount, sellerRating, viewerBlocked: strikes >= MAX_STRIKES, watching: watching > 0 };
   }
 
   async list(page: number, pageSize: number, section?: "endingSoon" | "upcoming") {

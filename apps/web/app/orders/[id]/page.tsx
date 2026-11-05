@@ -7,6 +7,7 @@ import { PickupAddressEditor } from "@/app/sell/pickup-address-editor";
 import { markShippedAction, startPaymentAction, startPayoutOnboardingAction } from "../actions";
 import { OrderDetails } from "../order-details";
 import { PayButton } from "../pay-button";
+import { RatingForm } from "@/app/rating-form";
 
 export default async function OrderPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ paid?: string }> }) {
   const { id } = await params;
@@ -39,6 +40,13 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
         </p>
       )}
       <OrderDetails order={order} />
+      {order.viewer === "buyer" && order.status === "PAID" && (
+        <p>
+          <Link href={`/sellers/${order.seller.username}`} className="text-brand underline">
+            See {order.seller.username}&apos;s profile, ratings and other listings
+          </Link>
+        </p>
+      )}
       {order.viewer === "seller" && (order.status === "AWAITING_PAYMENT" || order.status === "PAID") && (
         <PickupAddressEditor listingId={order.listingId} address={(order.pickupAddress as ShippingAddress | undefined) ?? null} />
       )}
@@ -47,6 +55,9 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
           <p>When the item is packed and ready for the carrier, mark it as shipped. The buyer is told, and the parcel is tracked from there.</p>
           <PayButton action={markShippedAction} label="Mark as shipped" orderId={order.id} />
         </div>
+      )}
+      {order.viewer === "buyer" && order.shipment?.status === "DELIVERED" && !order.rating && (
+        <RatingForm orderId={order.id} sellerName={order.seller.username} />
       )}
       {order.viewer === "seller" && order.payout?.status === "WAITING_FOR_ACCOUNT" && (
         <div className="space-y-2 border border-line bg-white p-3">
