@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { AdminGuard, JwtAuthGuard, type AuthUser } from "../auth/jwt-auth.guard";
 import { AdminListingsService } from "./admin-listings.service";
+import { AdminOrdersService } from "./admin-orders.service";
 import { AdminReportsService } from "./admin-reports.service";
 import { AdminUsersService } from "./admin-users.service";
 
@@ -10,6 +11,11 @@ const reportsQuerySchema = z.object({ status: z.enum(["OPEN", "HANDLED"]).defaul
 const usersQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
   banned: z.enum(["true", "false"]).optional().transform((v) => v === "true"),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+const ordersQuerySchema = z.object({
+  q: z.string().trim().max(100).optional(),
+  status: z.enum(["AWAITING_PAYMENT", "PAID", "EXPIRED", "CANCELLED"]).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 const banSchema = z.object({ reason: z.string().trim().min(1).max(500) });
@@ -30,6 +36,7 @@ export class AdminController {
     private readonly reports: AdminReportsService,
     private readonly listings: AdminListingsService,
     private readonly users: AdminUsersService,
+    private readonly orders: AdminOrdersService,
   ) {}
 
   // Who the admin app is talking to. It also tells the admin app whether a signed-in person may use it at all.
@@ -95,5 +102,17 @@ export class AdminController {
   @Delete("strikes/:id")
   clearStrike(@Param("id") id: string) {
     return this.users.clearStrike(id);
+  }
+
+  @Get("orders")
+  listOrders(@Query(new ZodValidationPipe(ordersQuerySchema)) query: z.infer<typeof ordersQuerySchema>) {
+    return this.orders.list(query);
+  }
+
+  // The whole order with both addresses: the buyer's delivery address and phone, the seller's pickup address, the amounts
+  // each side sees, the parcel and the payout. Read only.
+  @Get("orders/:id")
+  getOrder(@Param("id") id: string) {
+    return this.orders.get(id);
   }
 }
