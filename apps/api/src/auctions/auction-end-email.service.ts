@@ -249,6 +249,9 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
       include: { listing: { select: { title: true } }, buyer: { select: { email: true } } },
     });
     if (!order?.trackingCode) return;
+    // A retry that comes due after the parcel has moved on would say "on its way" after "delivered": the later email covers it.
+    const stage = { SHIPPED: "LABEL_CREATED", IN_TRANSIT: "IN_TRANSIT", DELIVERED: "DELIVERED" } as const;
+    if (order.shipmentStatus !== stage[kind]) return;
     const title = order.listing.title;
     const delivery = deliveryOf(order);
     const text: Record<typeof kind, [string, string]> = {

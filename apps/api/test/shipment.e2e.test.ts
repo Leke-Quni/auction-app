@@ -153,6 +153,7 @@ describe("shipments", () => {
     const [seller, buyer] = [await makePerson(), await makePerson()];
     const order = await paidOrder(buyer, seller);
     await api().post(`/orders/${order.id}/ship`).set(as(seller)).expect(201);
+    await emails.sweep();
 
     process.env.FAKE_CARRIER_IN_TRANSIT_SECONDS = "3600";
     process.env.FAKE_CARRIER_DELIVERED_SECONDS = "7200";
@@ -161,6 +162,7 @@ describe("shipments", () => {
     process.env.FAKE_CARRIER_IN_TRANSIT_SECONDS = "0";
     expect(await progress.advance(order.id)).toBe("IN_TRANSIT");
     expect(await progress.advance(order.id)).toBeNull();
+    await emails.sweep();
     let row = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
     expect(row.shipmentStatus).toBe("IN_TRANSIT");
     expect(row.inTransitAt).not.toBeNull();
@@ -217,5 +219,26 @@ describe("shipments", () => {
     expect((await api().put(`/orders/${order.id}/shipping`).set(as(buyer)).send({ ...body, trackingEmails: true }).expect(200)).body.trackingEmails).toBe(true);
     expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).trackingEmails).toBe(true);
     expect((await api().get(`/orders/${order.id}`).set(as(seller)).expect(200)).body).not.toHaveProperty("trackingEmails");
+  });
+
+  it("does not send an old 'on its way' or 'in transit' email once the parcel has moved on", async () => {
+    const [seller, buyer] = [await makePerson(), await makePerson()];
+    const order = await paidOrder(buyer, seller);
+    await api().post(`/orders/${order.id}/ship`).set(as(seller)).expect(201);
+    process.env.FAKE_CARRIER_IN_TRANSIT_SECONDS = "0";
+    process.env.FAKE_CARRIER_DELIVERED_SECONDS = "0";
+    await progress.advance(order.id);
+    // The shipped notice is still waiting (a retry that came due late), but the parcel is already delivered.
+    await prisma.pendingEndEmail.upsert({
+      where: { userId_listingId_kind: { userId: buyer.id, listingId: order.listingId, kind: "SHIPPED" } },
+      create: { userId: buyer.id, listingId: order.listingId, kind: "SHIPPED" },
+      update: { dueAt: new Date(Date.now() - 1000) },
+    });
+    const before = sent.length;
+    await emails.sweep();
+    const subjects = sent.slice(before).filter((m) => m.to === buyer.email && m.text.includes(`/orders/${order.id}`)).map((m) => m.subject);
+    expect(subjects.some((s) => s.includes("on its way"))).toBe(false);
+    expect(subjects.some((s) => s.includes("delivered"))).toBe(true);
+    expect(await prisma.pendingEndEmail.count({ where: { listingId: order.listingId, kind: "SHIPPED" } })).toBe(0);
   });
 });
