@@ -9,6 +9,13 @@ const STATUS_LABELS: Record<OrderView["status"], string> = {
   CANCELLED: "Cancelled",
 };
 
+const PAYOUT_LABELS: Record<NonNullable<OrderView["payout"]>["status"], string> = {
+  NOT_DELIVERED: "After delivery",
+  SCHEDULED: "Scheduled",
+  WAITING_FOR_ACCOUNT: "Waiting for you to set up payouts",
+  PAID: "Paid",
+};
+
 const SHIPMENT_LABELS: Record<NonNullable<OrderView["shipment"]>["status"], string> = {
   LABEL_CREATED: "Label created",
   IN_TRANSIT: "In transit",
@@ -42,6 +49,16 @@ export function OrderDetails({ order }: { order: OrderView }) {
     ["Status", STATUS_LABELS[order.status]],
     order.status === "PAID" && order.paidAt ? ["Paid", <LocalTime key="t" iso={order.paidAt} />] : ["Pay by", <LocalTime key="t" iso={order.payBy} />],
     ...(order.viewer === "buyer" && order.shipping ? ([["Tracking emails", order.trackingEmails ? "Yes" : "No"]] as [string, React.ReactNode][]) : []),
+    ...(order.viewer === "seller" && order.payout
+      ? ([
+          ["Payout", <span key="po" className="font-bold">{PAYOUT_LABELS[order.payout.status]}</span>],
+          ...(order.payout.status === "PAID" && order.payout.paidAt
+            ? ([["Paid out", <LocalTime key="pp" iso={order.payout.paidAt} />]] as [string, React.ReactNode][])
+            : order.payout.dueAt
+              ? ([["Payout due", <LocalTime key="pd" iso={order.payout.dueAt} />]] as [string, React.ReactNode][])
+              : []),
+        ] as [string, React.ReactNode][])
+      : []),
     ...(order.shipment
       ? ([
           ["Shipment", <span key="s" className="font-bold">{SHIPMENT_LABELS[order.shipment.status]}</span>],

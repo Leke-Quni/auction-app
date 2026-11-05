@@ -78,3 +78,19 @@ export async function saveShippingAndPayAction(orderId: string, address: Shippin
   const { url } = (await res.json()) as { url: string };
   redirect(url);
 }
+
+// Sends the seller to the payment provider's page to set up (or finish setting up) the account their payouts go to.
+// The order id is unused; it is only there so the function fits PayButton, which passes one to every action.
+export async function startPayoutOnboardingAction(orderId?: string): Promise<OrderActionState> {
+  void orderId;
+  if (!(await auth())) return { error: "Sign in to continue." };
+  let res: Response;
+  try {
+    res = await authedApiFetch("/me/payout-account/onboarding", { method: "POST" });
+  } catch {
+    return { error: "Could not reach the server. Try again." };
+  }
+  if (!res.ok) return { error: "We could not open the payment setup page. Try again in a moment." };
+  const { url } = (await res.json()) as { url: string };
+  redirect(url);
+}

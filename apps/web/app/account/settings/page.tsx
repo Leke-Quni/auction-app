@@ -6,12 +6,14 @@ import {
   updateProfileAction,
   updateUsernameAction,
 } from "@/app/actions";
+import { PayoutAccountSetting } from "@/app/payout-account-setting";
 import { PickupAddressSetting } from "@/app/pickup-address-setting";
 import { SettingRow } from "@/app/setting-row";
 import { auth } from "@/auth";
 import { authedApiFetch } from "@/lib/api";
 
-export default async function AccountSettingsPage() {
+export default async function AccountSettingsPage({ searchParams }: { searchParams: Promise<{ payouts?: string }> }) {
+  const { payouts } = await searchParams;
   if (!(await auth())) redirect("/sign-in");
   const res = await authedApiFetch("/me");
   if (res.status === 401) redirect("/sign-in");
@@ -19,6 +21,9 @@ export default async function AccountSettingsPage() {
   const me = await res.json();
   const pickupRes = await authedApiFetch("/me/pickup-address");
   const pickupAddress = pickupRes.ok ? (await pickupRes.json()).pickupAddress : null;
+  // Coming back from the payment provider, the account is asked about live; if it cannot be, the row is left out.
+  const payoutRes = await authedApiFetch("/me/payout-account").catch(() => null);
+  const payoutStatus = payoutRes?.ok ? (await payoutRes.json()).status : null;
   return (
     <div className="mx-auto max-w-sm space-y-2">
       <div className="flex items-baseline justify-between">
@@ -68,6 +73,7 @@ export default async function AccountSettingsPage() {
           ]}
         />
         <PickupAddressSetting address={pickupAddress} />
+        <PayoutAccountSetting status={payoutStatus} returned={payouts} />
       </div>
     </div>
   );
