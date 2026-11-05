@@ -169,6 +169,20 @@ describe("an admin removing a listing", () => {
     expect(await prisma.order.count({ where: { listingId: l.id, buyerId: b.id } })).toBe(1);
   });
 
+  it("keeps a removed listing as a record: the seller can neither delete it nor change its words or photos", async () => {
+    const admin = await person("ADMIN");
+    const seller = await person();
+    const l = await listing(seller.id);
+    await remove(admin, l.id, { reason: "Offensive text" }).expect(200);
+    const del = await request(url).delete(`/listings/${l.id}`).set(seller.auth).expect(409);
+    expect(del.body.message).toMatch(/moderator removed/);
+    expect(await prisma.listing.count({ where: { id: l.id } })).toBe(1);
+    await request(url).patch(`/listings/${l.id}`).set(seller.auth).send({ description: "The same offensive text again" }).expect(409);
+    await request(url).put(`/listings/${l.id}/images`).set(seller.auth).send({ images: [] }).expect(409);
+    expect((await prisma.listing.findUniqueOrThrow({ where: { id: l.id } })).description).toBe("For the admin removal tests.");
+    expect((await request(url).get(`/admin/listings/${l.id}`).set(admin.auth).expect(200)).body.removal.reason).toBe("Offensive text");
+  });
+
   it("lets a bid that is already in finish first, then closes with that bid counted and still no sale", async () => {
     const admin = await person("ADMIN");
     const seller = await person();
