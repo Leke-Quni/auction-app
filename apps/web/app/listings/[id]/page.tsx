@@ -16,7 +16,13 @@ import { WatchButton } from "../../watch-button";
 export default async function ListingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await auth();
-  const res = session ? await authedApiFetch(`/listings/${id}`) : await apiFetch(`/listings/${id}`);
+  // The listing, its latest bids and its questions are asked for together. A draft or a missing listing has no bids or questions,
+  // and those two answers are then ignored.
+  const [res, historyRes, questionsRes] = await Promise.all([
+    session ? authedApiFetch(`/listings/${id}`) : apiFetch(`/listings/${id}`),
+    apiFetch(`/listings/${id}/bids?limit=${BID_HISTORY_SHOWN}`),
+    (session ? authedApiFetch : apiFetch)(`/listings/${id}/questions`),
+  ]);
   if (res.status === 404) notFound();
   if (!res.ok) throw new Error(`API /listings/${id} failed: ${res.status}`);
   const listing = await res.json();
@@ -24,14 +30,11 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
   const viewerId = session?.user.id;
 
   const published = listing.status === "PUBLISHED";
-  // The winner and the seller of a sale are pointed to its order.
+  const history: { items: BidRow[]; total: number } = published && historyRes.ok ? await historyRes.json() : { items: [], total: 0 };
+  const questions: { items: QuestionItem[]; total: number } = published && questionsRes.ok ? await questionsRes.json() : { items: [], total: 0 };
+  // The winner and the seller of a sale are pointed to its order. This needs the listing's result, so it comes second.
   const ordersRes = session && (listing.outcome === "SOLD" || listing.outcome === "NO_SALE") ? await authedApiFetch(`/orders?listingId=${id}`) : null;
   const order: OrderView | undefined = ordersRes?.ok ? (await ordersRes.json())[0] : undefined;
-  const historyRes = published ? await apiFetch(`/listings/${id}/bids?limit=${BID_HISTORY_SHOWN}`) : null;
-  const history: { items: BidRow[]; total: number } = historyRes?.ok ? await historyRes.json() : { items: [], total: 0 };
-
-  const questionsRes = published ? await (session ? authedApiFetch : apiFetch)(`/listings/${id}/questions`) : null;
-  const questions: { items: QuestionItem[]; total: number } = questionsRes?.ok ? await questionsRes.json() : { items: [], total: 0 };
 
   // What the viewer sees once the auction is open. The page works out upcoming, live and ended itself as time passes.
   const openMode: BidMode | null = !published

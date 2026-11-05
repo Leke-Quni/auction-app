@@ -5,6 +5,9 @@ const RESEND_URL = "https://api.resend.com/emails";
 const TIMEOUT_MS = 10_000;
 // Resend answers 403 with this text when the sandbox sender is used for anyone but the account owner.
 const SANDBOX_REJECTION = /testing emails|own email address/i;
+// Sample accounts made by the seed script have addresses that can never receive mail. Sending to one is skipped, not failed,
+// so the live API does not retry it or fill its logs when sample auctions close.
+const SAMPLE_ADDRESS = /@seed\.local$/i;
 
 export class ResendMailSender implements MailSender {
   private readonly logger = new Logger("Mail");
@@ -16,6 +19,7 @@ export class ResendMailSender implements MailSender {
   ) {}
 
   async send(to: string, subject: string, text: string, attachments: MailAttachment[] = []) {
+    if (SAMPLE_ADDRESS.test(to)) return;
     const unavailable = () => new ServiceUnavailableException("We couldn't send the email. Try again.");
 
     let response: Response;

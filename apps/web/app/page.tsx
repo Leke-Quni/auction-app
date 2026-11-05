@@ -22,16 +22,18 @@ async function loadSection(section: "endingSoon" | "upcoming") {
 export default async function Home({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
   const { page: pageParam } = await searchParams;
   const page = Math.max(1, Number.parseInt(pageParam ?? "1", 10) || 1);
-  const [res, categories, topPriceCents] = await Promise.all([
+  // Everything the page needs is asked for at once: the sections do not depend on the list, only on this being page 1.
+  const [res, categories, topPriceCents, endingSoon, upcoming] = await Promise.all([
     apiFetch(`/listings?page=${page}&pageSize=${PAGE_SIZE}`),
     loadCategories(),
     loadTopPriceCents(),
+    page === 1 ? loadSection("endingSoon") : [],
+    page === 1 ? loadSection("upcoming") : [],
   ]);
   if (!res.ok) throw new Error(`API /listings failed: ${res.status}`);
   const { items, total }: { items: ListingSummary[]; total: number } = await res.json();
   const pages = pageCount(total, PAGE_SIZE);
   if (page > pages) redirect(pages === 1 ? "/" : `/?page=${pages}`);
-  const [endingSoon, upcoming] = page === 1 ? await Promise.all([loadSection("endingSoon"), loadSection("upcoming")]) : [[], []];
   const sections = [
     { title: "Ending soon", items: endingSoon },
     { title: "Upcoming", items: upcoming },

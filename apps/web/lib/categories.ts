@@ -1,4 +1,5 @@
-import { apiFetch } from "@/lib/api";
+import { cache } from "react";
+import { apiFetch, rarelyChanging } from "@/lib/api";
 
 export interface CategoryOption {
   id: string;
@@ -6,11 +7,12 @@ export interface CategoryOption {
   name: string;
 }
 
-export async function loadCategories(): Promise<CategoryOption[]> {
+// A fixed list of ten, so it is kept for an hour. `cache` makes the header and the page share one answer within a request.
+export const loadCategories = cache(async (): Promise<CategoryOption[]> => {
   try {
-    const res = await apiFetch("/categories");
+    const res = await apiFetch("/categories", rarelyChanging(3600));
     return res.ok ? res.json() : [];
   } catch {
     return [];
   }
-}
+});
