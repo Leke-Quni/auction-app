@@ -198,6 +198,8 @@ model Order {
   status         OrderStatus @default(AWAITING_PAYMENT)
   round          Int         @default(1)
   payBy          DateTime
+  // Set when the "24 hours left to pay" reminder has gone out, so the buyer gets it once.
+  payReminderSentAt DateTime?
   paidAt         DateTime?
   // The payment provider's checkout session for the latest attempt to pay.
   paymentRef     String?

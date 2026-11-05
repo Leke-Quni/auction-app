@@ -142,6 +142,8 @@ describe("helpers", () => {
       }) as NotificationItem;
     expect(describeItem(won())).toEqual({ heading: "You won the auction", text: "Brass lamp for €31.50. Pay now." });
     expect(describeItem(won(true)).heading).toBe("The item is yours to pay for");
+    const reminder = { ...won(), data: { ...won().data, reminder: true } } as NotificationItem;
+    expect(describeItem(reminder)).toEqual({ heading: "Less than 24 hours left to pay", text: "Pay for Brass lamp (€31.50) or it will be offered to someone else." });
     render(<NotificationBell initial={list([won()])} />);
     fireEvent.click(screen.getByRole("button", { name: /Notifications/ }));
     expect(screen.getByRole("menuitem").getAttribute("href")).toBe("/orders/o9");

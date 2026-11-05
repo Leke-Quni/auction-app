@@ -25,6 +25,7 @@ export function describe(item: NotificationItem): { heading: string; text: strin
     return { heading: "You've been outbid", text: `${item.title} is now at ${formatEur(item.data.currentBidCents)}.` };
   }
   if (item.type === "WON") {
+    if (item.data.reminder) return { heading: "Less than 24 hours left to pay", text: `Pay for ${item.title} (${formatEur(item.data.finalPriceCents)}) or it will be offered to someone else.` };
     return item.data.offered
       ? { heading: "The item is yours to pay for", text: `The first buyer of ${item.title} did not pay, so it is offered to you at ${formatEur(item.data.finalPriceCents)}. Pay now.` }
       : { heading: "You won the auction", text: `${item.title} for ${formatEur(item.data.finalPriceCents)}. Pay now.` };
