@@ -50,7 +50,7 @@ export default async function WatchlistPage({ searchParams }: { searchParams: Pr
           {shown.map((listing) => (
             <li key={listing.id} className="flex flex-col gap-1">
               {/* The card stretches to the tallest one in its row, so every "Stop watching" link lines up underneath. */}
-              <div className="flex-1 [&>a]:h-full">
+              <div className="flex flex-1 [&>a]:min-w-0 [&>a]:flex-1">
                 <ListingCard listing={listing} />
               </div>
               <form action={removeFromWatchlistAction}>
