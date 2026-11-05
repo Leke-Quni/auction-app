@@ -20,18 +20,18 @@ export function WatchButton({ listingId, watching, watcherCount }: { listingId: 
   };
 
   return (
-    <span className="inline-flex items-center gap-2">
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
       <button
         type="button"
         onClick={toggle}
         disabled={pending}
         aria-pressed={state.watching}
-        className={`cursor-pointer border px-3 py-1 font-bold disabled:opacity-60 ${state.watching ? "border-brand bg-brand text-white hover:bg-brand-dark" : "border-brand bg-white text-brand hover:bg-[#f0f0f0]"}`}
+        className={`cursor-pointer whitespace-nowrap border px-2.5 py-1 text-sm font-bold disabled:opacity-60 ${state.watching ? "border-brand bg-white text-brand hover:bg-[#f0f0f0]" : "border-brand bg-brand text-white hover:bg-brand-dark"}`}
       >
-        {state.watching ? "Watching" : "Watch"}
+        {state.watching ? "Remove from watchlist" : "Add to watchlist"}
       </button>
       <span className="text-xs text-muted">
-        {state.watcherCount} {state.watcherCount === 1 ? "watcher" : "watchers"}
+        {state.watcherCount} {state.watcherCount === 1 ? "person" : "people"} interested
       </span>
       {error && <span className="text-urgent">{error}</span>}
     </span>

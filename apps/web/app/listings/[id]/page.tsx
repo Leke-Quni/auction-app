@@ -72,22 +72,22 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
         </p>
       )}
       <h1 className="border border-line bg-white p-2 text-lg font-bold">{listing.title}</h1>
-      {published && (
-        <div>
-          {session && !isOwner && (listing.phase !== "ended" || listing.watching) ? (
-            <WatchButton key={`${listing.watching}-${listing.watcherCount}`} listingId={listing.id} watching={!!listing.watching} watcherCount={listing.watcherCount ?? 0} />
-          ) : (
-            <span className="text-xs text-muted">
-              {listing.watcherCount ?? 0} {listing.watcherCount === 1 ? "watcher" : "watchers"}
-            </span>
-          )}
-        </div>
-      )}
       <LiveAuction listingId={listing.id} snapshot={snapshot} connect={published && listing.phase !== "ended"}>
         {/* items-start: the photo is a square, and stretching it to the taller details column would widen its column. */}
         <div className="grid items-start gap-3 sm:grid-cols-[1fr_2fr]">
           <div className="min-w-0">
             <Gallery images={listing.images} alt={listing.title} />
+            {published && (
+              <div className="mt-2">
+                {session && !isOwner && (listing.phase !== "ended" || listing.watching) ? (
+                  <WatchButton key={`${listing.watching}-${listing.watcherCount}`} listingId={listing.id} watching={!!listing.watching} watcherCount={listing.watcherCount ?? 0} />
+                ) : (
+                  <span className="text-xs text-muted">
+                    {listing.watcherCount ?? 0} {listing.watcherCount === 1 ? "person" : "people"} interested
+                  </span>
+                )}
+              </div>
+            )}
           </div>
           <div className="min-w-0 space-y-3">
             <LiveDetails listing={listing} openMode={openMode} viewerId={viewerId} order={order} />
