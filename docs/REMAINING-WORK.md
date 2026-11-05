@@ -1,34 +1,54 @@
 # Remaining work
 
-Updated 2026-11-04, at the end of slice 5. `docs/DESIGN.md` is the source of truth for every decision; this file lists what is still to do, in the order to do it, plus the working rules.
+Updated 2026-11-05, during slice 7. `docs/DESIGN.md` is the source of truth for every decision; this file lists what is still to do, in the order to do it, plus the working rules.
 
 ## Where things stand
-Slices 1 to 4b are done and merged to `main`. Slice 5 (auction close and payment) is built, tested and pushed on branch `slice-5-close` (PR to be merged by the owner); `DESIGN.md` section 7 records every step. The API is deployed on Fly with the QStash secrets set and the Neon database migrated to all 30 migrations.
+Slices 1 to 6 are done and merged to `main` (slice 6 in PR #14). Slice 7 (admin) is in progress on branch `slice-7-admin`: step 1 (roles and bans read from the database on every request, `AdminGuard`, `GET /admin/me`) is committed; step 2 (the admin app shell, admin-only sign-in and the slate and indigo theme) is built and tested. `DESIGN.md` section 7 records every step.
 
-## 1. Slice 5 loose ends
-- **Not yet tried by hand in a browser:** payment expiry, the runner-up offer, the strike and the "the item is yours to pay for" toast (step 5). Try it by winning an auction, setting `payBy` in the past in the database, then missing a second payment and trying to bid. The delivery, payment and invoice flow was tried against Stripe test mode with Playwright.
-- **Production settings only the owner can set:**
-  - `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` on Fly, plus a Stripe webhook endpoint at `https://auction-api-leke.fly.dev/payments/stripe/webhook`. Until then production uses the fake payment provider.
-  - A verified Resend domain, so won, pay-now, "you did not win" and outbid emails reach people other than the Resend account owner (`MAIL_FROM` too).
-  - `REDIS_URL` (Upstash) on Fly, and `NEXT_PUBLIC_API_URL` on Vercel pointing at the Fly address. Deployed environments search Postgres until Typesense is hosted.
-  - Rotate the Neon password and the QStash token (both were shown in a chat while setting up), then `fly secrets set` the new values.
-- **Known small gaps, noted in `DESIGN.md`:** the unread count on an open page is not pushed when notifications expire; the won toast is not saved to the bell; sales that closed before orders existed have no order; sample users' `@seed.local` addresses would be emailed (and fail) if a real Resend key is set; a person cannot see their strikes except in the listing note and the email.
-- **Check section 3 of `DESIGN.md`** (close and payment) still matches what was built.
+Production is behind: the API on Fly and the Neon database were last set up at the end of slice 5 (30 migrations). The repository now has 37, and slice 6 and the slice 7 work are not deployed.
 
-## 2. Left over from earlier slices
+## 1. Slice 7: admin (what is left)
+Done-criteria are in `DESIGN.md` section 8. Build order (decided 2026-11-05), one step at a time:
+1. ~~Role and ban freshness in the API.~~ Done.
+2. ~~Admin app shell, admin-only sign-in, theme.~~ Built; commit it first.
+3. **Reports queue and `QuestionLog`.** List open `Report` rows (the reporter, reason, the words as written, `postedAt`, status `OPEN` or `HANDLED`, and the automatic `CONTACT_DETAILS` ones), mark one handled, and read `QuestionLog` (every post, edit and deletion). Handled reports are deleted by the existing clean-up 30 days later.
+4. **Moderation.** Remove a listing; ban and unban a user (`User.bannedAt`, `banReason`); clear a strike. A ban must also disconnect that user's open sockets and tell their open storefront pages what happened. Decide first (see section 4) what an admin removal does to a listing that already has bids.
+5. **An order with both addresses.** The admin reads the full order: the buyer's delivery address and phone, the seller's pickup address, the amounts and the payout.
+6. **Deploy the admin app** as its own Vercel project (`AUTH_SECRET` the same as the API, `API_URL`, `ADMIN_URL`) and make the first admin with `yarn workspace @auction/db make-admin <email>`.
+
+Decided: a ban does not hold back a seller's payout; the API checks the database for the role on every request; the admin theme is light, slate and indigo.
+
+## 2. Production and deploy (only the owner can do these)
+- **Run the 7 new migrations on Neon** (`yarn workspace @auction/db migrate:deploy` against the Neon `DATABASE_URL`) **before** deploying the new API.
+- **Stripe:** `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` on Fly, plus a webhook endpoint at `https://auction-api-leke.fly.dev/payments/stripe/webhook`. Until then production uses the fake payment provider. Payouts also need Connect and Accounts v2 enabled on the Stripe account and the platform's loss-liability acknowledgement accepted (Platform profile in the Dashboard); both were done on the test sandbox.
+- A verified Resend domain, so won, pay-now, shipping, ending-soon and outbid emails reach people other than the Resend account owner (`MAIL_FROM` too).
+- `REDIS_URL` (Upstash) on Fly, and `NEXT_PUBLIC_API_URL` on Vercel pointing at the Fly address. Deployed environments search Postgres until Typesense is hosted.
+- Rotate the Neon password and the QStash token (both were shown in a chat while setting up), then `fly secrets set` the new values.
+
+## 3. Loose ends
+**Not proven or not tried by hand**
+- **The EUR seller payout against real Stripe.** The owner's test sandbox is a US account that only holds USD, so Stripe refuses a EUR transfer there. Everything up to the transfer works (account creation, readiness, the sweep). It needs a platform that settles in EUR.
+- Payment expiry, the runner-up offer, the strike and the "the item is yours to pay for" notice (slice 5, step 5) have not been tried by hand in a browser: win an auction, set `payBy` in the past, then miss a second payment and try to bid.
+- "Set up payouts" opens Stripe's hosted onboarding page (it works on `http://localhost`, but the page has a captcha, so it cannot be scripted). Finishing it by hand through the app's own button has not been done end to end.
+
+**Small gaps, by choice**
+- Payout: no Stripe webhook for account changes (the account is asked about live), no email nudging a seller who has not set up payouts, and no early release on buyer confirmation (decided: timer only, 3 days after delivery). The transfer is not tied to the buyer's charge when that charge settled in a non-EUR currency, and nothing handles a refund or dispute after payment.
+- Shipping updates are emails only, opt-in, and not in the bell. Two simultaneous "Mark as shipped" clicks could both reach a real carrier (harmless with the fake one; a real carrier must dedupe by order id).
+- The "ending soon" reminder is not moved when anti-sniping extends an auction, and a 1-day auction can never send one (its last 24 hours are already running when it starts).
+- The unread count on an open page is not pushed when notifications expire; sales that closed before orders existed have no order; a person cannot see their strikes except in the listing note and the email; sample users' `@seed.local` addresses would be emailed (and fail) if a real Resend key is set.
+- No seeded demo orders or ratings, so a fresh seeded database has nothing delivered to rate.
+- Rating comments have no report or moderation path yet (see section 4).
+
+**Earlier slices**
 - **Database connection pool and timeouts.** `packages/db/src/index.ts` uses the default pool, and a bid waits up to 15 seconds for the row lock. Set an explicit pool size, then test a burst of bids on one hot auction to check that other requests still get through.
-- **Sockets after a token expires or a user is banned.** The sign-in token is checked only when a socket connects, so an old socket keeps its private room. Handle this in slice 7 (admin) with the role freshness decision below.
-- **Playwright end-to-end tests** (sign up, list, bid, win, pay) are in the quality plan (`DESIGN.md` section 6) but not in the repo. The pay step now works end to end, so this can be added.
+- **Banned users on the storefront.** A banned user with a session already open gets the API's 403 `BANNED` on every call, and the storefront has no page for it (it shows errors). Show a clear "this account has been suspended" page and end the session. Do this with step 4.
+- **Playwright end-to-end tests are not in the repo.** The browser checks written during slices 6 and 7 (sign up, rating, watchlist, notifications, orders, admin sign-in) were run from throwaway scripts. Turn them into a committed Playwright suite (`DESIGN.md` section 6), including sign up, list, bid, win and pay.
+- **Flaky tests under a full run.** `full-workflow` and a few others occasionally fail in a full API run and always pass alone. The likely cause (not proven) is that the test files share one database and run in parallel, so one file's background email sweep can send another file's pending emails through the wrong fake sender. Running API test files one at a time would probably fix it, at roughly twice the run time.
 
-## 3. Slice 6: shipping, payout, watchlist, ratings
-Done-criteria are in `DESIGN.md` section 8. Build one step at a time, in this order: (1) shipping and payout: the seller marks a paid order shipped, the fake carrier (`ShippingProvider`) moves it `label created → in transit → delivered` on a timer, shipping-update emails, and the payout released 3 days after delivery or on the buyer's confirmation through `PaymentProvider.payout` (decide first what a payout is while sellers have no Stripe onboarding: record it as paid with no money moving, or Stripe Connect test mode); (2) watchlist and "ending soon" emails; (3) seller profiles with post-sale ratings from the buyer.
-
-## 4. Slice 7: admin
-Done-criteria are in `DESIGN.md` section 8. Decide **role freshness** first (how the API gets a current role so a demoted admin or banned user loses access) and choose the admin theme. Then `apps/admin` (a separate Next.js app and Vercel project, no public sign-up, admin-only API routes guarded by `ADMIN`): moderation (remove listings, ban users), the reports queue (handled reports are deleted by the clean-up 30 days later), clearing strikes, reading `QuestionLog` and `Report`, and an order with both addresses. Decide whether a ban holds back a seller's payout.
-
-## 5. Open decisions still to make (from `DESIGN.md` section 7)
+## 4. Open decisions still to make (from `DESIGN.md` section 7)
+- **An admin removing a listing that has bids.** A seller cannot remove one (the database refuses), and a listing with a bid must name its high bidder. Decide what an admin removal does: refuse, end the auction early with no sale, or cancel it and tell the bidders.
+- **Rating comments.** Whether they get the same report button and queue as questions and answers, or admin-only removal. Decide in slice 7 step 3 or 4.
 - Query library for server data: React Query or SWR.
-- Role freshness (see slice 7).
 - Username squatting: a cleanup rule for stale unverified accounts, before launch.
 - Whether to keep `BidAudit` rows for ever (no clean-up exists).
 
