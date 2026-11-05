@@ -4,7 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 // The sections that exist so far. Each step of slice 7 adds its own.
-const ITEMS = [{ href: "/", label: "Overview" }];
+const ITEMS = [
+  { href: "/", label: "Overview" },
+  { href: "/reports", label: "Reports" },
+  { href: "/question-log", label: "Question log" },
+];
 
 export function Nav() {
   const pathname = usePathname();
