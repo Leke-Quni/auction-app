@@ -148,5 +148,5 @@ export function deliveryOptions(itemCents: number, rule: DeliveryRule = DEFAULT_
   return DELIVERY_OPTIONS.map(({ extraCents, ...option }) => ({ ...option, priceCents: base + extraCents }));
 }
 
-export const saveShippingSchema = z.object({ address: shippingAddressSchema, optionId: z.string().min(1).max(100) });
+export const saveShippingSchema = z.object({ address: shippingAddressSchema, optionId: z.string().min(1).max(100), trackingEmails: z.boolean().default(false) });
 export type SaveShippingInput = z.infer<typeof saveShippingSchema>;

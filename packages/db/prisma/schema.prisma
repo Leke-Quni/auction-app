@@ -186,6 +186,14 @@ model Order {
   pickupAddress   Json?
   // Assigned once, when the order becomes PAID (from the InvoiceNumberSeq sequence), as INV-<year>-<number>.
   invoiceNumber   String?     @unique
+  // Set when the seller marks a paid order shipped; the fake carrier then moves it on. Null until shipped.
+  // Whether the buyer asked, when choosing delivery, for emails about the parcel's progress. Off unless ticked.
+  trackingEmails  Boolean     @default(false)
+  shipmentStatus  ShipmentStatus?
+  trackingCode    String?
+  shippedAt       DateTime?
+  inTransitAt     DateTime?
+  deliveredAt     DateTime?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -193,6 +201,13 @@ model Order {
   @@index([buyerId])
   @@index([sellerId])
   @@index([status, payBy])
+  @@index([shipmentStatus])
+}
+
+enum ShipmentStatus {
+  LABEL_CREATED
+  IN_TRANSIT
+  DELIVERED
 }
 
 enum ListingOutcome {
@@ -295,6 +310,10 @@ enum EndEmailKind {
   // After payment: the buyer's confirmation with the invoice, and the seller's "sold, ship to" notice.
   PAID
   SOLD
+  // Shipping updates for the buyer.
+  SHIPPED
+  IN_TRANSIT
+  DELIVERED
 }
 
 enum NotificationType {

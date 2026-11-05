@@ -4,6 +4,7 @@ import { HttpException, HttpStatus, Inject, Injectable, Logger } from "@nestjs/c
 import { PRISMA, type Prisma } from "../db/db.module";
 import { FakePaymentProvider } from "../payments/fake-payment-provider";
 import { PAYMENT_PROVIDER, type PaymentProvider } from "../payments/payment-provider";
+import { SHIPPING_PROVIDER, type ShippingProvider } from "../shipping/shipping-provider";
 import { deliveryOf, invoiceDataOf, renderInvoice } from "./invoice";
 
 const STATUS: Record<OrderRefusal, HttpStatus> = {
@@ -14,6 +15,8 @@ const STATUS: Record<OrderRefusal, HttpStatus> = {
   SHIPPING_REQUIRED: HttpStatus.CONFLICT,
   SHIPPING_OPTION_UNAVAILABLE: HttpStatus.CONFLICT,
   NOT_PAID: HttpStatus.CONFLICT,
+  NOT_SELLER: HttpStatus.FORBIDDEN,
+  ALREADY_SHIPPED: HttpStatus.CONFLICT,
 };
 const refuse = (code: OrderRefusal) => new HttpException({ code, message: ORDER_REFUSAL_MESSAGES[code] }, STATUS[code]);
 
@@ -34,6 +37,7 @@ export class OrdersService {
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
     @Inject(PAYMENT_PROVIDER) private readonly payments: PaymentProvider,
+    @Inject(SHIPPING_PROVIDER) private readonly carrier: ShippingProvider,
   ) {}
 
   // Only the buyer and the seller can see an order; anyone else is told it does not exist.
@@ -200,7 +204,7 @@ export class OrdersService {
       const totalCents = order.amountCents + option.priceCents;
       await tx.order.update({
         where: { id: orderId },
-        data: { shippingAddress: input.address, shippingOption: { ...option }, shippingCents: option.priceCents, totalCents },
+        data: { shippingAddress: input.address, shippingOption: { ...option }, shippingCents: option.priceCents, totalCents, trackingEmails: input.trackingEmails },
       });
       // Saving the same delivery again (a second tab, a retry) changes nothing the payment page shows, so an open page stays.
       return order.totalCents === totalCents ? [] : order.paymentRefs;
@@ -212,6 +216,36 @@ export class OrdersService {
         this.log.error(`Could not close session ${ref} of order ${orderId}: ${(error as Error).message}`);
       }
     }
+    return this.get(userId, orderId);
+  }
+
+  // The seller hands a paid order to the carrier: the carrier creates the label, the order is marked LABEL_CREATED and the
+  // buyer is owed a "shipped" email. The update only matches a paid order that has not been shipped, so a double click or a
+  // second tab changes nothing twice (the second answers ALREADY_SHIPPED).
+  async ship(userId: string, orderId: string): Promise<OrderView> {
+    const order = await this.find(userId, orderId);
+    if (order.sellerId !== userId) throw refuse("NOT_SELLER");
+    if (order.status !== "PAID") throw refuse("NOT_PAID");
+    if (order.shipmentStatus) throw refuse("ALREADY_SHIPPED");
+    const delivery = deliveryOf(order);
+    if (!delivery) throw refuse("NOT_PAID");
+    const label = await this.carrier.createLabel({ orderId, pickup: (order.pickupAddress as ShippingAddress | null) ?? null, delivery: delivery.address as ShippingAddress, optionId: delivery.optionId });
+    const marked = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.order.updateMany({
+        where: { id: orderId, status: "PAID", shipmentStatus: null },
+        data: { shipmentStatus: "LABEL_CREATED", trackingCode: label.trackingCode, shippedAt: new Date() },
+      });
+      if (result.count === 0) return false;
+      if (order.trackingEmails) {
+        await tx.pendingEndEmail.upsert({
+          where: { userId_listingId_kind: { userId: order.buyerId, listingId: order.listingId, kind: "SHIPPED" } },
+          create: { userId: order.buyerId, listingId: order.listingId, kind: "SHIPPED" },
+          update: {},
+        });
+      }
+      return true;
+    });
+    if (!marked) throw refuse("ALREADY_SHIPPED");
     return this.get(userId, orderId);
   }
 
@@ -262,6 +296,10 @@ export class OrdersService {
       shipping: this.shippingFor(order, seller),
       totalCents: seller ? null : order.totalCents, // what the buyer paid in all is the buyer's business
       invoiceNumber: order.invoiceNumber,
+      ...(seller ? {} : { trackingEmails: order.trackingEmails }),
+      shipment: order.shipmentStatus && order.trackingCode && order.shippedAt
+        ? { status: order.shipmentStatus, trackingCode: order.trackingCode, shippedAt: order.shippedAt.toISOString(), inTransitAt: order.inTransitAt?.toISOString() ?? null, deliveredAt: order.deliveredAt?.toISOString() ?? null }
+        : null,
       ...(seller && order.pickupAddress ? { pickupAddress: order.pickupAddress as ShippingAddress } : {}),
       ...(seller ? { feeCents: order.feeCents, sellerNetCents: order.sellerNetCents } : {}),
     };

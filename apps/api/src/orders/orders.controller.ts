@@ -42,6 +42,11 @@ export class OrdersController {
     return this.orders.checkout(req.user.id, id);
   }
 
+  @Post(":id/ship")
+  ship(@Req() req: { user: AuthUser }, @Param("id") id: string) {
+    return this.orders.ship(req.user.id, id);
+  }
+
   @Post(":id/confirm")
   confirm(@Req() req: { user: AuthUser }, @Param("id") id: string) {
     return this.orders.confirm(req.user.id, id);
