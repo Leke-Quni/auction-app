@@ -1,5 +1,5 @@
 import Stripe from "stripe";
-import { webUrl } from "../config";
+import { connectAccountCountry, webUrl } from "../config";
 import type { CheckoutRequest, CheckoutSession, PaymentProvider } from "./payment-provider";
 
 // Stripe Checkout (hosted page) in the account's mode: test keys (`sk_test_`) mean test mode. The buyer pays on Stripe's
@@ -68,10 +68,58 @@ export class StripePaymentProvider implements PaymentProvider {
     }
   }
 
-  // Paying a seller needs a connected Stripe account for them, and sellers have no onboarding yet. Slice 6 (shipping and
-  // payout) decides how sellers are paid, so this refuses rather than pretend.
-  async payout(): Promise<void> {
-    throw new Error("Seller payouts through Stripe are not built yet (slice 6)");
+  // Sellers are paid by separate charges and transfers: the buyer paid the platform, and the seller's share is moved to
+  // their connected account later. Recipient accounts with the Express dashboard, the platform owning fees and losses.
+  async createPayoutAccount(request: { sellerId: string; email: string; displayName: string }) {
+    const account = await this.stripe.v2.core.accounts.create(
+      {
+        contact_email: request.email,
+        display_name: request.displayName,
+        dashboard: "express",
+        defaults: { responsibilities: { fees_collector: "application", losses_collector: "application" } },
+        identity: { country: connectAccountCountry() as "de" },
+        // Stripe refuses stripe_transfers for an account in the platform's own region unless card_payments is requested too
+        // (the full service agreement); the account is never used to take card payments.
+        configuration: {
+          recipient: { capabilities: { stripe_balance: { stripe_transfers: { requested: true } } } },
+          merchant: { capabilities: { card_payments: { requested: true } } },
+        },
+      },
+      // The key makes a repeat call (the answer was lost) find the same account instead of making another.
+      { idempotencyKey: `payout_account_${request.sellerId}` },
+    );
+    return { accountId: account.id };
+  }
+
+  async createOnboardingLink(request: { accountId: string; returnUrl: string; refreshUrl: string }) {
+    const link = await this.stripe.v2.core.accountLinks.create({
+      account: request.accountId,
+      use_case: { type: "account_onboarding", account_onboarding: { return_url: request.returnUrl, refresh_url: request.refreshUrl } },
+    });
+    return { url: link.url };
+  }
+
+  async isPayoutAccountReady(accountId: string) {
+    const account = await this.stripe.v2.core.accounts.retrieve(accountId, { include: ["configuration.recipient"] });
+    return account.configuration?.recipient?.capabilities?.stripe_balance?.stripe_transfers?.status === "active";
+  }
+
+  async payout(request: { orderId: string; sellerId: string; accountId: string; amountCents: number; paymentRef: string }) {
+    const session = await this.stripe.checkout.sessions.retrieve(request.paymentRef, { expand: ["payment_intent.latest_charge.balance_transaction"] });
+    const intent = session.payment_intent;
+    const charge = typeof intent === "object" && intent ? intent.latest_charge : null;
+    if (!charge || typeof charge === "string") throw new Error(`Order ${request.orderId} has no charge to pay the seller from`);
+    const balance = typeof charge.balance_transaction === "object" ? charge.balance_transaction : null;
+    // Tied to the buyer's charge, so the transfer waits for those funds to be available. Stripe only allows that when the
+    // charge settled in the transfer's currency; an account that settles in another currency (a sandbox set to USD, say)
+    // pays from its available balance instead, and the transfer fails until the charge's money has cleared (it is retried).
+    const tied = balance?.currency === "eur" ? { source_transaction: charge.id } : {};
+    // The key makes a repeat call pay once.
+    const transfer = await this.stripe.transfers.create(
+      { amount: request.amountCents, currency: "eur", destination: request.accountId, transfer_group: `order_${request.orderId}`, ...tied },
+      { idempotencyKey: `payout_${request.orderId}` },
+    );
+    return { reference: transfer.id };
   }
 
   // Checks the signature on a webhook call against the exact bytes Stripe sent, and returns the event. Throws if the

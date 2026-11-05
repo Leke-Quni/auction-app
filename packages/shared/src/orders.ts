@@ -62,6 +62,8 @@ export interface OrderView {
   trackingEmails?: boolean;
   // Null until the seller marks the paid order shipped.
   shipment: OrderShipment | null;
+  // The seller's payout for a paid order (never sent to the buyer).
+  payout?: OrderPayout;
   feeCents?: number;
   sellerNetCents?: number;
   // Where the carrier collects the item. Only the seller is sent it.
@@ -79,6 +81,18 @@ export interface OrderShipping {
   // The delivery price. Only the buyer is sent it: the seller never sees what the buyer paid for delivery.
   priceCents?: number;
 }
+
+// What a seller is told about getting paid for a paid order. Only the seller is sent it.
+export interface OrderPayout {
+  // SCHEDULED: due after the delivery delay. WAITING_FOR_ACCOUNT: due, but the seller has not set up their payment account.
+  status: "NOT_DELIVERED" | "SCHEDULED" | "WAITING_FOR_ACCOUNT" | "PAID";
+  // When it becomes due (3 days after delivery); null until the parcel is delivered.
+  dueAt: string | null;
+  paidAt: string | null;
+  amountCents: number;
+}
+
+export type PayoutAccountStatus = "NOT_STARTED" | "PENDING" | "READY";
 
 export interface OrderShipment {
   status: ShipmentStatus;

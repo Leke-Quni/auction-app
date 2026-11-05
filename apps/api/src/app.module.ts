@@ -8,6 +8,7 @@ import { HealthController } from "./health/health.controller";
 import { JobSchedulerModule } from "./jobs/job-scheduler.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { ShippingModule } from "./shipping/shipping.module";
+import { PayoutsModule } from "./payouts/payouts.module";
 import { OrdersModule } from "./orders/orders.module";
 import { NotificationsModule } from "./notifications/notifications.module";
 import { ListingsModule } from "./listings/listings.module";
@@ -19,7 +20,7 @@ import { SearchModule } from "./search/search.module";
 import { UsersModule } from "./users/users.module";
 
 @Module({
-  imports: [DbModule, JobSchedulerModule, RateLimitModule, EmailModule, SearchModule, AuthModule, UsersModule, ListingsModule, BidsModule, AuctionsModule, PaymentsModule, ShippingModule, OrdersModule, NotificationsModule, QuestionsModule, RealtimeModule, JobsModule],
+  imports: [DbModule, JobSchedulerModule, RateLimitModule, EmailModule, SearchModule, AuthModule, UsersModule, ListingsModule, BidsModule, AuctionsModule, PaymentsModule, ShippingModule, OrdersModule, PayoutsModule, NotificationsModule, QuestionsModule, RealtimeModule, JobsModule],
   controllers: [HealthController],
 })
 export class AppModule {}

@@ -1,10 +1,11 @@
-import { ORDER_REFUSAL_MESSAGES, deliveryOptions, type OrderRefusal, type OrderView, type SaveShippingInput, type ShippingAddress, type ShippingOption } from "@auction/shared";
+import { ORDER_REFUSAL_MESSAGES, deliveryOptions, type OrderPayout, type OrderRefusal, type OrderView, type SaveShippingInput, type ShippingAddress, type ShippingOption } from "@auction/shared";
 import { deliveryRule } from "../config";
 import { HttpException, HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { FakePaymentProvider } from "../payments/fake-payment-provider";
 import { PAYMENT_PROVIDER, type PaymentProvider } from "../payments/payment-provider";
 import { SHIPPING_PROVIDER, type ShippingProvider } from "../shipping/shipping-provider";
+import { payoutDelayDays } from "../config";
 import { deliveryOf, invoiceDataOf, renderInvoice } from "./invoice";
 
 const STATUS: Record<OrderRefusal, HttpStatus> = {
@@ -27,7 +28,8 @@ const testPaymentsAllowed = () => [undefined, "development", "test"].includes(pr
 const include = {
   listing: { select: { title: true } },
   buyer: { select: { id: true, username: true, email: true } },
-  seller: { select: { id: true, username: true } },
+  seller: { select: { id: true, username: true, payoutAccountId: true } },
+  payout: true,
 } as const;
 
 @Injectable()
@@ -302,7 +304,17 @@ export class OrdersService {
         : null,
       ...(seller && order.pickupAddress ? { pickupAddress: order.pickupAddress as ShippingAddress } : {}),
       ...(seller ? { feeCents: order.feeCents, sellerNetCents: order.sellerNetCents } : {}),
+      ...(seller && order.status === "PAID" ? { payout: this.payoutFor(order) } : {}),
     };
+  }
+
+  private payoutFor(order: Awaited<ReturnType<OrdersService["find"]>>): OrderPayout {
+    const dueAt = order.deliveredAt ? new Date(order.deliveredAt.getTime() + payoutDelayDays() * 86_400_000) : null;
+    const base = { dueAt: dueAt?.toISOString() ?? null, amountCents: order.sellerNetCents };
+    if (order.payout) return { ...base, status: "PAID", paidAt: order.payout.paidAt.toISOString() };
+    // Without a payment account there is nothing to wait for but the seller, so they are asked before the parcel arrives.
+    if (!order.seller.payoutAccountId) return { ...base, status: "WAITING_FOR_ACCOUNT", paidAt: null };
+    return { ...base, status: dueAt ? "SCHEDULED" : "NOT_DELIVERED", paidAt: null };
   }
 
   // The buyer sees the whole delivery address and its price; the seller only the city and country, as our carrier handles the delivery.

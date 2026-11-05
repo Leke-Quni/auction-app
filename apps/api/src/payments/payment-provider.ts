@@ -29,6 +29,14 @@ export interface PaymentProvider {
   expireCheckout(sessionId: string): Promise<void>;
   // Gives the money back for a paid session. Safe to call again: a session is refunded once.
   refund(sessionId: string): Promise<void>;
-  // Pays the seller their share of a sale. Declared now and used by the shipping work in slice 6.
-  payout(request: { orderId: string; sellerId: string; amountCents: number }): Promise<void>;
+  // A seller's connected account, where their share is paid. Created once per seller; asking again with the same seller
+  // returns the same account.
+  createPayoutAccount(request: { sellerId: string; email: string; displayName: string }): Promise<{ accountId: string }>;
+  // A single-use page where the seller gives the provider what it needs to pay them (identity, bank account).
+  createOnboardingLink(request: { accountId: string; returnUrl: string; refreshUrl: string }): Promise<{ url: string }>;
+  // Whether the provider can pay this account now (onboarding finished and not restricted).
+  isPayoutAccountReady(accountId: string): Promise<boolean>;
+  // Pays the seller their share of a paid order, taken from the buyer's payment (`paymentRef`, the checkout session).
+  // Safe to call again for the same order: the provider pays once.
+  payout(request: { orderId: string; sellerId: string; accountId: string; amountCents: number; paymentRef: string }): Promise<{ reference: string }>;
 }

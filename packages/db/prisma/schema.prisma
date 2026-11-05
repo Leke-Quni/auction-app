@@ -24,6 +24,8 @@ model User {
   role                Role                 @default(USER)
   // The seller's default pickup address and contact; each listing starts from it and may change it.
   pickupAddress       Json?
+  // The seller's connected payment account at the payment provider, created when they first ask to get paid.
+  payoutAccountId     String?             @unique
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   loginCodes          LoginCode[]
@@ -194,6 +196,7 @@ model Order {
   shippedAt       DateTime?
   inTransitAt     DateTime?
   deliveredAt     DateTime?
+  payout          Payout?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -202,6 +205,20 @@ model Order {
   @@index([sellerId])
   @@index([status, payBy])
   @@index([shipmentStatus])
+}
+
+// A seller's share of a delivered order, paid out through the PaymentProvider. One row per order, written only once the
+// money has gone; `reference` is the provider's id for the transfer.
+model Payout {
+  id          String   @id @default(cuid())
+  orderId     String   @unique
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  sellerId    String
+  amountCents Int
+  reference   String
+  paidAt      DateTime @default(now())
+
+  @@index([sellerId])
 }
 
 enum ShipmentStatus {
@@ -314,6 +331,8 @@ enum EndEmailKind {
   SHIPPED
   IN_TRANSIT
   DELIVERED
+  // The seller's share has been paid out.
+  PAYOUT
 }
 
 enum NotificationType {

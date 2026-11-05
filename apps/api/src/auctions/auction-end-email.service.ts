@@ -12,7 +12,7 @@ const SWEEP_EVERY_MS = 30_000;
 // A send holds its row this long; if the machine stops mid-send the row comes due again afterwards.
 const LEASE_MS = 2 * 60_000;
 const MAX_ATTEMPTS = 3;
-type EndEmailKind = "LOST" | "WON" | "PAID" | "SOLD" | "EXPIRED" | "NOT_PAID" | "SHIPPED" | "IN_TRANSIT" | "DELIVERED";
+type EndEmailKind = "LOST" | "WON" | "PAID" | "SOLD" | "EXPIRED" | "NOT_PAID" | "SHIPPED" | "IN_TRANSIT" | "DELIVERED" | "PAYOUT";
 
 // Sends every bidder who did not win one email when the auction ends, with the final price. The rows are written by the
 // close itself (see AuctionCloseService), so this only has to send what is due: a row is claimed by moving its due time
@@ -97,6 +97,7 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
   private async send(userId: string, listingId: string, kind: EndEmailKind) {
     if (kind === "PAID" || kind === "SOLD") return this.sendPaid(userId, listingId, kind);
     if (kind === "EXPIRED" || kind === "NOT_PAID") return this.sendExpired(userId, listingId, kind);
+    if (kind === "PAYOUT") return this.sendPayout(userId, listingId);
     if (kind === "SHIPPED" || kind === "IN_TRANSIT" || kind === "DELIVERED") return this.sendShipping(userId, listingId, kind);
     const [listing, user] = await Promise.all([
       this.prisma.listing.findUnique({ where: { id: listingId }, select: { title: true, outcome: true, currentBidCents: true, finalPriceCents: true } }),
@@ -181,6 +182,25 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
       `${webUrl()}/orders/${order.id}`,
     ];
     await this.mail.send(order.buyer.email, `Payment completed: ${order.listing.title}`, lines.join("\n"), [{ filename: `${data.invoiceNumber}.pdf`, content: await renderInvoice(data) }]);
+  }
+
+  // The seller's share has been paid out.
+  private async sendPayout(userId: string, listingId: string) {
+    const order = await this.prisma.order.findFirst({
+      where: { listingId, sellerId: userId, payout: { isNot: null } },
+      include: { listing: { select: { title: true } }, seller: { select: { email: true } }, payout: true },
+    });
+    if (!order?.payout) return;
+    const title = order.listing.title;
+    const lines = [
+      `Your payout for "${title}" has been sent: ${formatEur(order.payout.amountCents)}.`,
+      "",
+      `That is the ${formatEur(order.amountCents)} price less the ${formatEur(order.feeCents)} platform fee.`,
+      `Reference: ${order.payout.reference}`,
+      "",
+      `${webUrl()}/orders/${order.id}`,
+    ];
+    await this.mail.send(order.seller.email, `You have been paid for ${title}`, lines.join("\n"));
   }
 
   // The buyer's shipping updates: the seller handed the item over, the carrier has it, it was delivered. Sent only while the
