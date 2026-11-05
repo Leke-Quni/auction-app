@@ -34,4 +34,27 @@ describe("assertSafeToSeed", () => {
     expect(() => assertSafeToSeed({})).toThrow(/DATABASE_URL is not set/);
     expect(() => assertSafeToSeed({ DATABASE_URL: "not a url" })).toThrow(/not a valid URL/);
   });
+
+  describe("a remote database, on purpose", () => {
+    const remote = "postgresql://owner:s3cret-password@ep-cool-name-123.eu-central-1.aws.neon.tech/neondb?sslmode=require";
+    const host = "ep-cool-name-123.eu-central-1.aws.neon.tech";
+
+    it("needs both flags, and the host typed back exactly", () => {
+      expect(() => assertSafeToSeed({ DATABASE_URL: remote }, { allowRemote: true })).toThrow(/--confirm-host must be exactly/);
+      expect(() => assertSafeToSeed({ DATABASE_URL: remote }, { confirmHost: host })).toThrow(/--allow-remote --confirm-host ep-cool/);
+      expect(() => assertSafeToSeed({ DATABASE_URL: remote }, { allowRemote: true, confirmHost: "ep-other.neon.tech" })).toThrow(/exactly/);
+      expect(() => assertSafeToSeed({ DATABASE_URL: remote }, { allowRemote: true, confirmHost: host })).not.toThrow();
+    });
+
+    it("still refuses in production, and never prints the password", () => {
+      expect(() => assertSafeToSeed({ NODE_ENV: "production", DATABASE_URL: remote }, { allowRemote: true, confirmHost: host })).toThrow(/NODE_ENV is production/);
+      for (const options of [{}, { allowRemote: true }, { allowRemote: true, confirmHost: "x" }]) {
+        try {
+          assertSafeToSeed({ DATABASE_URL: remote }, options);
+        } catch (error) {
+          expect(String(error)).not.toContain("s3cret-password");
+        }
+      }
+    });
+  });
 });

@@ -35,8 +35,7 @@ Decided: a ban does not hold back a seller's payout; the API checks the database
 - Payout: no Stripe webhook for account changes (the account is asked about live), no email nudging a seller who has not set up payouts, and no early release on buyer confirmation (decided: timer only, 3 days after delivery). The transfer is not tied to the buyer's charge when that charge settled in a non-EUR currency, and nothing handles a refund or dispute after payment.
 - Shipping updates are emails only, opt-in, and not in the bell. Two simultaneous "Mark as shipped" clicks could both reach a real carrier (harmless with the fake one; a real carrier must dedupe by order id).
 - The "ending soon" reminder is not moved when anti-sniping extends an auction, and a 1-day auction can never send one (its last 24 hours are already running when it starts).
-- The unread count on an open page is not pushed when notifications expire; sales that closed before orders existed have no order; a person cannot see their strikes except in the listing note and the email; sample users' `@seed.local` addresses would be emailed (and fail) if a real Resend key is set.
-- No seeded demo orders or ratings, so a fresh seeded database has nothing delivered to rate.
+- The unread count on an open page is not pushed when notifications expire; sales that closed before orders existed have no order; a person cannot see their strikes except in the listing note and the email.
 - Rating comments have no report or moderation path yet (see section 4).
 
 **Earlier slices**
