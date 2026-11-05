@@ -5,7 +5,7 @@ import type {
   SignInInput,
   SignUpInput,
 } from "@auction/shared";
-import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import bcrypt from "bcryptjs";
 import { createHash, randomBytes } from "node:crypto";
 import { loginCodeCooldownSeconds, webUrl } from "../config";
@@ -64,6 +64,8 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { email: input.email.toLowerCase() } });
     const passwordMatches = await bcrypt.compare(input.password, user?.passwordHash ?? DUMMY_HASH);
     if (!user || !passwordMatches) throw new UnauthorizedException("Invalid email or password");
+    // Said only after the right password, so it tells a stranger nothing about who has an account.
+    if (user.bannedAt) throw new ForbiddenException({ code: "BANNED", message: "This account has been suspended." });
 
     await this.assertCodeCooldown(user.id);
     await this.sendLoginCode(user);
@@ -100,7 +102,7 @@ export class AuthService {
   async verifyLoginCode(input: LoginCodeInput) {
     const invalid = () => new UnauthorizedException("Invalid or expired code");
     const user = await this.prisma.user.findUnique({ where: { email: input.email.toLowerCase() } });
-    if (!user) throw invalid();
+    if (!user || user.bannedAt) throw invalid();
 
     const record = await this.prisma.loginCode.findFirst({ where: { userId: user.id }, orderBy: { createdAt: "desc" } });
     if (!record || record.expiresAt < new Date() || record.attempts >= MAX_CODE_ATTEMPTS) throw invalid();

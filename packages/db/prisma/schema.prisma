@@ -22,6 +22,9 @@ model User {
   passwordHash        String
   emailVerified       DateTime?
   role                Role                 @default(USER)
+  // Set by an admin: the person cannot sign in or use the API. Checked on every request, so it takes effect at once.
+  bannedAt            DateTime?
+  banReason           String?
   // The seller's default pickup address and contact; each listing starts from it and may change it.
   pickupAddress       Json?
   // The seller's connected payment account at the payment provider, created when they first ask to get paid.
