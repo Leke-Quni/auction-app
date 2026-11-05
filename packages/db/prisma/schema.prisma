@@ -200,6 +200,9 @@ model Order {
   payBy          DateTime
   // Set when the "24 hours left to pay" reminder has gone out, so the buyer gets it once.
   payReminderSentAt DateTime?
+  // A sweep that is sending the reminder holds this lease; if the machine stops before it finishes, the lease runs out and the
+  // next sweep sends it, so the reminder is delayed and never lost.
+  payReminderClaimedAt DateTime?
   paidAt         DateTime?
   // The payment provider's checkout session for the latest attempt to pay.
   paymentRef     String?

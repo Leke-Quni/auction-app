@@ -150,11 +150,31 @@ describe("the 24-hour reminder to pay for a won item", () => {
       failMail = false;
     }
     expect((await stored(order.id)).payReminderSentAt).toBeNull();
+    expect((await stored(order.id)).payReminderClaimedAt).toBeNull();
     expect(await notice(buyer.id, listing.id)).toBeNull();
     expect(mailsTo(buyer.email)).toHaveLength(0);
     await reminders.sweep();
     expect(mailsTo(buyer.email)).toHaveLength(1);
     expect(await notice(buyer.id, listing.id)).not.toBeNull();
+  });
+
+  it("does not lose the reminder when a machine stops after claiming it: a fresh lease is respected, an expired one is taken over", async () => {
+    const { buyer, order } = await sale(10);
+    await prisma.order.update({ where: { id: order.id }, data: { payReminderClaimedAt: new Date() } });
+    await reminders.sweep();
+    expect(mailsTo(buyer.email)).toHaveLength(0);
+    await prisma.order.update({ where: { id: order.id }, data: { payReminderClaimedAt: new Date(Date.now() - 10 * 60_000) } });
+    await reminders.sweep();
+    expect(mailsTo(buyer.email)).toHaveLength(1);
+    expect((await stored(order.id)).payReminderSentAt).toBeInstanceOf(Date);
+  });
+
+  it("does not write to a banned buyer", async () => {
+    const { buyer, order } = await sale(10);
+    await prisma.user.update({ where: { id: buyer.id }, data: { bannedAt: new Date() } });
+    await reminders.sweep();
+    expect(mailsTo(buyer.email)).toHaveLength(0);
+    expect(await stored(order.id)).toMatchObject({ payReminderSentAt: null, payReminderClaimedAt: null });
   });
 
   it("words a reminder with minutes left correctly", async () => {

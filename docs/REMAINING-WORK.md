@@ -5,7 +5,7 @@ Updated 2026-11-05, during slice 7. `docs/DESIGN.md` is the source of truth for 
 ## Where things stand
 Slices 1 to 6 are done and merged to `main` (slice 6 in PR #14). Slice 7 (admin) is in progress on branch `slice-7-admin`: step 1 (roles and bans read from the database on every request, `AdminGuard`, `GET /admin/me`) is committed; step 2 (the admin app shell, admin-only sign-in and the slate and indigo theme) is committed; step 3 (reports queue and question log) is committed; step 4 is half built: listing removal is done and tested (not yet committed), ban and unban and clearing strikes are left. `DESIGN.md` section 7 records every step.
 
-Production is behind: the API on Fly and the Neon database were last set up at the end of slice 5 (30 migrations). The repository now has 39, and slice 6 and the slice 7 work are not deployed.
+Production is behind: the API on Fly and the Neon database were last set up at the end of slice 5 (30 migrations). The repository now has 40, and slice 6 and the slice 7 work are not deployed.
 
 ## 1. Slice 7: admin (what is left)
 Done-criteria are in `DESIGN.md` section 8. Build order (decided 2026-11-05), one step at a time:
@@ -19,7 +19,7 @@ Done-criteria are in `DESIGN.md` section 8. Build order (decided 2026-11-05), on
 Decided: a ban does not hold back a seller's payout; the API checks the database for the role on every request; the admin theme is light, slate and indigo.
 
 ## 2. Production and deploy (only the owner can do these)
-- **Run the 9 new migrations on Neon** (`yarn workspace @auction/db migrate:deploy` against the Neon `DATABASE_URL`) **before** deploying the new API.
+- **Run the 10 new migrations on Neon** (`yarn workspace @auction/db migrate:deploy` against the Neon `DATABASE_URL`) **before** deploying the new API.
 - **Stripe:** `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` on Fly, plus a webhook endpoint at `https://auction-api-leke.fly.dev/payments/stripe/webhook`. Until then production uses the fake payment provider. Payouts also need Connect and Accounts v2 enabled on the Stripe account and the platform's loss-liability acknowledgement accepted (Platform profile in the Dashboard); both were done on the test sandbox.
 - A verified Resend domain, so won, pay-now, shipping, ending-soon and outbid emails reach people other than the Resend account owner (`MAIL_FROM` too).
 - `REDIS_URL` (Upstash) on Fly, and `NEXT_PUBLIC_API_URL` on Vercel pointing at the Fly address. Deployed environments search Postgres until Typesense is hosted.
