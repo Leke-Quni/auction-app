@@ -41,14 +41,16 @@ export function normalizeQuery(q: string) {
 const MIN_LENGTH_FOR_TWO_TYPOS = "6";
 
 // Values reaching these filters were validated by searchQuerySchema (slug characters, a fixed list of conditions, integers).
-export function buildFilter(params: Pick<SearchParams, "category" | "condition" | "minPriceCents" | "maxPriceCents" | "endingSoon" | "now">) {
+export function buildFilter(params: Pick<SearchParams, "category" | "condition" | "minPriceCents" | "maxPriceCents" | "endingSoon" | "sort" | "now">) {
   const now = seconds(params.now);
   const filters = [`ends_at:>${now}`];
   if (params.category) filters.push(`category_slug:=${params.category}`);
   if (params.condition) filters.push(`condition:=${params.condition}`);
   if (params.minPriceCents !== undefined) filters.push(`price_cents:>=${params.minPriceCents}`);
   if (params.maxPriceCents !== undefined) filters.push(`price_cents:<=${params.maxPriceCents}`);
-  if (params.endingSoon) filters.push(`starts_at:<=${now}`, `ends_at:<=${now + ENDING_SOON_HOURS * 3600}`);
+  // "Ending latest" lists only live auctions: an upcoming one has not started, so it has no end worth ranking yet.
+  if (params.endingSoon || params.sort === "endingLatest") filters.push(`starts_at:<=${now}`);
+  if (params.endingSoon) filters.push(`ends_at:<=${now + ENDING_SOON_HOURS * 3600}`);
   return filters.join(" && ");
 }
 
