@@ -1,11 +1,10 @@
 import { ORDER_REFUSAL_MESSAGES, deliveryOptions, type OrderPayout, type RateSellerInput, type OrderRefusal, type OrderView, type SaveShippingInput, type ShippingAddress, type ShippingOption } from "@auction/shared";
-import { deliveryRule } from "../config";
+import { deliveryRule, payoutDelayDays } from "../config";
 import { HttpException, HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { FakePaymentProvider } from "../payments/fake-payment-provider";
 import { PAYMENT_PROVIDER, type PaymentProvider } from "../payments/payment-provider";
 import { SHIPPING_PROVIDER, type ShippingProvider } from "../shipping/shipping-provider";
-import { payoutDelayDays } from "../config";
 import { deliveryOf, invoiceDataOf, renderInvoice } from "./invoice";
 
 const STATUS: Record<OrderRefusal, HttpStatus> = {
