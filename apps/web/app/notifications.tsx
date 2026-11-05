@@ -210,6 +210,17 @@ function OutbidBody({ toast, onAsk, onCancel, onConfirm }: { toast: OutbidToast;
 }
 
 function WonBody({ notice }: { notice: WonNotice }) {
+  if (notice.reminder) {
+    return (
+      <div className="space-y-1.5">
+        <p className="font-bold">Less than 24 hours left to pay</p>
+        <p className="text-muted">{`Pay for ${notice.title} (${formatEur(notice.finalPriceCents)}) or it will be offered to someone else.`}</p>
+        <Link href={notice.orderId ? `/orders/${notice.orderId}` : `/listings/${notice.listingId}`} className="block w-full rounded bg-brand px-3 py-1.5 text-center font-bold text-white hover:bg-brand-dark">
+          Pay now
+        </Link>
+      </div>
+    );
+  }
   return (
     <div className="space-y-1.5">
       <p className="font-bold">{notice.offered ? "The item is yours to pay for" : "You won the auction"}</p>

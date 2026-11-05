@@ -1,0 +1,85 @@
+import type { ShippingAddress } from "@auction/shared";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { PRISMA, type Prisma } from "../db/db.module";
+import { deliveryOf } from "../orders/invoice";
+import { payoutViewOf } from "../orders/payout-view";
+
+export interface OrderListQuery {
+  q?: string;
+  status?: "AWAITING_PAYMENT" | "PAID" | "EXPIRED" | "CANCELLED";
+  limit: number;
+}
+
+const person = { select: { id: true, username: true, email: true, firstName: true, lastName: true } } as const;
+
+// The admin app's read of an order: everything the buyer and the seller each see, and the parts neither is allowed to see
+// of the other, in one place, so a dispute or a lost parcel can be looked into. It only reads; it changes nothing.
+@Injectable()
+export class AdminOrdersService {
+  constructor(@Inject(PRISMA) private readonly prisma: Prisma) {}
+
+  async list({ q, status, limit }: OrderListQuery) {
+    const term = q?.trim();
+    const like = { contains: term ?? "", mode: "insensitive" } as const;
+    const orders = await this.prisma.order.findMany({
+      where: {
+        ...(status ? { status } : {}),
+        ...(term
+          ? { OR: [{ id: term }, { listingId: term }, { invoiceNumber: like }, { listing: { title: like } }, { buyer: { OR: [{ username: like }, { email: like }] } }, { seller: { OR: [{ username: like }, { email: like }] } }] }
+          : {}),
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      take: limit,
+      include: { listing: { select: { id: true, title: true } }, buyer: { select: { id: true, username: true } }, seller: { select: { id: true, username: true } } },
+    });
+    return {
+      orders: orders.map((o) => ({
+        id: o.id,
+        status: o.status,
+        round: o.round,
+        listing: o.listing,
+        buyer: o.buyer,
+        seller: o.seller,
+        amountCents: o.amountCents,
+        totalCents: o.totalCents,
+        invoiceNumber: o.invoiceNumber,
+        shipmentStatus: o.shipmentStatus,
+        createdAt: o.createdAt.toISOString(),
+        payBy: o.payBy.toISOString(),
+        paidAt: o.paidAt?.toISOString() ?? null,
+      })),
+    };
+  }
+
+  async get(id: string) {
+    const o = await this.prisma.order.findUnique({
+      where: { id },
+      include: { listing: { select: { id: true, title: true } }, buyer: person, seller: { select: { ...person.select, payoutAccountId: true } }, payout: true, rating: true },
+    });
+    if (!o) throw new NotFoundException();
+    const delivery = deliveryOf(o);
+    const who = (u: { id: string; username: string; email: string; firstName: string; lastName: string }) => ({ id: u.id, username: u.username, email: u.email, name: `${u.firstName} ${u.lastName}` });
+    return {
+      id: o.id,
+      status: o.status,
+      round: o.round,
+      listing: o.listing,
+      buyer: who(o.buyer),
+      seller: { ...who(o.seller), hasPayoutAccount: o.seller.payoutAccountId !== null },
+      amounts: { itemCents: o.amountCents, feeCents: o.feeCents, sellerNetCents: o.sellerNetCents, shippingCents: o.shippingCents, totalCents: o.totalCents },
+      createdAt: o.createdAt.toISOString(),
+      payBy: o.payBy.toISOString(),
+      paidAt: o.paidAt?.toISOString() ?? null,
+      reminderSentAt: o.payReminderSentAt?.toISOString() ?? null,
+      invoiceNumber: o.invoiceNumber,
+      // The provider's checkout sessions, to look a payment up on their side.
+      paymentRef: o.paymentRef,
+      paymentAttempts: o.paymentRefs.length,
+      delivery: delivery ? { address: delivery.address, option: { id: delivery.optionId, name: delivery.name, estimatedDays: delivery.estimatedDays, tracked: delivery.tracked, insured: delivery.insured, priceCents: delivery.priceCents }, trackingEmails: o.trackingEmails } : null,
+      pickupAddress: (o.pickupAddress as ShippingAddress | null) ?? null,
+      shipment: o.shipmentStatus ? { status: o.shipmentStatus, trackingCode: o.trackingCode, shippedAt: o.shippedAt?.toISOString() ?? null, inTransitAt: o.inTransitAt?.toISOString() ?? null, deliveredAt: o.deliveredAt?.toISOString() ?? null } : null,
+      payout: o.status === "PAID" ? { ...payoutViewOf(o), reference: o.payout?.reference ?? null } : null,
+      rating: o.rating ? { stars: o.rating.stars, comment: o.rating.comment, createdAt: o.rating.createdAt.toISOString() } : null,
+    };
+  }
+}

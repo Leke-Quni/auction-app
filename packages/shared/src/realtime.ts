@@ -69,6 +69,8 @@ export interface WonNotice {
   offered?: boolean;
   // The order to pay, so the bell can link straight to the pay page.
   orderId?: string;
+  // True for the reminder sent when 24 hours are left to pay: the item goes to someone else if it is not paid.
+  reminder?: boolean;
 }
 
 // For the seller when someone asks a question on their listing (`notice:question`), and for the asker when the seller

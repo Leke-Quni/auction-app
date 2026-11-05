@@ -22,6 +22,9 @@ model User {
   passwordHash        String
   emailVerified       DateTime?
   role                Role                 @default(USER)
+  // Set by an admin: the person cannot sign in or use the API. Checked on every request, so it takes effect at once.
+  bannedAt            DateTime?
+  banReason           String?
   // The seller's default pickup address and contact; each listing starts from it and may change it.
   pickupAddress       Json?
   // The seller's connected payment account at the payment provider, created when they first ask to get paid.
@@ -133,6 +136,11 @@ model Listing {
   winnerId           String?
   winner             User?            @relation("ListingWinner", fields: [winnerId], references: [id], onDelete: Restrict)
   finalPriceCents    Int?
+  // Set when an admin took the auction down: it ends at that moment with no sale (`outcome` NO_SALE, or NO_BIDS when nobody
+  // had bid) and cannot be listed again. `removedById` is a plain column, not a relation, so the record outlives the admin.
+  removedAt          DateTime?
+  removedById        String?
+  removalReason      String?
   // Set on a draft made by "list it again", so asking again returns that draft instead of making another. A plain column,
   // not a relation: the old listing is only a record to copy from.
   relistedFromId     String?
@@ -190,6 +198,11 @@ model Order {
   status         OrderStatus @default(AWAITING_PAYMENT)
   round          Int         @default(1)
   payBy          DateTime
+  // Set when the "24 hours left to pay" reminder has gone out, so the buyer gets it once.
+  payReminderSentAt DateTime?
+  // A sweep that is sending the reminder holds this lease; if the machine stops before it finishes, the lease runs out and the
+  // next sweep sends it, so the reminder is delayed and never lost.
+  payReminderClaimedAt DateTime?
   paidAt         DateTime?
   // The payment provider's checkout session for the latest attempt to pay.
   paymentRef     String?

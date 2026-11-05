@@ -6,11 +6,12 @@ import {
   type AuctionExtendedEvent,
   type BidPlacedEvent,
 } from "@auction/shared";
-import { Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
-import { ConnectedSocket, MessageBody, OnGatewayConnection, SubscribeMessage, WebSocketGateway, WebSocketServer } from "@nestjs/websockets";
+import { Inject, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { ConnectedSocket, MessageBody, OnGatewayConnection, OnGatewayInit, SubscribeMessage, WebSocketGateway, WebSocketServer } from "@nestjs/websockets";
 import type { Server, Socket } from "socket.io";
 import type { Subscription } from "rxjs";
-import { verifyToken } from "../auth/jwt-auth.guard";
+import { loadTokenUser } from "../auth/jwt-auth.guard";
+import { PRISMA, type Prisma } from "../db/db.module";
 import { AuctionEvents, type AuctionEvent } from "../bids/auction-events";
 
 const LISTING_ID = /^[\w-]{1,64}$/;
@@ -18,12 +19,15 @@ const LISTING_ID = /^[\w-]{1,64}$/;
 const MAX_AUCTIONS_WATCHED = 20;
 
 @WebSocketGateway()
-export class RealtimeGateway implements OnGatewayConnection, OnModuleInit, OnModuleDestroy {
+export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnModuleInit, OnModuleDestroy {
   @WebSocketServer() private server!: Server;
   private readonly log = new Logger(RealtimeGateway.name);
   private subscription?: Subscription;
 
-  constructor(private readonly events: AuctionEvents) {}
+  constructor(
+    private readonly events: AuctionEvents,
+    @Inject(PRISMA) private readonly prisma: Prisma,
+  ) {}
 
   onModuleInit() {
     this.subscription = this.events.stream.subscribe((event) => {
@@ -41,18 +45,45 @@ export class RealtimeGateway implements OnGatewayConnection, OnModuleInit, OnMod
     this.subscription?.unsubscribe();
   }
 
-  // Anyone may connect and watch an auction. A token also puts the socket in its own private room; the room name comes
-  // from the verified token, never from the client, so nobody can ask to join someone else's.
-  async handleConnection(client: Socket) {
-    const token = (client.handshake.auth as { token?: unknown } | undefined)?.token;
-    if (token === undefined || token === null || token === "") return;
-    const user = typeof token === "string" ? await verifyToken(token) : null;
-    if (!user) {
-      client.emit("connect_error_auth", { message: "Invalid or expired token" });
-      client.disconnect(true);
-      return;
-    }
-    await client.join(userRoom(user.id));
+  // Who a connecting socket is, worked out before the connection is announced to the client, so the private room is joined by
+  // the time the client hears "connect" and nothing sent to it right after is missed. The token only says who is asking: the
+  // account is read from the database, so a banned or deleted account is refused like a bad token.
+  afterInit(server: Server) {
+    server.use(async (socket, next) => {
+      const token = (socket.handshake.auth as { token?: unknown } | undefined)?.token;
+      if (token === undefined || token === null || token === "") {
+        socket.data.auth = "anonymous";
+        return next();
+      }
+      try {
+        const result = typeof token === "string" ? await loadTokenUser(this.prisma, token) : null;
+        if (result?.status === "ok") {
+          await socket.join(userRoom(result.user.id));
+          socket.data.auth = "ok";
+        } else {
+          socket.data.auth = result?.status === "banned" ? "banned" : "refused";
+        }
+      } catch (error) {
+        // The database could not be asked: that is not the visitor's fault, so say so and let the client try again soon.
+        this.log.error(`Could not check a socket's token: ${(error as Error).message}`);
+        socket.data.auth = "unavailable";
+      }
+      next();
+    });
+  }
+
+  // Anyone may connect and watch an auction. A valid token also put the socket in its own private room (see afterInit); the room
+  // name comes from the verified token, never from the client, so nobody can ask to join someone else's.
+  handleConnection(client: Socket) {
+    const messages: Record<string, { code: string; message: string }> = {
+      refused: { code: "INVALID_TOKEN", message: "Invalid or expired token" },
+      banned: { code: "BANNED", message: "This account has been suspended." },
+      unavailable: { code: "UNAVAILABLE", message: "Could not check the token right now. Try again." },
+    };
+    const refusal = messages[client.data.auth];
+    if (!refusal) return;
+    client.emit("connect_error_auth", refusal);
+    client.disconnect(true);
   }
 
   @SubscribeMessage(SOCKET_EVENTS.watch)
@@ -82,6 +113,13 @@ export class RealtimeGateway implements OnGatewayConnection, OnModuleInit, OnMod
   emitToUsers(userIds: string[], event: string, payload: unknown) {
     if (userIds.length === 0) return;
     this.server.to(userIds.map(userRoom)).emit(event, payload);
+  }
+
+  // A banned account's open pages are told why and hung up at once (the client does not reconnect after BANNED), instead of
+  // keeping their private room until they next reconnect. Works across machines through the Redis adapter.
+  suspendUser(userId: string) {
+    this.server.to(userRoom(userId)).emit("connect_error_auth", { code: "BANNED", message: "This account has been suspended." });
+    this.server.in(userRoom(userId)).disconnectSockets(true);
   }
 
   private publish(event: AuctionEvent) {

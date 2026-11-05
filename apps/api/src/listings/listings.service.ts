@@ -68,6 +68,9 @@ const toDto = (l: ListingRow, now = new Date(), forSeller = false) => ({
   // Null until the close job has run for an ended auction.
   closedAt: l.closedAt,
   outcome: l.outcome,
+  // True when a moderator took the auction down; the reason is for the seller only.
+  removed: l.removedAt !== null,
+  ...(forSeller ? { removalReason: l.removalReason } : {}),
   winner: l.winner,
   finalPriceCents: l.finalPriceCents,
   startsAt: l.startsAt,
@@ -219,6 +222,7 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
 
   async update(sellerId: string, id: string, input: UpdateListingInput) {
     const listing = await this.getOwned(sellerId, id);
+    this.refuseIfModeratorRemoved(listing);
 
     if (listing.status === "PUBLISHED") {
       const locked = Object.keys(input).filter((k) => k !== "description");
@@ -268,6 +272,7 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
 
   async setImages(sellerId: string, id: string, images: ListingImageInput[]) {
     const listing = await this.getOwned(sellerId, id);
+    this.refuseIfModeratorRemoved(listing);
     if (listing.status === "PUBLISHED" && images.length === 0) {
       throw new BadRequestException("A published listing needs at least one photo");
     }
@@ -312,8 +317,11 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
     const listing = await this.getOwned(sellerId, id);
     // One statement checks and deletes, so a bid that lands at the same moment cannot be deleted with the listing: the
     // bid transaction holds the row's lock, this waits for it, then sees the bid count and deletes nothing.
-    const deleted = await this.prisma.listing.deleteMany({ where: { id, bidCount: 0 } });
-    if (deleted.count === 0) throw new ConflictException("A listing that has bids cannot be removed");
+    // A listing a moderator removed stays as the record of why, so the seller cannot delete it either.
+    const deleted = await this.prisma.listing.deleteMany({ where: { id, bidCount: 0, removedAt: null } });
+    if (deleted.count === 0) {
+      throw new ConflictException(listing.removedAt ? "A listing that a moderator removed cannot be deleted" : "A listing that has bids cannot be removed");
+    }
     if (listing.status === "PUBLISHED") {
       try {
         await this.search.remove(id);
@@ -332,6 +340,7 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
     if (old.closedAt === null || (old.outcome !== "NO_SALE" && old.outcome !== "NO_BIDS")) {
       throw new ConflictException("Only an auction that ended without a sale can be listed again");
     }
+    if (old.removedAt) throw new ConflictException("A listing that a moderator removed cannot be listed again");
     // Asking again (a double click, a second tab) returns the draft that is already there instead of making another. The
     // lock makes two calls at the same moment take turns.
     const draft = await this.prisma.$transaction(async (tx) => {
@@ -372,6 +381,11 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Someone else's draft looks like it does not exist; someone else's published listing is visible, so say 403.
+  // A moderator took the listing down, so its words and photos cannot be changed to put the same content back.
+  private refuseIfModeratorRemoved(listing: { removedAt: Date | null }) {
+    if (listing.removedAt) throw new ConflictException("A listing that a moderator removed cannot be changed");
+  }
+
   private async getOwned(sellerId: string, id: string) {
     const listing = await this.prisma.listing.findUnique({ where: { id }, include: listingInclude });
     if (!listing) throw new NotFoundException();

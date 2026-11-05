@@ -4,7 +4,7 @@ import type { Subscription } from "rxjs";
 import { AuctionEvents } from "../bids/auction-events";
 import { webUrl } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
-import { utc } from "../email/format";
+import { timeLeft, utc } from "../email/format";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
 import { addressLines, deliveryOf, invoiceDataOf, renderInvoice } from "../orders/invoice";
 
@@ -23,14 +23,6 @@ type EndEmailKind = "LOST" | "WON" | "PAID" | "SOLD" | "EXPIRED" | "NOT_PAID" | 
 // again, up to MAX_ATTEMPTS times. Safe to run on several machines.
 // A stable form of an address for comparing two of them: the same parts in the same order.
 const sortedKeys = (value: unknown) => Object.fromEntries(Object.entries((value ?? {}) as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)));
-
-// "3 days", "5 hours" or "40 minutes", rounded to the nearest whole unit.
-const timeLeft = (ms: number) => {
-  const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
-  if (ms >= 48 * 3600_000) return plural(Math.round(ms / (24 * 3600_000)), "day");
-  if (ms >= 2 * 3600_000) return plural(Math.round(ms / 3600_000), "hour");
-  return plural(Math.max(1, Math.round(ms / 60_000)), "minute");
-};
 
 @Injectable()
 export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
@@ -116,14 +108,15 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
     if (kind === "ENDING_SOON") return this.sendEndingSoon(userId, listingId);
     if (kind === "SHIPPED" || kind === "IN_TRANSIT" || kind === "DELIVERED") return this.sendShipping(userId, listingId, kind);
     const [listing, user] = await Promise.all([
-      this.prisma.listing.findUnique({ where: { id: listingId }, select: { title: true, outcome: true, currentBidCents: true, finalPriceCents: true } }),
+      this.prisma.listing.findUnique({ where: { id: listingId }, select: { title: true, outcome: true, currentBidCents: true, finalPriceCents: true, removedAt: true } }),
       this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
     ]);
     if (!listing || !user || listing.outcome === "NO_BIDS") return;
     if (!listing.outcome) throw new Error("the auction's result is not saved yet"); // tried again, not dropped
     if (kind === "WON") return this.sendWon(user.email, userId, listingId, listing.title);
-    const lines =
-      listing.outcome === "SOLD"
+    const lines = listing.removedAt
+      ? [`The auction for "${listing.title}" was ended early by a moderator and nobody won it. Your bid does not need to be paid.`]
+      : listing.outcome === "SOLD"
         ? [`The auction for "${listing.title}" has ended, and you did not win it.`, "", `Final price: ${formatEur(listing.finalPriceCents ?? listing.currentBidCents ?? 0)}`]
         : [`The auction for "${listing.title}" has ended without a sale, because the reserve price was not met.`, "", `Highest bid: ${formatEur(listing.currentBidCents ?? 0)}`];
     lines.push("", `${webUrl()}/listings/${listingId}`);

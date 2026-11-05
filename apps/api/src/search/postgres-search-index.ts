@@ -56,9 +56,9 @@ export class PostgresSearchIndex implements SearchIndex {
     if (params.condition) where.push(Sql.sql`l."condition" = ${params.condition}::"ListingCondition"`);
     if (params.minPriceCents !== undefined) where.push(Sql.sql`${price} >= ${params.minPriceCents}`);
     if (params.maxPriceCents !== undefined) where.push(Sql.sql`${price} <= ${params.maxPriceCents}`);
-    if (params.endingSoon) {
-      where.push(Sql.sql`l."startsAt" <= ${params.now}`, Sql.sql`l."endsAt" <= ${new Date(params.now.getTime() + ENDING_SOON_HOURS * 3600_000)}`);
-    }
+    // "Ending latest" lists only live auctions: an upcoming one has not started, so it has no end worth ranking yet.
+    if (params.endingSoon || params.sort === "endingLatest") where.push(Sql.sql`l."startsAt" <= ${params.now}`);
+    if (params.endingSoon) where.push(Sql.sql`l."endsAt" <= ${new Date(params.now.getTime() + ENDING_SOON_HOURS * 3600_000)}`);
     return where;
   }
 

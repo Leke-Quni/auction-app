@@ -5,6 +5,8 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
 // How long the winner has to pay (also the runner-up, when the item is offered on).
 export const PAYMENT_WINDOW_HOURS = 48;
+// The buyer is reminded once, when this many hours are left to pay.
+export const PAYMENT_REMINDER_HOURS = 24;
 
 // A buyer who wins and does not pay in time gets a strike; this many block bidding. Strikes never expire.
 export const MAX_STRIKES = 2;

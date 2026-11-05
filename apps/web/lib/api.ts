@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { encodeJwt } from "@/lib/jwt";
 
@@ -20,5 +21,8 @@ export async function authedApiFetch(path: string, init: RequestInit = {}) {
     salt: "",
     maxAge: 5 * 60,
   });
-  return apiFetch(path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token}` } });
+  const res = await apiFetch(path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token}` } });
+  // A banned account is refused on every call, so wherever one meets that, the person is sent to the page that says why.
+  if (res.status === 403 && (await res.clone().json().catch(() => null))?.code === "BANNED") redirect("/suspended");
+  return res;
 }
