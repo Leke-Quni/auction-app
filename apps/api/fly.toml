@@ -15,7 +15,9 @@ kill_signal = "SIGTERM"
 [http_service]
   internal_port = 8080
   force_https = true
-  # Always keep one machine running: no cold starts, and WebSockets (slice 4) need a long-lived process.
+  # Ask Fly to keep one machine running (WebSockets need a long-lived process). On the free trial Fly stops the machine itself
+  # 5 minutes after each start whatever this says, and the next request starts it again (about 5 seconds), so keep it
+  # warm from outside (see DESIGN.md, "Speed").
   auto_stop_machines = "off"
   auto_start_machines = true
   min_machines_running = 1
