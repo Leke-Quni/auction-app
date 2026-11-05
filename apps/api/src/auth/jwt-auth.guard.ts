@@ -5,11 +5,8 @@ import { z } from "zod";
 import { authSecret } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
 
-const claimsSchema = z.object({
-  sub: z.string().min(1),
-  email: z.string().email(),
-  role: z.enum(USER_ROLES),
-});
+// Only who is asking. The email and role are read from the database, so a token without them is still a valid token.
+const claimsSchema = z.object({ sub: z.string().min(1) });
 
 export interface AuthUser {
   id: string;

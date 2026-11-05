@@ -68,6 +68,14 @@ describe("roles and bans are read from the database on every request", () => {
     expect(res.body).toEqual({ id: admin.id, email: admin.email, role: "ADMIN" });
   });
 
+  it("accepts a token that carries only who is asking, since the email and role come from the database", async () => {
+    const admin = await person({ role: "ADMIN" });
+    const bare = await new SignJWT({}).setProtectedHeader({ alg: "HS256" }).setSubject(admin.id).setExpirationTime("10m").sign(authSecret());
+    expect((await get("/admin/me", bare).expect(200)).body).toEqual({ id: admin.id, email: admin.email, role: "ADMIN" });
+    const unsigned = await new SignJWT({}).setProtectedHeader({ alg: "HS256" }).setExpirationTime("10m").sign(authSecret());
+    await get("/admin/me", unsigned).expect(401);
+  });
+
   it("ignores the role in the token: a token that says ADMIN is not enough, and one that says USER is not a limit", async () => {
     const user = await person();
     const admin = await person({ role: "ADMIN" });
