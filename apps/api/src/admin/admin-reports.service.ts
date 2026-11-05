@@ -53,9 +53,10 @@ export class AdminReportsService {
 
   // Marking a handled report handled again changes nothing, so a double click is harmless.
   async handleReport(id: string) {
-    const done = await this.prisma.report.updateMany({ where: { id, status: "OPEN" }, data: { status: "HANDLED", handledAt: new Date() } });
-    if (done.count === 0 && !(await this.prisma.report.findUnique({ where: { id }, select: { id: true } }))) throw new NotFoundException();
-    const report = await this.prisma.report.findUniqueOrThrow({ where: { id }, select: { id: true, status: true, handledAt: true } });
+    await this.prisma.report.updateMany({ where: { id, status: "OPEN" }, data: { status: "HANDLED", handledAt: new Date() } });
+    // Read after the update; a handled report may be deleted by the 30-day clean-up in between, which is the same as unknown.
+    const report = await this.prisma.report.findUnique({ where: { id }, select: { id: true, status: true, handledAt: true } });
+    if (!report) throw new NotFoundException();
     return { id: report.id, status: report.status, handledAt: report.handledAt?.toISOString() ?? null };
   }
 
