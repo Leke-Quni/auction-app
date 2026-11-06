@@ -565,4 +565,5 @@ enum AdminActionKind {
   REMOVE_LISTING
   VIEW_ORDER
   REMOVE_POST
+  SET_ROLE
 }

@@ -12,6 +12,10 @@ const MESSAGES: Record<string, string> = {
   CANNOT_BAN_ADMIN: "An admin cannot be banned. Remove their admin role first.",
   ALREADY_BANNED: "This account is already banned.",
   NOT_BANNED: "This account is not banned.",
+  CANNOT_CHANGE_OWN_ROLE: "You cannot change your own role. Ask another admin.",
+  LAST_ADMIN: "This is the last admin, so the role cannot be removed.",
+  SAME_ROLE: "That account already has this role.",
+  BANNED: "A banned account cannot be made an admin. Restore it first.",
 };
 
 async function run(id: string, path: string, init: RequestInit): Promise<UserActionState> {
@@ -41,4 +45,11 @@ export async function clearStrikeAction(_: UserActionState, formData: FormData):
   const id = String(formData.get("id") ?? "");
   const strikeId = String(formData.get("strikeId") ?? "");
   return run(id, `/admin/strikes/${encodeURIComponent(strikeId)}`, { method: "DELETE" });
+}
+
+export async function setRoleAction(_: UserActionState, formData: FormData): Promise<UserActionState> {
+  const id = String(formData.get("id") ?? "");
+  const role = String(formData.get("role") ?? "");
+  if (role !== "USER" && role !== "ADMIN") return { error: "Choose a role." };
+  return run(id, `/admin/users/${encodeURIComponent(id)}/role`, { method: "POST", body: JSON.stringify({ role }) });
 }

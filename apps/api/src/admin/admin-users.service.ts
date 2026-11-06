@@ -109,6 +109,25 @@ export class AdminUsersService {
     return this.get(id);
   }
 
+  // Makes an account an admin or an ordinary user again. An admin cannot change their own role (so nobody locks themselves out
+  // by accident) and the last admin cannot be demoted. The admin rows are locked while the count is read, so two admins
+  // demoting each other at the same moment cannot leave the site with none. A demoted admin loses access on their next request
+  // (the guard reads the role from the database every time). A banned account cannot be made an admin.
+  async setRole(adminId: string, id: string, role: "USER" | "ADMIN") {
+    if (id === adminId) throw new ConflictException({ code: "CANNOT_CHANGE_OWN_ROLE", message: "You cannot change your own role. Ask another admin." });
+    await this.prisma.$transaction(async (tx) => {
+      const admins = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "User" WHERE "role" = 'ADMIN' FOR UPDATE`;
+      const user = await tx.user.findUnique({ where: { id }, select: { role: true, bannedAt: true } });
+      if (!user) throw new NotFoundException();
+      if (user.role === role) throw new ConflictException({ code: "SAME_ROLE", message: role === "ADMIN" ? "This account is already an admin." : "This account is not an admin." });
+      if (role === "ADMIN" && user.bannedAt) throw new ConflictException({ code: "BANNED", message: "A banned account cannot be made an admin. Restore it first." });
+      if (role === "USER" && admins.length <= 1) throw new ConflictException({ code: "LAST_ADMIN", message: "This is the last admin, so the role cannot be removed." });
+      await tx.user.update({ where: { id }, data: { role } });
+      await tx.adminAction.create({ data: { adminId, action: "SET_ROLE", targetId: id, reason: role } });
+    });
+    return this.get(id);
+  }
+
   // Two strikes block bidding; clearing one brings the person under the limit again. Orders and listings are untouched.
   async clearStrike(adminId: string, strikeId: string) {
     const strike = await this.prisma.strike.findUnique({ where: { id: strikeId }, select: { userId: true } });

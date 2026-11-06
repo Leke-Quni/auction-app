@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { banUserAction, clearStrikeAction, unbanUserAction, type UserActionState } from "./actions";
+import { banUserAction, clearStrikeAction, setRoleAction, unbanUserAction, type UserActionState } from "./actions";
 
 const FormError = ({ state }: { state: UserActionState }) =>
   state.error ? (
@@ -61,6 +61,28 @@ export function ClearStrikeForm({ id, strikeId }: { id: string; strikeId: string
         Clear
       </button>
       <FormError state={state} />
+    </form>
+  );
+}
+
+export function RoleForm({ id, username, role }: { id: string; username: string; role: "USER" | "ADMIN" }) {
+  const [state, action, pending] = useActionState<UserActionState, FormData>(setRoleAction, {});
+  const next = role === "ADMIN" ? "USER" : "ADMIN";
+  return (
+    <form
+      action={action}
+      onSubmit={(e) => {
+        const message = next === "ADMIN" ? `Make @${username} an admin? They can ban people, remove listings and read orders with both addresses.` : `Remove the admin role from @${username}? They lose access to the admin app on their next request.`;
+        if (!window.confirm(message)) e.preventDefault();
+      }}
+      className="space-y-2"
+    >
+      <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="role" value={next} />
+      <FormError state={state} />
+      <button disabled={pending} className={`cursor-pointer rounded px-3 py-1 font-semibold disabled:opacity-60 ${next === "ADMIN" ? "bg-accent text-white hover:bg-accent-dark" : "bg-danger text-white"}`}>
+        {pending ? "Saving..." : next === "ADMIN" ? "Make admin" : "Remove admin role"}
+      </button>
     </form>
   );
 }

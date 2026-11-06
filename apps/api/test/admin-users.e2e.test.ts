@@ -204,4 +204,33 @@ describe("admin accounts: ban, unban and strikes", () => {
     expect(mine).toHaveLength(1);
     await request(url).get("/admin/audit").set(user.auth).expect(403);
   });
+
+  const setRole = (admin: Who, id: string, role: string) => request(url).post(`/admin/users/${id}/role`).set(admin.auth).send({ role });
+
+  it("makes an account an admin and takes the role away again, with the audit trail, and a demoted admin is locked out at once", async () => {
+    const boss = await person("ADMIN");
+    const user = await person();
+    await setRole(user, user.id, "ADMIN").expect(403);
+    await setRole(boss, "nope", "ADMIN").expect(404);
+    await setRole(boss, user.id, "SUPER").expect(400);
+
+    expect((await setRole(boss, user.id, "ADMIN").expect(200)).body).toMatchObject({ id: user.id, role: "ADMIN" });
+    await request(url).get("/admin/me").set(user.auth).expect(200);
+    expect((await setRole(boss, user.id, "ADMIN").expect(409)).body.code).toBe("SAME_ROLE");
+
+    expect((await setRole(boss, user.id, "USER").expect(200)).body.role).toBe("USER");
+    await request(url).get("/admin/me").set(user.auth).expect(403);
+    expect((await setRole(boss, user.id, "USER").expect(409)).body.code).toBe("SAME_ROLE");
+
+    const log = (await request(url).get(`/admin/audit?targetId=${user.id}`).set(boss.auth).expect(200)).body.entries;
+    expect(log.map((e: { action: string; reason: string }) => `${e.action}:${e.reason}`).sort()).toEqual(["SET_ROLE:ADMIN", "SET_ROLE:USER"]);
+  });
+
+  it("will not let an admin change their own role or make a banned account an admin", async () => {
+    const a = await person("ADMIN");
+    expect((await setRole(a, a.id, "USER").expect(409)).body.code).toBe("CANNOT_CHANGE_OWN_ROLE");
+    const banned = await person();
+    await prisma.user.update({ where: { id: banned.id }, data: { bannedAt: new Date() } });
+    expect((await setRole(a, banned.id, "ADMIN").expect(409)).body.code).toBe("BANNED");
+  });
 });

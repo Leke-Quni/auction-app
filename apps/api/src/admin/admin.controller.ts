@@ -20,6 +20,7 @@ const ordersQuerySchema = z.object({
   status: z.enum(["AWAITING_PAYMENT", "PAID", "EXPIRED", "CANCELLED"]).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
+const roleSchema = z.object({ role: z.enum(["USER", "ADMIN"]) });
 const banSchema = z.object({ reason: z.string().trim().min(1).max(500) });
 const removeListingSchema = z.object({ reason: z.string().trim().min(1).max(500) });
 const auditQuerySchema = z.object({ adminId: z.string().min(1).optional(), targetId: z.string().min(1).optional(), limit: z.coerce.number().int().min(1).max(200).default(100) });
@@ -124,6 +125,13 @@ export class AdminController {
   @HttpCode(200)
   unbanUser(@Param("id") id: string, @Req() req: { user: AuthUser }) {
     return this.users.unban(req.user.id, id);
+  }
+
+  // Makes an account an admin, or an ordinary user again.
+  @Post("users/:id/role")
+  @HttpCode(200)
+  setRole(@Param("id") id: string, @Req() req: { user: AuthUser }, @Body(new ZodValidationPipe(roleSchema)) body: z.infer<typeof roleSchema>) {
+    return this.users.setRole(req.user.id, id, body.role);
   }
 
   // Removes one strike, so a person at the limit can bid again.

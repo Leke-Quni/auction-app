@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { MAX_STRIKES } from "@auction/shared";
 import { adminApiFetch } from "@/lib/api";
 import { requireAdmin } from "@/lib/require-admin";
-import { BanForm, ClearStrikeForm, UnbanForm } from "./forms";
+import { BanForm, ClearStrikeForm, RoleForm, UnbanForm } from "./forms";
 
 interface User {
   id: string;
@@ -24,7 +24,7 @@ interface User {
 const when = (iso: string) => new Date(iso).toISOString().replace("T", " ").slice(0, 16) + " UTC";
 
 export default async function UserPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireAdmin();
+  const me = await requireAdmin();
   const { id } = await params;
   const res = await adminApiFetch(`/admin/users/${encodeURIComponent(id)}`);
   if (res.status === 404) notFound();
@@ -90,12 +90,26 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
             <UnbanForm id={u.id} />
           </>
         ) : u.role === "ADMIN" ? (
-          <p className="text-muted">An admin cannot be banned. Remove their admin role first (`make-admin --remove`).</p>
+          <p className="text-muted">An admin cannot be banned. Remove their admin role first (in the Admin role box below).</p>
         ) : (
           <>
             <h2 className="font-bold">Ban this account</h2>
             <p className="text-muted">They are signed out everywhere at once and can no longer bid, sell or sign in. Their listings, bids and orders stay as they are, and a payout is not held back.</p>
             <BanForm id={u.id} username={u.username} />
+          </>
+        )}
+      </div>
+
+      <div className="space-y-2 rounded border border-line bg-panel p-4">
+        <h2 className="font-bold">Admin role</h2>
+        {u.id === me.id ? (
+          <p className="text-muted">This is you. Another admin has to change your role.</p>
+        ) : (
+          <>
+            <p className="text-muted">
+              {u.role === "ADMIN" ? "An admin can use this app. Removing the role takes effect on their next request." : u.bannedAt ? "A banned account cannot be made an admin. Restore it first." : "Gives this account access to this app."}
+            </p>
+            {(u.role === "ADMIN" || !u.bannedAt) && <RoleForm id={u.id} username={u.username} role={u.role} />}
           </>
         )}
       </div>

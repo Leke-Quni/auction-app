@@ -23,7 +23,7 @@ Done-criteria are in `DESIGN.md` section 8. The five build steps are done; what 
 - ~~Removing a reported post~~ Done 2026-11-06.
 - ~~Finding things~~ Done 2026-11-06 (Overview counts, open-reports badge, Listings page).
 - **Changing an order.** The order view is read only: no refund, cancel or address correction.
-- **Smaller:** banning an admin without demoting them first, clearing all of a person's strikes in one click, and hiding a removed listing's words and photos from the public (today it shows as an ended auction with a banner).
+- **Smaller:** (an admin's role can now be changed in the admin app; `LAST_ADMIN` untested) banning an admin without demoting them first, clearing all of a person's strikes in one click, and hiding a removed listing's words and photos from the public (today it shows as an ended auction with a banner).
 - **Rating comments** have no report button or moderation path (decision, section 4).
 - **Admin app tests.** `apps/admin` has no tests of its own; its behaviour is covered by API tests and by throwaway browser scripts.
 
