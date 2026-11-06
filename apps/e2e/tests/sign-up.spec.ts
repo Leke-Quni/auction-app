@@ -1,11 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { closeDb, deletePerson, newPerson, useKnownCode } from "./helpers";
+import { deletePerson, newPerson, useKnownCode } from "./helpers";
 
 const person = newPerson();
 
 test.afterAll(async () => {
   await deletePerson(person.email);
-  await closeDb();
 });
 
 test("a visitor signs up, confirms the emailed code, and is signed in; then signs out and back in", async ({ page }) => {

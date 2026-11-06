@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import { config } from "dotenv";
 import { createHmac, randomUUID } from "node:crypto";
 import { resolve } from "node:path";
@@ -9,7 +10,7 @@ const KNOWN_CODE = "123456";
 
 let pool: pg.Pool | undefined;
 export const db = () => (pool ??= new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 2 }));
-export const closeDb = () => pool?.end();
+// The pool is shared by every spec file in a worker and ends with the worker, so no spec closes it.
 
 // The same HMAC the API uses (apps/api/src/auth/codes.ts) for a sign-in code.
 const loginHash = (userId: string, code: string) => createHmac("sha256", process.env.AUTH_SECRET!).update(`login:${userId}:${code}`).digest("hex");
@@ -33,4 +34,50 @@ export const newPerson = () => {
 // Removes what a test created. Accounts with bids or listings are not removed here.
 export async function deletePerson(email: string) {
   await db().query('DELETE FROM "User" WHERE "email" = $1', [email]);
+}
+
+type Person = ReturnType<typeof newPerson>;
+
+// Signs a new account up through the pages and ends signed in on the home page.
+export async function signUp(page: Page, person: Person) {
+  await page.goto("/sign-up");
+  await page.locator('input[name="firstName"]').fill(person.firstName);
+  await page.locator('input[name="lastName"]').fill(person.lastName);
+  await page.locator('input[name="username"]').fill(person.username);
+  await page.locator('input[name="email"]').fill(person.email);
+  await page.locator('input[name="password"]').fill(person.password);
+  await page.locator('input[name="confirmPassword"]').fill(person.password);
+  await page.getByRole("button", { name: "Sign up" }).click();
+  await page.getByRole("heading", { name: "Check your email" }).waitFor();
+  await page.getByPlaceholder("123456").fill(await useKnownCode(person.email));
+  await page.getByRole("button", { name: "Verify and sign in" }).click();
+  await page.getByRole("button", { name: "Account menu" }).waitFor();
+}
+
+// A seller who cannot sign in and one live auction of theirs, made straight in the database (photos upload to Vercel Blob,
+// which a local run cannot reach). Returns the listing id.
+export async function createLiveListing(title: string, startingPriceCents = 1000) {
+  const sellerId = `e2e_seller_${randomUUID()}`;
+  const listingId = `e2e_listing_${randomUUID()}`;
+  const n = sellerId.slice(-8);
+  await db().query(
+    'INSERT INTO "User" ("id", "email", "firstName", "lastName", "username", "passwordHash", "emailVerified", "updatedAt") VALUES ($1, $2, \'E2E\', \'Seller\', $3, \'!\', now(), now())',
+    [sellerId, `${n}@e2e.test`, `e2e_s_${n}`],
+  );
+  const category = await db().query<{ id: string }>('SELECT "id" FROM "Category" LIMIT 1');
+  await db().query(
+    `INSERT INTO "Listing" ("id", "sellerId", "title", "description", "categoryId", "condition", "startingPriceCents", "durationDays", "status", "startsAt", "endsAt", "publishedAt", "updatedAt")
+     VALUES ($1, $2, $3, 'Made by the end-to-end tests.', $4, 'GOOD', $5, 3, 'PUBLISHED', now() - interval '1 day', now() + interval '2 days', now() - interval '1 day', now())`,
+    [listingId, sellerId, title, category.rows[0]!.id, startingPriceCents],
+  );
+  return { listingId, sellerId };
+}
+
+export async function deleteListing(listingId: string, sellerId: string) {
+  await db().query('DELETE FROM "PendingOutbidEmail" WHERE "listingId" = $1', [listingId]);
+  await db().query('DELETE FROM "BidAudit" WHERE "listingId" = $1', [listingId]);
+  await db().query('DELETE FROM "Notification" WHERE "listingId" = $1', [listingId]);
+  await db().query('DELETE FROM "Bid" WHERE "listingId" = $1', [listingId]);
+  await db().query('DELETE FROM "Listing" WHERE "id" = $1', [listingId]);
+  await db().query('DELETE FROM "User" WHERE "id" = $1', [sellerId]);
 }
