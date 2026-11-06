@@ -81,3 +81,15 @@ export async function deleteListing(listingId: string, sellerId: string) {
   await db().query('DELETE FROM "Listing" WHERE "id" = $1', [listingId]);
   await db().query('DELETE FROM "User" WHERE "id" = $1', [sellerId]);
 }
+
+// An account that cannot sign in (no usable password), made straight in the database.
+export async function createBareUser(prefix: string) {
+  const id = `e2e_user_${randomUUID()}`;
+  const n = id.slice(-8);
+  const username = `${prefix}_${n}`;
+  await db().query(
+    'INSERT INTO "User" ("id", "email", "firstName", "lastName", "username", "passwordHash", "emailVerified", "updatedAt") VALUES ($1, $2, \'E2E\', \'Victim\', $3, \'!\', now(), now())',
+    [id, `${n}@e2e.test`, username],
+  );
+  return { id, username, email: `${n}@e2e.test` };
+}
