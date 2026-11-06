@@ -1,4 +1,5 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { giveAdminStrike } from "./admin-strikes";
 import { PRISMA, type Prisma } from "../db/db.module";
 
 export interface ReportListQuery {
@@ -89,6 +90,27 @@ export class AdminReportsService {
       return removed;
     });
     return { id: report.id, removed };
+  }
+
+  // A strike for whoever wrote the reported post (the asker of a question, the seller for an answer), with the report's reason
+  // and the listing as its reason, then the reports about that post are closed. The post itself is left as it is: removing it is
+  // a separate button, so an admin can do either or both. Refused when the author's account is gone or is an admin.
+  async strikeAuthor(adminId: string, reportId: string) {
+    const report = await this.prisma.report.findUnique({ where: { id: reportId } });
+    if (!report) throw new NotFoundException();
+    const [question, listing] = await Promise.all([
+      this.prisma.question.findUnique({ where: { id: report.questionId }, select: { askerId: true } }),
+      this.prisma.listing.findUnique({ where: { id: report.listingId }, select: { sellerId: true, title: true } }),
+    ]);
+    const authorId = report.target === "QUESTION" ? question?.askerId : listing?.sellerId;
+    if (!authorId) throw new ConflictException({ code: "NO_AUTHOR", message: "The account that wrote this is gone, so there is nobody to strike." });
+    const what = report.target === "QUESTION" ? "question" : "answer";
+    const reason = `Reported ${what} (${report.reason.toLowerCase().replace("_", " ")})${listing ? ` on "${listing.title}"` : ""}: ${report.body}`.slice(0, 500);
+    await this.prisma.$transaction(async (tx) => {
+      await giveAdminStrike(tx, adminId, authorId, reason, report.listingId);
+      await tx.report.updateMany({ where: { questionId: report.questionId, target: report.target, postedAt: report.postedAt, status: "OPEN" }, data: { status: "HANDLED", handledAt: new Date() } });
+    });
+    return { id: report.id, userId: authorId };
   }
 
   async questionLog({ questionId, listingId, actorId, limit }: QuestionLogQuery) {

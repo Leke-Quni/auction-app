@@ -1,4 +1,5 @@
 import { ConflictException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { giveAdminStrike } from "./admin-strikes";
 import { webUrl } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
@@ -47,11 +48,18 @@ export class AdminUsersService {
     const user = await this.prisma.user.findUnique({ where: { id }, select: summary });
     if (!user) throw new NotFoundException();
     const strikes = await this.prisma.strike.findMany({ where: { userId: id }, orderBy: { createdAt: "desc" } });
-    const listings = await this.prisma.listing.findMany({ where: { id: { in: strikes.map((s) => s.listingId) } }, select: { id: true, title: true } });
+    const listings = await this.prisma.listing.findMany({ where: { id: { in: strikes.flatMap((s) => (s.listingId ? [s.listingId] : [])) } }, select: { id: true, title: true } });
     const titleOf = new Map(listings.map((l) => [l.id, l.title]));
     return {
       ...toSummary(user),
-      strikes: strikes.map((s) => ({ id: s.id, createdAt: s.createdAt.toISOString(), orderId: s.orderId, listing: titleOf.has(s.listingId) ? { id: s.listingId, title: titleOf.get(s.listingId)! } : null })),
+      strikes: strikes.map((s) => ({
+        id: s.id,
+        createdAt: s.createdAt.toISOString(),
+        orderId: s.givenById ? null : s.orderId,
+        reason: s.reason,
+        givenByAdmin: s.givenById !== null,
+        listing: s.listingId && titleOf.has(s.listingId) ? { id: s.listingId, title: titleOf.get(s.listingId)! } : null,
+      })),
     };
   }
 
@@ -125,6 +133,12 @@ export class AdminUsersService {
       await tx.user.update({ where: { id }, data: { role } });
       await tx.adminAction.create({ data: { adminId, action: "SET_ROLE", targetId: id, reason: role } });
     });
+    return this.get(id);
+  }
+
+  // A strike for conduct (a reason is required). Two strikes block bidding, as for an unpaid order.
+  async strike(adminId: string, id: string, reason: string) {
+    await this.prisma.$transaction((tx) => giveAdminStrike(tx, adminId, id, reason));
     return this.get(id);
   }
 

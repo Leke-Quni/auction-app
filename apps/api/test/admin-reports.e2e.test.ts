@@ -190,4 +190,33 @@ describe("admin reports queue and question log", () => {
     expect((await prisma.question.findUniqueOrThrow({ where: { id: second.question.id } })).answer).toBe(second.question.answer);
     expect((await prisma.report.findUniqueOrThrow({ where: { id: old.id } })).status).toBe("HANDLED");
   });
+
+  it("strikes whoever wrote the reported post (the asker of a question, the seller for an answer) and closes the reports", async () => {
+    const admin = await person("ADMIN");
+    const { seller, asker, listing, question } = await scene();
+    const reporter = await person();
+    const q = await prisma.report.create({ data: { questionId: question.id, listingId: listing.id, target: "QUESTION", reporterId: reporter.id, reason: "CONTACT_DETAILS", body: question.body, postedAt: question.createdAt } });
+    const a = await prisma.report.create({ data: { questionId: question.id, listingId: listing.id, target: "ANSWER", reporterId: reporter.id, reason: "SPAM", body: question.answer!, postedAt: question.answeredAt! } });
+    await request(url).post(`/admin/reports/${q.id}/strike-author`).set(reporter.auth).expect(403);
+    await request(url).post("/admin/reports/nope/strike-author").set(admin.auth).expect(404);
+
+    await request(url).post(`/admin/reports/${q.id}/strike-author`).set(admin.auth).expect(200);
+    await request(url).post(`/admin/reports/${a.id}/strike-author`).set(admin.auth).expect(200);
+    const [askerStrikes, sellerStrikes] = await Promise.all([prisma.strike.findMany({ where: { userId: asker.id } }), prisma.strike.findMany({ where: { userId: seller.id } })]);
+    expect(askerStrikes).toMatchObject([{ listingId: listing.id, givenById: admin.id, reason: expect.stringContaining("Reported question (contact details)") }]);
+    expect(askerStrikes[0]!.reason).toContain(question.body);
+    expect(sellerStrikes).toMatchObject([{ givenById: admin.id, reason: expect.stringContaining("Reported answer (spam)") }]);
+    expect((await prisma.report.findMany({ where: { id: { in: [q.id, a.id] } } })).map((r) => r.status)).toEqual(["HANDLED", "HANDLED"]);
+    expect((await prisma.question.findUniqueOrThrow({ where: { id: question.id } })).deletedAt).toBeNull();
+    expect(await prisma.adminAction.count({ where: { adminId: admin.id, action: "STRIKE_USER" } })).toBe(2);
+  });
+
+  it("refuses to strike when the author's account is gone", async () => {
+    const admin = await person("ADMIN");
+    const { listing, question } = await scene();
+    await prisma.question.update({ where: { id: question.id }, data: { askerId: null } });
+    const r = await prisma.report.create({ data: { questionId: question.id, listingId: listing.id, target: "QUESTION", reason: "ABUSE", body: "rude", postedAt: question.createdAt } });
+    expect((await request(url).post(`/admin/reports/${r.id}/strike-author`).set(admin.auth).expect(409)).body.code).toBe("NO_AUTHOR");
+    expect((await prisma.report.findUniqueOrThrow({ where: { id: r.id } })).status).toBe("OPEN");
+  });
 });

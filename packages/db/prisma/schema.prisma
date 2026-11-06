@@ -535,8 +535,13 @@ model Strike {
   id        String   @id @default(cuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  listingId String
+  // The listing the unpaid order was for; null for a strike an admin gave.
+  listingId String?
+  // The unpaid order. An admin's strike has no order and takes an id of its own ("admin_...") so it stays unique.
   orderId   String   @unique
+  // Why an admin gave it, and which admin (a plain id, so the record outlives the account). Both null for a strike the system gave.
+  reason    String?
+  givenById String?
   createdAt DateTime @default(now())
 
   @@index([userId])
@@ -566,4 +571,5 @@ enum AdminActionKind {
   VIEW_ORDER
   REMOVE_POST
   SET_ROLE
+  STRIKE_USER
 }

@@ -21,6 +21,7 @@ const ordersQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 const roleSchema = z.object({ role: z.enum(["USER", "ADMIN"]) });
+const strikeSchema = z.object({ reason: z.string().trim().min(1).max(500) });
 const banSchema = z.object({ reason: z.string().trim().min(1).max(500) });
 const removeListingSchema = z.object({ reason: z.string().trim().min(1).max(500) });
 const auditQuerySchema = z.object({ adminId: z.string().min(1).optional(), targetId: z.string().min(1).optional(), limit: z.coerce.number().int().min(1).max(200).default(100) });
@@ -125,6 +126,20 @@ export class AdminController {
   @HttpCode(200)
   unbanUser(@Param("id") id: string, @Req() req: { user: AuthUser }) {
     return this.users.unban(req.user.id, id);
+  }
+
+  // Gives the account a strike with a reason (two block bidding).
+  @Post("users/:id/strike")
+  @HttpCode(200)
+  strikeUser(@Param("id") id: string, @Req() req: { user: AuthUser }, @Body(new ZodValidationPipe(strikeSchema)) body: z.infer<typeof strikeSchema>) {
+    return this.users.strike(req.user.id, id, body.reason);
+  }
+
+  // Strikes whoever wrote the reported question or answer, and closes every open report about that post.
+  @Post("reports/:id/strike-author")
+  @HttpCode(200)
+  strikeAuthor(@Param("id") id: string, @Req() req: { user: AuthUser }) {
+    return this.reports.strikeAuthor(req.user.id, id);
   }
 
   // Makes an account an admin, or an ordinary user again.

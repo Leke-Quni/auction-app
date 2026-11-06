@@ -21,3 +21,12 @@ export async function removePostAction(formData: FormData) {
   if (!res.ok && res.status !== 404) throw new Error(`Could not remove the post: ${res.status}`);
   revalidatePath("/reports");
 }
+
+export async function strikeAuthorAction(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  const res = await adminApiFetch(`/admin/reports/${encodeURIComponent(id)}/strike-author`, { method: "POST" });
+  if (!res.ok && res.status !== 404 && res.status !== 409) throw new Error(`Could not strike the author: ${res.status}`);
+  revalidatePath("/reports");
+}

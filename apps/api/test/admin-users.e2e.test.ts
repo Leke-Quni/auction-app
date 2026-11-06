@@ -233,4 +233,36 @@ describe("admin accounts: ban, unban and strikes", () => {
     await prisma.user.update({ where: { id: banned.id }, data: { bannedAt: new Date() } });
     expect((await setRole(a, banned.id, "ADMIN").expect(409)).body.code).toBe("BANNED");
   });
+
+  it("gives a strike with a reason that counts like an unpaid auction: two block bidding, and it can be cleared", async () => {
+    const admin = await person("ADMIN");
+    const seller = await person();
+    const bidder = await person();
+    const listing = await prisma.listing.create({
+      data: {
+        sellerId: seller.id, title: `Admin strike ${stamp}`, description: "x", categoryId, condition: "GOOD", startingPriceCents: 1000, durationDays: 3, status: "PUBLISHED",
+        startsAt: new Date(Date.now() - DAY), endsAt: new Date(Date.now() + 2 * DAY), publishedAt: new Date(Date.now() - DAY),
+      },
+    });
+    listingIds.push(listing.id);
+    const give = (who: Who, body: unknown = { reason: "Abusive messages" }) => request(url).post(`/admin/users/${bidder.id}/strike`).set(who.auth).send(body as object);
+    await give(bidder).expect(403);
+    await give(admin, { reason: "  " }).expect(400);
+    await request(url).post("/admin/users/nope/strike").set(admin.auth).send({ reason: "x" }).expect(404);
+    const admin2 = await person("ADMIN");
+    expect((await request(url).post(`/admin/users/${admin2.id}/strike`).set(admin.auth).send({ reason: "x" }).expect(409)).body.code).toBe("CANNOT_STRIKE_ADMIN");
+
+    const first = (await give(admin).expect(200)).body;
+    expect(first.strikeCount).toBe(1);
+    expect(first.strikes[0]).toMatchObject({ reason: "Abusive messages", givenByAdmin: true, orderId: null, listing: null });
+    await give(admin, { reason: "Again" }).expect(200);
+    const bid = () => request(url).post(`/listings/${listing.id}/bids`).set(bidder.auth).send({ amountCents: 1500, idempotencyKey: randomUUID() });
+    expect((await bid().expect(403)).body.code).toBe("BLOCKED");
+
+    const detail = (await request(url).get(`/admin/users/${bidder.id}`).set(admin.auth).expect(200)).body;
+    await request(url).delete(`/admin/strikes/${detail.strikes[0].id}`).set(admin.auth).expect(200);
+    await bid().expect(201);
+    const log = (await request(url).get(`/admin/audit?targetId=${bidder.id}`).set(admin.auth).expect(200)).body.entries;
+    expect(log.filter((e: { action: string }) => e.action === "STRIKE_USER")).toHaveLength(2);
+  });
 });

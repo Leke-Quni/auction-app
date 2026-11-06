@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { MAX_STRIKES } from "@auction/shared";
 import { adminApiFetch } from "@/lib/api";
 import { requireAdmin } from "@/lib/require-admin";
-import { BanForm, ClearStrikeForm, RoleForm, UnbanForm } from "./forms";
+import { BanForm, ClearStrikeForm, RoleForm, StrikeForm, UnbanForm } from "./forms";
 
 interface User {
   id: string;
@@ -18,7 +18,7 @@ interface User {
   strikeCount: number;
   listingCount: number;
   bidCount: number;
-  strikes: { id: string; createdAt: string; orderId: string; listing: { id: string; title: string } | null }[];
+  strikes: { id: string; createdAt: string; orderId: string | null; reason: string | null; givenByAdmin: boolean; listing: { id: string; title: string } | null }[];
 }
 
 const when = (iso: string) => new Date(iso).toISOString().replace("T", " ").slice(0, 16) + " UTC";
@@ -65,19 +65,34 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
             {u.strikes.map((s) => (
               <li key={s.id} className="flex items-center justify-between gap-3 py-1.5">
                 <span>
-                  {when(s.createdAt)}, did not pay for{" "}
+                  {when(s.createdAt)},{" "}
+                  {s.givenByAdmin ? <b>given by an admin</b> : <>did not pay for</>}
+                  {s.givenByAdmin ? (s.listing ? <>, about </> : null) : " "}
                   {s.listing ? (
                     <Link href={`/listings/${s.listing.id}`} className="text-accent underline">
                       {s.listing.title}
                     </Link>
-                  ) : (
+                  ) : s.givenByAdmin ? null : (
                     <span className="text-muted">a removed listing</span>
                   )}
+                  {s.givenByAdmin && s.reason && <span className="mt-0.5 block whitespace-pre-wrap break-words text-muted">{s.reason}</span>}
                 </span>
                 <ClearStrikeForm id={u.id} strikeId={s.id} />
               </li>
             ))}
           </ul>
+        )}
+      </div>
+
+      <div className="space-y-2 rounded border border-line bg-panel p-4">
+        <h2 className="font-bold">Give a strike</h2>
+        {u.role === "ADMIN" ? (
+          <p className="text-muted">An admin cannot be given a strike. Remove their admin role first.</p>
+        ) : (
+          <>
+            <p className="text-muted">A strike for conduct. Two strikes stop a person bidding, as for an unpaid auction. They are not emailed.</p>
+            <StrikeForm id={u.id} username={u.username} strikes={u.strikeCount} max={MAX_STRIKES} />
+          </>
         )}
       </div>
 
