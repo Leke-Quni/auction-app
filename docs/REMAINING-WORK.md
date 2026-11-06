@@ -19,7 +19,7 @@ Done-criteria are in `DESIGN.md` section 8. The five build steps are done; what 
 
 **Not built in the admin app (decide which to do, section 4)**
 - ~~A record of who did what~~ Done 2026-11-06 (`AdminAction`, Audit log page). Not recorded: sign-ins and who marked a report handled.
-- **Telling people.** A banned person gets no email, and a seller whose listing is removed sees only a banner on the page (no email, no bell entry).
+- ~~Telling people~~ Done 2026-11-06 (ban email; removal email and bell entry for the seller).
 - ~~Removing a reported post~~ Done 2026-11-06.
 - ~~Finding things~~ Done 2026-11-06 (Overview counts, open-reports badge, Listings page).
 - **Changing an order.** The order view is read only: no refund, cancel or address correction.
@@ -59,7 +59,6 @@ Done-criteria are in `DESIGN.md` section 8. The five build steps are done; what 
 
 ## 4. Open decisions still to make (from `DESIGN.md` section 7)
 - **Rating comments.** Whether they get the same report button and queue as questions and answers, or admin-only removal.
-- **Telling people about moderation.** Whether a ban or a listing removal should email the person (and put a bell entry in front of the seller).
 - **A removed listing's content.** Whether its words and photos stay public (an ended auction with a banner, as now) or are hidden.
 - **Which gaps in section 1 to build** before launch, and which to leave.
 - Query library for server data: React Query or SWR.

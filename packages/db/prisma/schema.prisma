@@ -383,6 +383,8 @@ enum EndEmailKind {
   PAYOUT
   // A watched auction ends in about 24 hours.
   ENDING_SOON
+  // The seller's notice that a moderator ended their auction.
+  REMOVED
 }
 
 enum NotificationType {
@@ -392,6 +394,8 @@ enum NotificationType {
   QUESTION_ANSWERED
   // "You won" or "the item is yours to pay for": links to the order to pay.
   WON
+  // A moderator ended the seller's auction.
+  LISTING_REMOVED
 }
 
 // What a person can read later in the bell: each notice the API pushes live is saved here too. `key` says what the

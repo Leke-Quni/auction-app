@@ -1,5 +1,7 @@
 import { ConflictException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { webUrl } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
 import { RealtimeGateway } from "../realtime/realtime.gateway";
 
 export interface UserListQuery {
@@ -24,6 +26,7 @@ export class AdminUsersService {
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
     private readonly gateway: RealtimeGateway,
+    @Inject(MAIL_SENDER) private readonly mail: MailSender,
   ) {}
 
   async list({ q, banned, limit }: UserListQuery) {
@@ -72,7 +75,25 @@ export class AdminUsersService {
       // The ban is saved and every request is refused already; only the live hang-up failed.
       this.log.error(`Could not disconnect banned user ${id}: ${(error as Error).message}`);
     }
+    await this.emailBan(id, reason);
     return this.get(id);
+  }
+
+  // Tells the person why. Best effort and sent straight away: the ban stands whether or not the email goes.
+  private async emailBan(id: string, reason: string) {
+    try {
+      const user = await this.prisma.user.findUnique({ where: { id }, select: { email: true } });
+      if (!user) return;
+      await this.mail.send(user.email, "Your account has been suspended", [
+        "A moderator has suspended your account, so you can no longer sign in, bid or sell.",
+        "",
+        `Reason: ${reason}`,
+        "",
+        `Your existing listings, bids and orders are not changed. If you think this is a mistake, contact support through ${webUrl()}.`,
+      ].join("\n"));
+    } catch (error) {
+      this.log.error(`Could not email the ban notice to ${id}: ${(error as Error).message}`);
+    }
   }
 
   async unban(adminId: string, id: string) {

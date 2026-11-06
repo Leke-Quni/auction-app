@@ -60,6 +60,11 @@ export interface ExtendedNotice {
   final: boolean;
 }
 
+// Saved for the seller (bell only, no live toast) when a moderator ends their auction.
+export interface RemovedNotice {
+  reason: string;
+}
+
 // For the winner of an auction, when it closes in a sale (`notice:won`).
 export interface WonNotice {
   listingId: string;
@@ -105,7 +110,8 @@ export type NotificationItem =
   | (NotificationBase & { type: "AUCTION_EXTENDED"; data: ExtendedNotice })
   | (NotificationBase & { type: "QUESTION_ASKED"; data: QuestionNotice })
   | (NotificationBase & { type: "QUESTION_ANSWERED"; data: QuestionNotice })
-  | (NotificationBase & { type: "WON"; data: WonNotice });
+  | (NotificationBase & { type: "WON"; data: WonNotice })
+  | (NotificationBase & { type: "LISTING_REMOVED"; data: RemovedNotice });
 
 export interface NotificationList {
   items: NotificationItem[];

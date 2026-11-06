@@ -59,6 +59,7 @@ describe("an admin removing a listing", () => {
 
   afterAll(async () => {
     await prisma.adminAction.deleteMany({ where: { adminId: { in: userIds } } });
+    await prisma.notification.deleteMany({ where: { listingId: { in: listingIds } } });
     await prisma.pendingEndEmail.deleteMany({ where: { listingId: { in: listingIds } } });
     await prisma.order.deleteMany({ where: { listingId: { in: listingIds } } });
     await prisma.bid.deleteMany({ where: { listingId: { in: listingIds } } });
@@ -125,6 +126,11 @@ describe("an admin removing a listing", () => {
       expect(mail).toHaveLength(1);
       expect(mail[0].text).toContain("ended early by a moderator");
     }
+    const toSeller = await emails(seller.email);
+    expect(toSeller).toHaveLength(1);
+    expect(toSeller[0].text).toContain("A moderator ended your auction");
+    expect(toSeller[0].text).toContain("Reason: Counterfeit goods");
+    expect(await prisma.notification.findMany({ where: { userId: seller.id, listingId: l.id } })).toMatchObject([{ type: "LISTING_REMOVED", key: `removed:${l.id}`, data: { reason: "Counterfeit goods" }, readAt: null }]);
     expect(closed).toContainEqual({ type: "AuctionClosed", listingId: l.id, outcome: "NO_SALE", winnerId: null, finalPriceCents: null });
     expect(removedFromSearch).toContain(l.id);
   });
@@ -138,7 +144,7 @@ describe("an admin removing a listing", () => {
     expect((await remove(admin, upcoming.id).expect(200)).body).toMatchObject({ outcome: "NO_BIDS", phase: "ended" });
     const stored = await prisma.listing.findUniqueOrThrow({ where: { id: upcoming.id } });
     expect(stored.startsAt!.getTime()).toBeLessThanOrEqual(stored.endsAt!.getTime());
-    expect(await prisma.pendingEndEmail.count({ where: { listingId: { in: [live.id, upcoming.id] } } })).toBe(0);
+    expect(await prisma.pendingEndEmail.count({ where: { listingId: { in: [live.id, upcoming.id] }, kind: { not: "REMOVED" } } })).toBe(0);
   });
 
   it("refuses a second removal, a draft, a sold auction, an unknown id and a missing reason", async () => {

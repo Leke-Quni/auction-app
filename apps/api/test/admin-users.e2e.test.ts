@@ -26,6 +26,7 @@ describe("admin accounts: ban, unban and strikes", () => {
   const userIds: string[] = [];
   const listingIds: string[] = [];
   const sockets: Socket[] = [];
+  const sent: { to: string; subject: string; text: string }[] = [];
 
   type Who = { id: string; email: string; username: string; auth: Record<string, string>; token: string };
   const person = async (role: "USER" | "ADMIN" = "USER"): Promise<Who> => {
@@ -42,7 +43,7 @@ describe("admin accounts: ban, unban and strikes", () => {
       .overrideProvider(SEARCH_INDEX)
       .useValue(new NoopSearchIndex())
       .overrideProvider(MAIL_SENDER)
-      .useValue({ send: async () => undefined })
+      .useValue({ send: async (to: string, subject: string, text: string) => void sent.push({ to, subject, text }) })
       .compile();
     app = moduleRef.createNestApplication();
     app.useWebSocketAdapter(new RealtimeAdapter(app));
@@ -125,6 +126,7 @@ describe("admin accounts: ban, unban and strikes", () => {
     expect((await unban(admin, user.id).expect(409)).body.code).toBe("NOT_BANNED");
     await ban(admin, user.id).expect(200);
     expect((await ban(admin, user.id, { reason: "Again" }).expect(409)).body.code).toBe("ALREADY_BANNED");
+    expect(sent.filter((m) => m.to === user.email)).toMatchObject([{ subject: "Your account has been suspended", text: expect.stringContaining("Reason: Fraud") }]);
     expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).banReason).toBe("Fraud");
     await unban(admin, "nope").expect(404);
   });
