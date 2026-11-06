@@ -100,13 +100,17 @@ export class AdminReportsService {
     const report = await this.prisma.report.findUnique({ where: { id: reportId } });
     if (!report) throw new NotFoundException();
     const [question, listing] = await Promise.all([
-      this.prisma.question.findUnique({ where: { id: report.questionId }, select: { askerId: true } }),
+      this.prisma.question.findUnique({ where: { id: report.questionId }, select: { askerId: true, deletedAt: true, answer: true, answeredAt: true } }),
       this.prisma.listing.findUnique({ where: { id: report.listingId }, select: { sellerId: true, title: true } }),
     ]);
+    // The reported post must still be the one that was reported: a taken-back or replaced answer would otherwise put the strike on
+    // whoever wrote the new one (or on nobody who did anything). Remove the stale report instead.
+    const stillThere = report.target === "QUESTION" ? !!question && !question.deletedAt : !!question && !question.deletedAt && question.answer !== null && question.answeredAt?.getTime() === report.postedAt.getTime();
+    if (!stillThere) throw new ConflictException({ code: "POST_CHANGED", message: "The reported post was removed or replaced since this report. Mark the report handled instead." });
     const authorId = report.target === "QUESTION" ? question?.askerId : listing?.sellerId;
     if (!authorId) throw new ConflictException({ code: "NO_AUTHOR", message: "The account that wrote this is gone, so there is nobody to strike." });
     const what = report.target === "QUESTION" ? "question" : "answer";
-    const reason = `Reported ${what} (${report.reason.toLowerCase().replace("_", " ")})${listing ? ` on "${listing.title}"` : ""}: ${report.body}`.slice(0, 500);
+    const reason = `Reported ${what} (${report.reason.toLowerCase().replaceAll("_", " ")})${listing ? ` on "${listing.title}"` : ""}: ${report.body}`.slice(0, 500);
     await this.prisma.$transaction(async (tx) => {
       await giveAdminStrike(tx, adminId, authorId, reason, report.listingId);
       await tx.report.updateMany({ where: { questionId: report.questionId, target: report.target, postedAt: report.postedAt, status: "OPEN" }, data: { status: "HANDLED", handledAt: new Date() } });

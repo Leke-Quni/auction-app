@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
 
 export interface SupportListQuery {
@@ -55,5 +55,22 @@ export class AdminSupportService {
     const row = await this.prisma.supportRequest.findUnique({ where: { id }, select: { id: true, status: true, handledAt: true } });
     if (!row) throw new NotFoundException();
     return { id: row.id, status: row.status, handledAt: row.handledAt?.toISOString() ?? null, changed: done > 0 };
+  }
+
+  // Grants a strike appeal: closes the request and clears its strike in one transaction, so a failure between the two cannot leave
+  // the strike gone and the appeal open. The close is a guarded update and comes first, so an appeal another admin already closed
+  // (granted or refused) clears nothing. If the strike was already cleared, the request is just closed.
+  async grantAppeal(adminId: string, id: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const request = await tx.supportRequest.findUnique({ where: { id }, select: { kind: true, strikeId: true, userId: true } });
+      if (!request) throw new NotFoundException();
+      if (request.kind !== "STRIKE_APPEAL" || !request.strikeId) throw new ConflictException({ code: "NOT_AN_APPEAL", message: "This request is not a strike appeal." });
+      const closed = await tx.supportRequest.updateMany({ where: { id, status: "OPEN" }, data: { status: "HANDLED", handledAt: new Date(), handledById: adminId } });
+      if (closed.count === 0) return { id, changed: false, strikeCleared: false };
+      await tx.adminAction.create({ data: { adminId, action: "HANDLE_SUPPORT", targetId: id, reason: "appeal granted" } });
+      const cleared = await tx.strike.deleteMany({ where: { id: request.strikeId, userId: request.userId } });
+      if (cleared.count > 0) await tx.adminAction.create({ data: { adminId, action: "CLEAR_STRIKE", targetId: request.userId, reason: request.strikeId } });
+      return { id, changed: true, strikeCleared: cleared.count > 0 };
+    });
   }
 }

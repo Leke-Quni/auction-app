@@ -65,6 +65,13 @@ describe("support requests and strike appeals", () => {
     await send(user, { kind: "OTHER", message: "hi" }).expect(400);
   });
 
+  it("saves only one appeal when the same strike is appealed twice at once", async () => {
+    const user = await person();
+    const mine = await strikeFor(user.id);
+    const codes = (await Promise.all([1, 2, 3].map(() => send(user, { kind: "STRIKE_APPEAL", strikeId: mine.id, message: "Please" })))).map((r) => r.status).sort();
+    expect(codes).toEqual([201, 409, 409]);
+  });
+
   it("saves an appeal against the person's own strike, once while it is open, and never for someone else's strike", async () => {
     const [user, other] = [await person(), await person()];
     const mine = await strikeFor(user.id, { reason: "Abusive messages", givenById: "someone" });
@@ -121,5 +128,30 @@ describe("support requests and strike appeals", () => {
     const row = (await api().get("/admin/support?limit=200").set(admin.auth).expect(200)).body.requests.find((r: { id: string }) => r.id === id);
     expect(row).toMatchObject({ kind: "STRIKE_APPEAL", strike: null });
     expect((await send(user, { kind: "STRIKE_APPEAL", strikeId: strike.id, message: "Again" }).expect(404)).body.code).toBe("STRIKE_NOT_FOUND");
+  });
+
+  it("grants an appeal in one step: the strike is cleared and the request closed, once, and a request someone else closed clears nothing", async () => {
+    const admin = await person("ADMIN");
+    const other = await person("ADMIN");
+    const user = await person();
+    const general = (await send(user, { kind: "GENERAL", message: "Hello" }).expect(201)).body.id;
+    const strike = await strikeFor(user.id);
+    const id = (await send(user, { kind: "STRIKE_APPEAL", strikeId: strike.id, message: "Please" }).expect(201)).body.id;
+    await api().post(`/admin/support/${id}/grant`).set(user.auth).expect(403);
+    await api().post("/admin/support/nope/grant").set(admin.auth).expect(404);
+    expect((await api().post(`/admin/support/${general}/grant`).set(admin.auth).expect(409)).body.code).toBe("NOT_AN_APPEAL");
+
+    expect((await api().post(`/admin/support/${id}/grant`).set(admin.auth).expect(200)).body).toMatchObject({ changed: true, strikeCleared: true });
+    expect(await prisma.strike.count({ where: { id: strike.id } })).toBe(0);
+    expect((await prisma.supportRequest.findUniqueOrThrow({ where: { id } })).status).toBe("HANDLED");
+    expect(await prisma.adminAction.count({ where: { adminId: admin.id, action: { in: ["HANDLE_SUPPORT", "CLEAR_STRIKE"] } } })).toBe(2);
+    expect((await api().post(`/admin/support/${id}/grant`).set(other.auth).expect(200)).body).toMatchObject({ changed: false, strikeCleared: false });
+
+    // An appeal that was refused (closed) first must not clear the strike when another admin then clicks "grant".
+    const second = await strikeFor(user.id);
+    const refused = (await send(user, { kind: "STRIKE_APPEAL", strikeId: second.id, message: "Again" }).expect(201)).body.id;
+    await api().post(`/admin/support/${refused}/handle`).set(admin.auth).expect(200);
+    expect((await api().post(`/admin/support/${refused}/grant`).set(other.auth).expect(200)).body).toMatchObject({ changed: false });
+    expect(await prisma.strike.count({ where: { id: second.id } })).toBe(1);
   });
 });

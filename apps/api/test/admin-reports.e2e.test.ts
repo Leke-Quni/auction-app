@@ -220,6 +220,16 @@ describe("admin reports queue and question log", () => {
     expect((await prisma.report.findUniqueOrThrow({ where: { id: r.id } })).status).toBe("OPEN");
   });
 
+  it("will not strike for a reported answer that was taken back or replaced since the report", async () => {
+    const admin = await person("ADMIN");
+    const { listing, question } = await scene();
+    const r = await prisma.report.create({ data: { questionId: question.id, listingId: listing.id, target: "ANSWER", reason: "SPAM", body: question.answer!, postedAt: question.answeredAt! } });
+    await prisma.question.update({ where: { id: question.id }, data: { answer: "A different answer", answeredAt: new Date(question.answeredAt!.getTime() + 60_000) } });
+    expect((await request(url).post(`/admin/reports/${r.id}/strike-author`).set(admin.auth).expect(409)).body.code).toBe("POST_CHANGED");
+    expect(await prisma.strike.count({ where: { listingId: listing.id } })).toBe(0);
+    expect((await prisma.report.findUniqueOrThrow({ where: { id: r.id } })).status).toBe("OPEN");
+  });
+
   it("finds a person's conversations by username, email or listing title, with the listing's title on each entry", async () => {
     const admin = await person("ADMIN");
     const { seller, asker, listing, question } = await scene();
