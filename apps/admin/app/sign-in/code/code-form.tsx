@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useActionState } from "react";
 import { verifyCodeAction } from "../../actions";
+import { ResendCode } from "./resend-code";
 
 export function CodeForm({ email }: { email: string }) {
   const [state, formAction, pending] = useActionState(verifyCodeAction, {});
@@ -32,6 +33,7 @@ export function CodeForm({ email }: { email: string }) {
       <button disabled={pending} className="w-full cursor-pointer rounded bg-accent px-3 py-2 font-semibold text-white hover:bg-accent-dark disabled:opacity-60">
         {pending ? "Please wait..." : "Verify and sign in"}
       </button>
+      <ResendCode email={email} />
       <p>
         <Link href="/sign-in" className="text-accent underline">
           Back to sign in

@@ -2,6 +2,7 @@ import type {
   ForgotPasswordInput,
   LoginCodeInput,
   ResetPasswordInput,
+  ResendLoginCodeInput,
   SignInInput,
   SignUpInput,
 } from "@auction/shared";
@@ -20,6 +21,9 @@ const RESET_TTL_MS = 60 * 60 * 1000;
 const DUMMY_HASH = bcrypt.hashSync("not-a-real-password", 12);
 
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
+// "Send a new code" works for this long after the password step, and at most this many times in one sign-in.
+const RESEND_WINDOW_MS = 30 * 60_000;
+const MAX_CODE_RESENDS = 5;
 const loginScope = (userId: string) => `login:${userId}`;
 
 @Injectable()
@@ -87,12 +91,25 @@ export class AuthService {
     }
   }
 
-  private async sendLoginCode(user: { id: string; email: string }) {
+  // A new code for someone who is partway through signing in, who has not got the first or let it expire. There is no password
+  // here, so it sends only to an account whose password step passed in the last RESEND_WINDOW, at most MAX_RESENDS times per
+  // sign-in and once per cooldown, and it answers the same whether or not it sent anything: it cannot be used to find out who
+  // has an account, and it can only ever write to the account's own inbox.
+  async resendLoginCode(input: ResendLoginCodeInput) {
+    const user = await this.prisma.user.findUnique({ where: { email: input.email.toLowerCase() } });
+    if (!user || user.bannedAt) return;
+    const latest = await this.prisma.loginCode.findFirst({ where: { userId: user.id }, orderBy: { createdAt: "desc" } });
+    if (!latest || latest.resends >= MAX_CODE_RESENDS || Date.now() - latest.createdAt.getTime() > RESEND_WINDOW_MS) return;
+    if (Date.now() - latest.createdAt.getTime() < loginCodeCooldownSeconds() * 1000) return;
+    await this.sendLoginCode(user, latest.resends + 1);
+  }
+
+  private async sendLoginCode(user: { id: string; email: string }, resends = 0) {
     const code = generateCode();
     await this.prisma.$transaction([
       this.prisma.loginCode.deleteMany({ where: { userId: user.id } }),
       this.prisma.loginCode.create({
-        data: { userId: user.id, codeHash: hashCode(loginScope(user.id), code), expiresAt: new Date(Date.now() + CODE_TTL_MS) },
+        data: { userId: user.id, codeHash: hashCode(loginScope(user.id), code), expiresAt: new Date(Date.now() + CODE_TTL_MS), resends },
       }),
     ]);
     await this.mail.send(user.email, "Your sign-in code", `Your sign-in code is ${code}. It expires in 10 minutes.`);

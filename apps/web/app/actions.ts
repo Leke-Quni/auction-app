@@ -58,6 +58,14 @@ export async function signInAction(_: FormState, formData: FormData): Promise<Fo
   redirect(`/sign-in/code?email=${encodeURIComponent(parsed.data.email)}`);
 }
 
+// "Send a new code" on the code page. The answer is the same whether or not a code went out, so the message is worded to match.
+export async function resendCodeAction(email: string): Promise<FormState> {
+  const res = await apiFetch("/auth/login/resend", { method: "POST", body: JSON.stringify({ email }) });
+  if (res.status === 422 || res.status === 429) return { error: await apiErrorMessage(res) };
+  if (!res.ok) return { error: "Something went wrong. Try again." };
+  return { ok: "If you signed in a moment ago, a new code is on its way. It replaces the old one." };
+}
+
 // Ends the session without a redirect: used by the suspended-account page, which stays where it is.
 export async function endSessionAction() {
   await signOut({ redirect: false });

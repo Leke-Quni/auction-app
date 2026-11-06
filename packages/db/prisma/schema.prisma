@@ -56,6 +56,8 @@ model LoginCode {
   codeHash  String
   expiresAt DateTime
   attempts  Int      @default(0)
+  // How many times this sign-in has asked for a new code (reset by the password step), so "send a new code" cannot be used to flood an inbox.
+  resends   Int      @default(0)
   createdAt DateTime @default(now())
 
   @@index([userId])

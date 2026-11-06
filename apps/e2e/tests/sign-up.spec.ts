@@ -18,6 +18,7 @@ test("a visitor signs up, confirms the emailed code, and is signed in; then sign
   await page.getByRole("button", { name: "Sign up" }).click();
 
   await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Send a new code/ })).toBeDisabled(); // it waits 30 seconds, like the server
   await page.getByPlaceholder("123456").fill(await useKnownCode(person.email));
   await page.getByRole("button", { name: "Verify and sign in" }).click();
 

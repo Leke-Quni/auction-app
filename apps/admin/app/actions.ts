@@ -38,6 +38,13 @@ export async function verifyCodeAction(_: FormState, formData: FormData): Promis
   return {};
 }
 
+// "Send a new code" on the code page. The answer is the same whether or not a code went out, so the message is worded to match.
+export async function resendCodeAction(email: string): Promise<{ ok?: string; error?: string }> {
+  const res = await apiFetch("/auth/login/resend", { method: "POST", body: JSON.stringify({ email }) });
+  if (!res.ok) return { error: "Something went wrong. Try again." };
+  return { ok: "If you signed in a moment ago, a new code is on its way. It replaces the old one." };
+}
+
 export async function signOutAction() {
   await signOut({ redirectTo: "/sign-in" });
 }

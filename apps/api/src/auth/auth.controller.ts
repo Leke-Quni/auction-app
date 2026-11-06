@@ -1,11 +1,13 @@
 import {
   forgotPasswordSchema,
   loginCodeSchema,
+  resendLoginCodeSchema,
   resetPasswordSchema,
   signInSchema,
   signUpSchema,
   type ForgotPasswordInput,
   type LoginCodeInput,
+  type ResendLoginCodeInput,
   type ResetPasswordInput,
   type SignInInput,
   type SignUpInput,
@@ -33,6 +35,13 @@ export class AuthController {
   @HttpCode(200)
   verifyLoginCode(@Body(new ZodValidationPipe(loginCodeSchema)) body: LoginCodeInput) {
     return this.auth.verifyLoginCode(body);
+  }
+
+  // "Send a new code" on the code page. Always answers 204, whether or not anything was sent (see AuthService.resendLoginCode).
+  @Post("login/resend")
+  @HttpCode(204)
+  async resendLoginCode(@Body(new ZodValidationPipe(resendLoginCodeSchema)) body: ResendLoginCodeInput) {
+    await this.auth.resendLoginCode(body);
   }
 
   @Post("forgot-password")

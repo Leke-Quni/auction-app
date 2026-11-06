@@ -45,6 +45,8 @@ export const loginCodeSchema = z.object({
 });
 
 export const forgotPasswordSchema = z.object({ email: emailField });
+export const resendLoginCodeSchema = z.object({ email: emailField });
+export type ResendLoginCodeInput = z.infer<typeof resendLoginCodeSchema>;
 
 export const resetPasswordSchema = z
   .object({
