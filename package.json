@@ -12,6 +12,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "test:local": "bash scripts/test-local.sh",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down"
   },
