@@ -4,7 +4,7 @@ import { requireAdmin } from "@/lib/require-admin";
 
 interface Entry {
   id: string;
-  action: "BAN_USER" | "UNBAN_USER" | "CLEAR_STRIKE" | "REMOVE_LISTING" | "VIEW_ORDER";
+  action: "BAN_USER" | "UNBAN_USER" | "CLEAR_STRIKE" | "REMOVE_LISTING" | "VIEW_ORDER" | "REMOVE_POST";
   targetId: string;
   reason: string | null;
   createdAt: string;
@@ -12,8 +12,8 @@ interface Entry {
 }
 
 const FILTERS = ["adminId", "targetId"] as const;
-const LABEL = { BAN_USER: "Banned a user", UNBAN_USER: "Restored a user", CLEAR_STRIKE: "Cleared a strike", REMOVE_LISTING: "Removed a listing", VIEW_ORDER: "Opened an order" } as const;
-const HREF = { BAN_USER: "/users", UNBAN_USER: "/users", CLEAR_STRIKE: "/users", REMOVE_LISTING: "/listings", VIEW_ORDER: "/orders" } as const;
+const LABEL = { BAN_USER: "Banned a user", UNBAN_USER: "Restored a user", CLEAR_STRIKE: "Cleared a strike", REMOVE_LISTING: "Removed a listing", VIEW_ORDER: "Opened an order", REMOVE_POST: "Removed a question or answer" } as const;
+const HREF = { BAN_USER: "/users", UNBAN_USER: "/users", CLEAR_STRIKE: "/users", REMOVE_LISTING: "/listings", VIEW_ORDER: "/orders", REMOVE_POST: "/question-log?questionId=" } as const;
 const when = (iso: string) => new Date(iso).toISOString().replace("T", " ").slice(0, 19) + " UTC";
 
 export default async function AuditLog({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
@@ -61,7 +61,7 @@ export default async function AuditLog({ searchParams }: { searchParams: Promise
                 </td>
                 <td className="p-2">{LABEL[e.action]}</td>
                 <td className="p-2">
-                  <Link href={`${HREF[e.action]}/${encodeURIComponent(e.targetId)}`} className="text-accent underline">
+                  <Link href={e.action === "REMOVE_POST" ? `${HREF[e.action]}${encodeURIComponent(e.targetId)}` : `${HREF[e.action]}/${encodeURIComponent(e.targetId)}`} className="text-accent underline">
                     {e.targetId}
                   </Link>
                 </td>

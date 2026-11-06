@@ -558,4 +558,5 @@ enum AdminActionKind {
   CLEAR_STRIKE
   REMOVE_LISTING
   VIEW_ORDER
+  REMOVE_POST
 }

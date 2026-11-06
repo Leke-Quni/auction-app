@@ -60,6 +60,37 @@ export class AdminReportsService {
     return { id: report.id, status: report.status, handledAt: report.handledAt?.toISOString() ?? null };
   }
 
+  // Takes the reported question or answer down and closes every open report about that same post, all in one transaction.
+  // A question is deleted the way its asker deletes it (the answer under it goes with it); an answer is taken back, which
+  // leaves the question open again. If the post is already gone or was replaced by a newer one, nothing is removed and the
+  // reports are just closed, so a double click or a stale page is harmless. Works after the auction has ended.
+  async removePost(adminId: string, reportId: string) {
+    const report = await this.prisma.report.findUnique({ where: { id: reportId } });
+    if (!report) throw new NotFoundException();
+    const removed = await this.prisma.$transaction(async (tx) => {
+      const question = await tx.question.findUnique({ where: { id: report.questionId } });
+      let removed = false;
+      if (question && !question.deletedAt) {
+        if (report.target === "QUESTION") {
+          const result = await tx.question.updateMany({ where: { id: question.id, deletedAt: null }, data: { deletedAt: new Date() } });
+          removed = result.count === 1;
+          if (removed) await tx.questionLog.create({ data: { questionId: question.id, listingId: question.listingId, target: "QUESTION", action: "DELETED", actorId: adminId, body: question.body } });
+        } else if (question.answer !== null && question.answeredAt?.getTime() === report.postedAt.getTime()) {
+          const result = await tx.question.updateMany({ where: { id: question.id, deletedAt: null, answer: question.answer, answeredAt: question.answeredAt }, data: { answer: null, answeredAt: null, answerEditedAt: null } });
+          removed = result.count === 1;
+          if (removed) {
+            await tx.questionVote.deleteMany({ where: { questionId: question.id, target: "ANSWER" } });
+            await tx.questionLog.create({ data: { questionId: question.id, listingId: question.listingId, target: "ANSWER", action: "DELETED", actorId: adminId, body: question.answer } });
+          }
+        }
+      }
+      await tx.report.updateMany({ where: { questionId: report.questionId, target: report.target, postedAt: report.postedAt, status: "OPEN" }, data: { status: "HANDLED", handledAt: new Date() } });
+      if (removed) await tx.adminAction.create({ data: { adminId, action: "REMOVE_POST", targetId: report.questionId, reason: `${report.target === "QUESTION" ? "Question" : "Answer"}, report ${report.id}` } });
+      return removed;
+    });
+    return { id: report.id, removed };
+  }
+
   async questionLog({ questionId, listingId, actorId, limit }: QuestionLogQuery) {
     const rows = await this.prisma.questionLog.findMany({
       where: { questionId, listingId, actorId },

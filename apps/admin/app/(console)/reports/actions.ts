@@ -12,3 +12,12 @@ export async function handleReportAction(formData: FormData) {
   if (!res.ok && res.status !== 404) throw new Error(`Could not mark the report handled: ${res.status}`);
   revalidatePath("/reports");
 }
+
+export async function removePostAction(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  const res = await adminApiFetch(`/admin/reports/${encodeURIComponent(id)}/remove-post`, { method: "POST" });
+  if (!res.ok && res.status !== 404) throw new Error(`Could not remove the post: ${res.status}`);
+  revalidatePath("/reports");
+}

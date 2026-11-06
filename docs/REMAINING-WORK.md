@@ -20,7 +20,7 @@ Done-criteria are in `DESIGN.md` section 8. The five build steps are done; what 
 **Not built in the admin app (decide which to do, section 4)**
 - ~~A record of who did what~~ Done 2026-11-06 (`AdminAction`, Audit log page). Not recorded: sign-ins and who marked a report handled.
 - **Telling people.** A banned person gets no email, and a seller whose listing is removed sees only a banner on the page (no email, no bell entry).
-- **Removing a reported post.** The reports queue can mark a report handled and link to the author, but cannot delete the reported question or answer itself.
+- ~~Removing a reported post~~ Done 2026-11-06.
 - ~~Finding things~~ Done 2026-11-06 (Overview counts, open-reports badge, Listings page).
 - **Changing an order.** The order view is read only: no refund, cancel or address correction.
 - **Smaller:** banning an admin without demoting them first, clearing all of a person's strikes in one click, and hiding a removed listing's words and photos from the public (today it shows as an ended auction with a banner).

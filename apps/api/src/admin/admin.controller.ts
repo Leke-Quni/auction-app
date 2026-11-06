@@ -73,6 +73,13 @@ export class AdminController {
     return this.reports.handleReport(id);
   }
 
+  // Deletes the reported question or answer and closes the reports about it.
+  @Post("reports/:id/remove-post")
+  @HttpCode(200)
+  removePost(@Param("id") id: string, @Req() req: { user: AuthUser }) {
+    return this.reports.removePost(req.user.id, id);
+  }
+
   // Every post, edit and deletion of questions and answers, newest first, optionally for one question, listing or person.
   @Get("question-log")
   questionLog(@Query(new ZodValidationPipe(logQuerySchema)) query: z.infer<typeof logQuerySchema>) {
