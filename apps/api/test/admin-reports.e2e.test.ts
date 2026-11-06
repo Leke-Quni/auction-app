@@ -219,4 +219,31 @@ describe("admin reports queue and question log", () => {
     expect((await request(url).post(`/admin/reports/${r.id}/strike-author`).set(admin.auth).expect(409)).body.code).toBe("NO_AUTHOR");
     expect((await prisma.report.findUniqueOrThrow({ where: { id: r.id } })).status).toBe("OPEN");
   });
+
+  it("finds a person's conversations by username, email or listing title, with the listing's title on each entry", async () => {
+    const admin = await person("ADMIN");
+    const { seller, asker, listing, question } = await scene();
+    const other = await scene();
+    await prisma.questionLog.createMany({
+      data: [
+        { questionId: question.id, listingId: listing.id, target: "QUESTION", action: "CREATED", actorId: asker.id, body: question.body },
+        { questionId: question.id, listingId: listing.id, target: "ANSWER", action: "CREATED", actorId: seller.id, body: question.answer! },
+        { questionId: other.question.id, listingId: other.listing.id, target: "QUESTION", action: "CREATED", actorId: other.asker.id, body: "elsewhere" },
+      ],
+    });
+    const ids = async (qs: string) => ((await get(`/admin/question-log?q=${encodeURIComponent(qs)}`, admin).expect(200)).body.entries as { questionId: string; listing: { title: string } | null }[]).map((e) => e.questionId);
+
+    // The asker: their question and the seller's answer to it, but nothing from the other listing.
+    expect(await ids(asker.username)).toEqual([question.id, question.id]);
+    expect(await ids(asker.email.toUpperCase())).toEqual([question.id, question.id]);
+    // The seller: their answer, and the whole conversation on the listing they sell.
+    expect(await ids(seller.username)).toEqual([question.id, question.id]);
+    // The listing, by its title and by its id.
+    expect(await ids(listing.title)).toEqual([question.id, question.id]);
+    expect(await ids(listing.id)).toEqual([question.id, question.id]);
+    expect(await ids(`no-such-${stamp}`)).toEqual([]);
+    const entries = (await get(`/admin/question-log?q=${asker.username}`, admin).expect(200)).body.entries;
+    expect(entries[0].listing).toEqual({ id: listing.id, title: listing.title });
+    await get(`/admin/question-log?q=${"x".repeat(101)}`, admin).expect(400);
+  });
 });

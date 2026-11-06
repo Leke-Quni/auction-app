@@ -11,6 +11,7 @@ export interface QuestionLogQuery {
   questionId?: string;
   listingId?: string;
   actorId?: string;
+  q?: string;
   limit: number;
 }
 
@@ -113,18 +114,33 @@ export class AdminReportsService {
     return { id: report.id, userId: authorId };
   }
 
-  async questionLog({ questionId, listingId, actorId, limit }: QuestionLogQuery) {
+  // The conversations on listings. `q` finds a person's whole part in them: what they wrote, the answers to their questions, and
+  // everything said on the listings they sell, matching a username, an email, an id or part of a listing title. The other
+  // filters are exact. The log has no foreign keys, so people and listings are looked up here and shown as null when gone.
+  async questionLog({ questionId, listingId, actorId, q, limit }: QuestionLogQuery) {
+    const term = q?.trim();
+    let match: { OR: Record<string, unknown>[] } | undefined;
+    if (term) {
+      const userIds = (await this.prisma.user.findMany({ where: { OR: [{ username: { contains: term, mode: "insensitive" } }, { email: { contains: term, mode: "insensitive" } }, { id: term }] }, select: { id: true }, take: 50 })).map((u) => u.id);
+      const [listings, asked] = await Promise.all([
+        this.prisma.listing.findMany({ where: { OR: [{ id: term }, { title: { contains: term, mode: "insensitive" } }, { sellerId: { in: userIds } }] }, select: { id: true }, take: 200 }),
+        this.prisma.question.findMany({ where: { askerId: { in: userIds } }, select: { id: true }, take: 500 }),
+      ]);
+      match = { OR: [{ actorId: { in: userIds } }, { listingId: { in: listings.map((l) => l.id) } }, { questionId: { in: [term, ...asked.map((a) => a.id)] } }] };
+    }
     const rows = await this.prisma.questionLog.findMany({
-      where: { questionId, listingId, actorId },
+      where: { questionId, listingId, actorId, ...match },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit,
     });
     const people = await this.usernames(rows.map((r) => r.actorId));
+    const titles = new Map((await this.prisma.listing.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.listingId))] } }, select: { id: true, title: true } })).map((l) => [l.id, l.title]));
     return {
       entries: rows.map((r) => ({
         id: r.id,
         questionId: r.questionId,
         listingId: r.listingId,
+        listing: titles.has(r.listingId) ? { id: r.listingId, title: titles.get(r.listingId)! } : null,
         target: r.target,
         action: r.action,
         body: r.body,

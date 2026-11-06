@@ -34,6 +34,7 @@ const logQuerySchema = z.object({
   questionId: z.string().min(1).optional(),
   listingId: z.string().min(1).optional(),
   actorId: z.string().min(1).optional(),
+  q: z.string().trim().max(100).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(100),
 });
 
