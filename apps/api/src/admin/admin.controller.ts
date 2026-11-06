@@ -80,6 +80,13 @@ export class AdminController {
     return this.support.handle(req.user.id, id);
   }
 
+  // Grants a strike appeal: clears the strike and closes the request in one transaction.
+  @Post("support/:id/grant")
+  @HttpCode(200)
+  grantAppeal(@Param("id") id: string, @Req() req: { user: AuthUser }) {
+    return this.support.grantAppeal(req.user.id, id);
+  }
+
   // The reports queue: open ones oldest first, handled ones newest first, with how many are open in all.
   @Get("reports")
   listReports(@Query(new ZodValidationPipe(reportsQuerySchema)) query: z.infer<typeof reportsQuerySchema>) {

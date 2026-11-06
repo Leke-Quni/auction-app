@@ -198,6 +198,9 @@ describe("the admin's view of an order", () => {
     }
     const log = await prisma.adminAction.findMany({ where: { targetId: o.id, action: "VIEW_INVOICE" }, orderBy: { createdAt: "asc" } });
     expect(log.map((l) => [l.adminId, l.reason])).toEqual([[admin.id, "buyer"], [admin.id, "seller"]]);
+    // Opening the same one again within a minute (a double click, a prefetch) is not written twice.
+    await pdf(admin, "buyer").expect(200);
+    expect(await prisma.adminAction.count({ where: { targetId: o.id, action: "VIEW_INVOICE" } })).toBe(2);
   });
 
   it("has no invoice for an order that is not paid, and answers 404 for an unknown order", async () => {

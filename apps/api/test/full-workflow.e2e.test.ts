@@ -193,7 +193,8 @@ describe("the whole workflow, through the real API", () => {
       // The seller never sees what the buyer paid in all or for delivery: only the item price, the fee and what they receive.
       expect(sellerView.totalCents).toBeNull();
       expect(sellerView.shipping).not.toHaveProperty("priceCents");
-      expect(JSON.stringify(sellerView)).not.toMatch(/2200|900/);
+      // Whole numbers only: a random id can contain "900" by chance.
+      expect(JSON.stringify(sellerView)).not.toMatch(/\b(2200|900)\b/);
       expect(buyerView).toMatchObject({ totalCents: 2200, shipping: { priceCents: 900 } });
       const sellerList = (await api().get(`/orders?listingId=${listingId}`).set(as("seller")).expect(200)).body[0];
       expect(sellerList.totalCents).toBeNull();

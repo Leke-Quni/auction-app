@@ -234,6 +234,15 @@ describe("orders that are not paid in time", () => {
       expect(noSale()!.text).toContain("offered to 3 buyers and none of them paid");
     });
 
+    it("skips a banned bidder", async () => {
+      const [a, b, c] = await makePeople(3);
+      await prisma.user.update({ where: { id: b.id }, data: { bannedAt: new Date(), banReason: "test" } });
+      const { listing, order } = await sale([[c, 1500], [b, 2000], [a, 3000]]);
+      await overdue(order.id);
+      expect(await expiry.expire(order.id)).toMatchObject({ nextBuyerId: c.id, nextAmountCents: 1500 });
+      expect(await prisma.order.count({ where: { listingId: listing.id, buyerId: b.id } })).toBe(0);
+    });
+
     it("skips a bidder who is already blocked from bidding", async () => {
       const [a, b, c] = await makePeople(3);
       for (let i = 0; i < 2; i++) await prisma.strike.create({ data: { userId: b.id, listingId: `old-${i}`, orderId: `old-${stamp}-${b.id}-${i}` } });

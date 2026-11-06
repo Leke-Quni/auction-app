@@ -98,7 +98,7 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
       await tx.notification.deleteMany({ where: { userId: order.buyerId, key: `won:${order.listingId}` } });
       const listing = await tx.listing.findUniqueOrThrow({ where: { id: order.listingId }, select: { reservePriceCents: true, pickupAddress: true } });
 
-      // The next bidder, by their own highest bid, who has not already been offered this item and is not blocked from bidding.
+      // The next bidder, by their own highest bid, who has not already been offered this item, is not blocked from bidding and is not banned.
       // Bids only rise, so if the best remaining one is below the reserve, they all are.
       const [next] = await tx.$queryRaw<{ userId: string; amountCents: number }[]>`
         SELECT b."bidderId" AS "userId", MAX(b."amountCents")::int AS "amountCents"
@@ -106,6 +106,7 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
         WHERE b."listingId" = ${order.listingId}
           AND b."bidderId" NOT IN (SELECT "buyerId" FROM "Order" WHERE "listingId" = ${order.listingId})
           AND (SELECT COUNT(*) FROM "Strike" s WHERE s."userId" = b."bidderId") < ${MAX_STRIKES}
+          AND NOT EXISTS (SELECT 1 FROM "User" u WHERE u."id" = b."bidderId" AND u."bannedAt" IS NOT NULL)
         GROUP BY b."bidderId"
         ORDER BY MAX(b."amountCents") DESC
         LIMIT 1`;

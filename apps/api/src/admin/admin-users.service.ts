@@ -83,7 +83,8 @@ export class AdminUsersService {
       // The ban is saved and every request is refused already; only the live hang-up failed.
       this.log.error(`Could not disconnect banned user ${id}: ${(error as Error).message}`);
     }
-    await this.emailBan(id, reason);
+    // Not awaited: a slow mail provider must not hold the admin's request; emailBan never throws.
+    void this.emailBan(id, reason);
     return this.get(id);
   }
 
@@ -125,6 +126,7 @@ export class AdminUsersService {
     if (id === adminId) throw new ConflictException({ code: "CANNOT_CHANGE_OWN_ROLE", message: "You cannot change your own role. Ask another admin." });
     await this.prisma.$transaction(async (tx) => {
       const admins = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "User" WHERE "role" = 'ADMIN' FOR UPDATE`;
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${id} FOR UPDATE`;
       const user = await tx.user.findUnique({ where: { id }, select: { role: true, bannedAt: true } });
       if (!user) throw new NotFoundException();
       if (user.role === role) throw new ConflictException({ code: "SAME_ROLE", message: role === "ADMIN" ? "This account is already an admin." : "This account is not an admin." });

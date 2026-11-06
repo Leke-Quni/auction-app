@@ -44,6 +44,7 @@ The OIDC token lasts 12 hours; the SDK refreshes it using your Vercel CLI login,
 yarn lint
 yarn typecheck
 yarn test    # API tests need Postgres running (yarn db:up)
+yarn test:local    # API tests on their own empty database (auction_test), away from dev data and the dev API
 yarn build
 ```
 

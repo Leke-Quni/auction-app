@@ -58,7 +58,9 @@ export class AdminOrdersService {
     if (!o) throw new NotFoundException();
     const data = invoiceDataOf(o, party);
     if (!data) throw new ConflictException({ code: "NOT_PAID", message: "This order has no invoice yet: it is not paid, or its delivery details are missing." });
-    await this.prisma.adminAction.create({ data: { adminId, action: "VIEW_INVOICE", targetId: id, reason: party } });
+    // A double click or a browser prefetch fetches the same file twice; one audit row per admin, order and party per minute.
+    const recent = await this.prisma.adminAction.findFirst({ where: { adminId, action: "VIEW_INVOICE", targetId: id, reason: party, createdAt: { gte: new Date(Date.now() - 60_000) } }, select: { id: true } });
+    if (!recent) await this.prisma.adminAction.create({ data: { adminId, action: "VIEW_INVOICE", targetId: id, reason: party } });
     return { filename: `${party === "buyer" ? "" : "statement-"}${data.invoiceNumber}.pdf`, pdf: await renderInvoice(data) };
   }
 
