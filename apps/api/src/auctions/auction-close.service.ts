@@ -94,6 +94,7 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
         SELECT gen_random_uuid()::text, b."bidderId", ${listingId}, 'LOST'::"EndEmailKind" FROM (SELECT DISTINCT "bidderId" FROM "Bid" WHERE "listingId" = ${listingId}) b
         WHERE b."bidderId" IS DISTINCT FROM ${closed.winnerId}
         ON CONFLICT ("userId", "listingId", "kind") DO NOTHING`;
+      if (removal) await tx.pendingEndEmail.create({ data: { userId: closed.sellerId, listingId, kind: "REMOVED" } });
       if (closed.outcome === "SOLD" && closed.winnerId && closed.finalPriceCents != null) {
         const listing = await tx.listing.findUnique({ where: { id: listingId }, select: { pickupAddress: true } });
         const feeCents = platformFeeCents(closed.finalPriceCents, platformFeePercent(), platformFeeCapCents());

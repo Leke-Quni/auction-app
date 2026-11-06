@@ -119,7 +119,24 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
             ["Seller receives", formatEur(m.sellerNetCents)],
             ["Delivery (paid by the buyer)", m.shippingCents === null ? "not chosen yet" : formatEur(m.shippingCents)],
             ["Buyer pays in all", m.totalCents === null ? "-" : formatEur(m.totalCents)],
-            ["Invoice", o.invoiceNumber ?? "-"],
+            [
+              "Invoice",
+              o.invoiceNumber ? (
+                <>
+                  {o.invoiceNumber}
+                  {" - "}
+                  <a href={`/orders/${o.id}/invoice/buyer`} className="text-accent underline">
+                    Buyer&apos;s invoice (PDF)
+                  </a>
+                  {", "}
+                  <a href={`/orders/${o.id}/invoice/seller`} className="text-accent underline">
+                    Seller&apos;s statement (PDF)
+                  </a>
+                </>
+              ) : (
+                "-"
+              ),
+            ],
             ["Payment reference", o.paymentRef ? `${o.paymentRef} (${o.paymentAttempts} attempt${o.paymentAttempts === 1 ? "" : "s"})` : "-"],
           ]}
         />

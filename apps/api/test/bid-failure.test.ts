@@ -22,6 +22,12 @@ describe("bidFailure", () => {
     }
   });
 
+  it("answers 503 when no database connection became free in time", () => {
+    const failure = bidFailure(new Error("timeout exceeded when trying to connect"))!;
+    expect(failure.getStatus()).toBe(503);
+    expect(failure.getResponse()).toMatchObject({ code: "BUSY" });
+  });
+
   it("leaves anything else alone, whatever it is", () => {
     for (const error of [new Error("boom"), { code: "P9999" }, null, undefined, "text"]) {
       expect(bidFailure(error)).toBeUndefined();

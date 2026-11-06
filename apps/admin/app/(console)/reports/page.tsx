@@ -2,7 +2,9 @@ import { REPORT_REASON_LABELS, type ReportReason } from "@auction/shared";
 import Link from "next/link";
 import { adminApiFetch } from "@/lib/api";
 import { requireAdmin } from "@/lib/require-admin";
-import { handleReportAction } from "./actions";
+import { RemovePostForm } from "./remove-post-form";
+import { StrikeAuthorForm } from "./strike-author-form";
+import { handleReportAction, removePostAction, strikeAuthorAction } from "./actions";
 
 interface Person {
   id: string;
@@ -93,6 +95,10 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
                     <Link href={`/question-log?questionId=${r.questionId}`} className="text-accent underline">
                       Log
                     </Link>
+                    {r.status === "OPEN" && r.author?.username && <StrikeAuthorForm action={strikeAuthorAction} id={r.id} username={r.author.username} />}
+                    {r.status === "OPEN" && (
+                      <RemovePostForm action={removePostAction} id={r.id} what={r.target === "QUESTION" ? "question" : "answer"} />
+                    )}
                     {r.status === "OPEN" && (
                       <form action={handleReportAction}>
                         <input type="hidden" name="id" value={r.id} />

@@ -2,6 +2,9 @@ import { ConflictException, Inject, Injectable, Logger, NotFoundException } from
 import { listingPhase } from "@auction/shared";
 import { AuctionCloseService } from "../auctions/auction-close.service";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { SOCKET_EVENTS, type RemovedNotice, type UnreadEvent } from "@auction/shared";
+import { SavedNotificationsService } from "../notifications/saved-notifications.service";
+import { RealtimeGateway } from "../realtime/realtime.gateway";
 import { SEARCH_INDEX, type SearchIndex } from "../search/search-index";
 
 // An admin taking a listing down. A removal ends the auction at once with no sale, whatever the bids and the reserve (see
@@ -15,7 +18,44 @@ export class AdminListingsService {
     @Inject(PRISMA) private readonly prisma: Prisma,
     @Inject(SEARCH_INDEX) private readonly search: SearchIndex,
     private readonly closer: AuctionCloseService,
+    private readonly saved: SavedNotificationsService,
+    private readonly gateway: RealtimeGateway,
   ) {}
+
+  // Published listings, newest first. `q` matches the id, the title or the seller's username.
+  async list({ q, phase, limit }: { q?: string; phase?: "upcoming" | "live" | "ended" | "removed"; limit: number }) {
+    const term = q?.trim();
+    const now = new Date();
+    const phaseWhere =
+      phase === "upcoming" ? { startsAt: { gt: now } }
+      : phase === "live" ? { startsAt: { lte: now }, endsAt: { gt: now } }
+      : phase === "ended" ? { endsAt: { lte: now } }
+      : phase === "removed" ? { removedAt: { not: null } }
+      : {};
+    const rows = await this.prisma.listing.findMany({
+      where: {
+        status: "PUBLISHED",
+        ...phaseWhere,
+        ...(term ? { OR: [{ id: term }, { title: { contains: term, mode: "insensitive" } }, { seller: { username: { contains: term, mode: "insensitive" } } }] } : {}),
+      },
+      orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
+      take: limit,
+      select: { id: true, title: true, status: true, startsAt: true, endsAt: true, bidCount: true, currentBidCents: true, startingPriceCents: true, outcome: true, removedAt: true, seller: { select: { id: true, username: true } } },
+    });
+    return {
+      listings: rows.map((l) => ({
+        id: l.id,
+        title: l.title,
+        phase: listingPhase(l, now),
+        seller: l.seller,
+        bidCount: l.bidCount,
+        priceCents: l.currentBidCents ?? l.startingPriceCents,
+        endsAt: l.endsAt?.toISOString() ?? null,
+        outcome: l.outcome,
+        removed: l.removedAt !== null,
+      })),
+    };
+  }
 
   async get(id: string) {
     const l = await this.prisma.listing.findUnique({
@@ -59,11 +99,26 @@ export class AdminListingsService {
       }
       throw new ConflictException({ code: "ALREADY_CLOSED", message: "This auction has already ended" });
     }
+    await this.prisma.adminAction.create({ data: { adminId, action: "REMOVE_LISTING", targetId: id, reason } });
     try {
       await this.search.remove(id);
     } catch (error) {
       this.log.error(`Search removal failed for listing ${id}: ${error instanceof Error ? error.message : error}`);
     }
+    await this.tellSeller(id, reason);
     return this.get(id);
+  }
+
+  // A bell entry for the seller (the email is queued by the close itself). Best effort: the removal has happened either way.
+  private async tellSeller(listingId: string, reason: string) {
+    try {
+      const listing = await this.prisma.listing.findUnique({ where: { id: listingId }, select: { title: true, sellerId: true } });
+      if (!listing) return;
+      const notice: RemovedNotice = { reason };
+      const unread = await this.saved.save([listing.sellerId], { type: "LISTING_REMOVED", key: `removed:${listingId}`, listingId, title: listing.title, data: notice });
+      for (const [userId, unreadCount] of unread) this.gateway.emitToUsers([userId], SOCKET_EVENTS.unread, { unreadCount } satisfies UnreadEvent);
+    } catch (error) {
+      this.log.error(`Could not notify the seller of listing ${listingId}: ${error instanceof Error ? error.message : error}`);
+    }
   }
 }

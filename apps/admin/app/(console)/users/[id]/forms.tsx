@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { banUserAction, clearStrikeAction, unbanUserAction, type UserActionState } from "./actions";
+import { banUserAction, clearStrikeAction, setRoleAction, strikeUserAction, unbanUserAction, type UserActionState } from "./actions";
 
 const FormError = ({ state }: { state: UserActionState }) =>
   state.error ? (
@@ -61,6 +61,51 @@ export function ClearStrikeForm({ id, strikeId }: { id: string; strikeId: string
         Clear
       </button>
       <FormError state={state} />
+    </form>
+  );
+}
+
+export function RoleForm({ id, username, role }: { id: string; username: string; role: "USER" | "ADMIN" }) {
+  const [state, action, pending] = useActionState<UserActionState, FormData>(setRoleAction, {});
+  const next = role === "ADMIN" ? "USER" : "ADMIN";
+  return (
+    <form
+      action={action}
+      onSubmit={(e) => {
+        const message = next === "ADMIN" ? `Make @${username} an admin? They can ban people, remove listings and read orders with both addresses.` : `Remove the admin role from @${username}? They lose access to the admin app on their next request.`;
+        if (!window.confirm(message)) e.preventDefault();
+      }}
+      className="space-y-2"
+    >
+      <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="role" value={next} />
+      <FormError state={state} />
+      <button disabled={pending} className={`cursor-pointer rounded px-3 py-1 font-semibold disabled:opacity-60 ${next === "ADMIN" ? "bg-accent text-white hover:bg-accent-dark" : "bg-danger text-white"}`}>
+        {pending ? "Saving..." : next === "ADMIN" ? "Make admin" : "Remove admin role"}
+      </button>
+    </form>
+  );
+}
+
+export function StrikeForm({ id, username, strikes, max }: { id: string; username: string; strikes: number; max: number }) {
+  const [state, action, pending] = useActionState<UserActionState, FormData>(strikeUserAction, {});
+  return (
+    <form
+      action={action}
+      onSubmit={(e) => {
+        if (!window.confirm(`Give @${username} a strike? They will have ${strikes + 1} of ${max}${strikes + 1 >= max ? " and can no longer bid" : ""}.`)) e.preventDefault();
+      }}
+      className="space-y-2"
+    >
+      <input type="hidden" name="id" value={id} />
+      <label className="block">
+        <span className="text-muted">Reason</span>
+        <textarea name="reason" required maxLength={500} rows={2} className="mt-1 w-full rounded border border-line bg-panel p-2" />
+      </label>
+      <FormError state={state} />
+      <button disabled={pending} className="cursor-pointer rounded bg-warn px-3 py-1 font-semibold text-white disabled:opacity-60">
+        {pending ? "Saving..." : "Give a strike"}
+      </button>
     </form>
   );
 }

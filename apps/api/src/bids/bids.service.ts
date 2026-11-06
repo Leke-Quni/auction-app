@@ -36,7 +36,9 @@ export function bidFailure(error: unknown): HttpException | undefined {
   const code = (error as { code?: string } | null)?.code;
   if (code === "P2002") return new ConflictException({ code: KEY_REUSED, message: "That bid key was already used for a different bid." });
   if (code === "P2003") return refusal("NOT_FOUND"); // the listing or the bidder was deleted while the bid ran
-  if (code === "P2024" || code === "P2028") {
+  // The pg pool gives up with a plain Error (no Prisma code) when no connection is free within DB_CONNECT_TIMEOUT_MS.
+  const poolTimeout = error instanceof Error && error.message === "timeout exceeded when trying to connect";
+  if (code === "P2024" || code === "P2028" || poolTimeout) {
     return new ServiceUnavailableException({ code: "BUSY", message: "Bidding is busy right now. Your bid was not placed; try again." });
   }
   return undefined;

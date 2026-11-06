@@ -15,7 +15,7 @@ const MAX_ATTEMPTS = 3;
 // Reminders are the least urgent mail, so a sweep sends only a few; a burst of them (everyone watching one popular auction)
 // never holds up the pay-now and payment emails that share this queue, and the rest go out on the next sweeps.
 const REMINDER_BATCH = 25;
-type EndEmailKind = "LOST" | "WON" | "PAID" | "SOLD" | "EXPIRED" | "NOT_PAID" | "SHIPPED" | "IN_TRANSIT" | "DELIVERED" | "PAYOUT" | "ENDING_SOON";
+type EndEmailKind = "LOST" | "WON" | "PAID" | "SOLD" | "EXPIRED" | "NOT_PAID" | "SHIPPED" | "IN_TRANSIT" | "DELIVERED" | "PAYOUT" | "ENDING_SOON" | "REMOVED";
 
 // Sends every bidder who did not win one email when the auction ends, with the final price. The rows are written by the
 // close itself (see AuctionCloseService), so this only has to send what is due: a row is claimed by moving its due time
@@ -105,6 +105,7 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
     if (kind === "PAID" || kind === "SOLD") return this.sendPaid(userId, listingId, kind);
     if (kind === "EXPIRED" || kind === "NOT_PAID") return this.sendExpired(userId, listingId, kind);
     if (kind === "PAYOUT") return this.sendPayout(userId, listingId);
+    if (kind === "REMOVED") return this.sendRemoved(userId, listingId);
     if (kind === "ENDING_SOON") return this.sendEndingSoon(userId, listingId);
     if (kind === "SHIPPED" || kind === "IN_TRANSIT" || kind === "DELIVERED") return this.sendShipping(userId, listingId, kind);
     const [listing, user] = await Promise.all([
@@ -213,6 +214,25 @@ export class AuctionEndEmailService implements OnModuleInit, OnModuleDestroy {
       `${webUrl()}/listings/${listingId}`,
     ];
     await this.mail.send(user.email, `Ending soon: ${listing.title}`, lines.join("\n"));
+  }
+
+  // The seller's notice that a moderator ended their auction, with the reason the moderator gave.
+  private async sendRemoved(userId: string, listingId: string) {
+    const [listing, user] = await Promise.all([
+      this.prisma.listing.findUnique({ where: { id: listingId }, select: { title: true, removedAt: true, removalReason: true, sellerId: true } }),
+      this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
+    ]);
+    if (!listing?.removedAt || listing.sellerId !== userId || !user) return;
+    const lines = [
+      `A moderator ended your auction "${listing.title}" early. It has no winner and nobody has to pay.`,
+      "",
+      `Reason: ${listing.removalReason ?? "not given"}`,
+      "",
+      "The listing stays on the site as a record and cannot be listed again.",
+      "",
+      `${webUrl()}/listings/${listingId}`,
+    ];
+    await this.mail.send(user.email, `Your listing "${listing.title}" was removed`, lines.join("\n"));
   }
 
   // The seller's share has been paid out.

@@ -52,6 +52,7 @@ describe("the admin's view of an order", () => {
   });
 
   afterAll(async () => {
+    await prisma.adminAction.deleteMany({ where: { adminId: { in: userIds } } });
     await prisma.rating.deleteMany({ where: { order: { listingId: { in: listingIds } } } });
     await prisma.payout.deleteMany({ where: { order: { listingId: { in: listingIds } } } });
     await prisma.order.deleteMany({ where: { listingId: { in: listingIds } } });
@@ -92,6 +93,7 @@ describe("the admin's view of an order", () => {
     const admin = await person("ADMIN");
     const { buyer, seller, listing, order: o } = await order({ ...paid, invoiceNumber: `INV-2026-${String(stamp).slice(-6)}`, shipmentStatus: "DELIVERED", trackingCode: "FAKE123", shippedAt: new Date(Date.now() - 2.5 * DAY), inTransitAt: new Date(Date.now() - 2 * DAY), deliveredAt: new Date(Date.now() - 1 * DAY) });
     const res = (await get(admin, `/admin/orders/${o.id}`).expect(200)).body;
+    expect(await prisma.adminAction.findMany({ where: { targetId: o.id } })).toMatchObject([{ action: "VIEW_ORDER", adminId: admin.id }]);
     expect(res).toMatchObject({
       id: o.id, status: "PAID", round: 1, listing: { id: listing.id, title: listing.title },
       buyer: { id: buyer.id, username: buyer.username, email: buyer.email, name: expect.stringContaining("Order") },
@@ -173,5 +175,36 @@ describe("the admin's view of an order", () => {
     await get(admin, `/admin/orders/${o.id}`).expect(200);
     await get(admin, `/admin/orders/${o.id}`).expect(200);
     expect(await prisma.order.findUniqueOrThrow({ where: { id: o.id } })).toEqual(before);
+  });
+
+  it("hands an admin the buyer's invoice and the seller's statement of a paid order as PDFs, and writes each look to the audit trail", async () => {
+    const admin = await person("ADMIN");
+    const user = await person();
+    const { order: o } = await order({ ...paid, invoiceNumber: `INV-2027-${String(stamp).slice(-6)}`, shipmentStatus: "DELIVERED" });
+    const pdf = (who: Who, party: string) => request(url).get(`/admin/orders/${o.id}/invoice?party=${party}`).set(who.auth).buffer(true).parse((res, done) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () => done(null, Buffer.concat(chunks)));
+    });
+    await request(url).get(`/admin/orders/${o.id}/invoice?party=buyer`).expect(401);
+    await pdf(user, "buyer").expect(403);
+    await pdf(admin, "nobody").expect(400);
+
+    for (const party of ["buyer", "seller"]) {
+      const res = await pdf(admin, party).expect(200);
+      expect(res.headers["content-type"]).toContain("application/pdf");
+      expect(res.headers["content-disposition"]).toContain(".pdf");
+      expect((res.body as Buffer).subarray(0, 4).toString()).toBe("%PDF");
+    }
+    const log = await prisma.adminAction.findMany({ where: { targetId: o.id, action: "VIEW_INVOICE" }, orderBy: { createdAt: "asc" } });
+    expect(log.map((l) => [l.adminId, l.reason])).toEqual([[admin.id, "buyer"], [admin.id, "seller"]]);
+  });
+
+  it("has no invoice for an order that is not paid, and answers 404 for an unknown order", async () => {
+    const admin = await person("ADMIN");
+    const { order: o } = await order();
+    expect((await get(admin, `/admin/orders/${o.id}/invoice?party=buyer`).expect(409)).body.code).toBe("NOT_PAID");
+    await get(admin, "/admin/orders/nope/invoice?party=buyer").expect(404);
+    expect(await prisma.adminAction.count({ where: { targetId: o.id, action: "VIEW_INVOICE" } })).toBe(0);
   });
 });

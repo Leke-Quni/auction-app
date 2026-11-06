@@ -73,7 +73,7 @@ describe("BidPanel when you cannot bid", () => {
     rerender(panel("highest"));
     expect(screen.getByText("You are the highest bidder.")).toBeTruthy();
     rerender(panel("blocked"));
-    expect(screen.getByText(/did not pay for auctions you won \(two strikes\)/i)).toBeTruthy();
+    expect(screen.getByText(/your account has two strikes/i)).toBeTruthy();
     for (const mode of ["signed-out", "owner", "blocked", "upcoming", "ended", "highest"] as const) {
       rerender(panel(mode));
       expect(screen.queryByRole("button", { name: /place bid/i }), mode).toBeNull();

@@ -45,6 +45,7 @@ describe("admin reports queue and question log", () => {
   });
 
   afterAll(async () => {
+    await prisma.adminAction.deleteMany({ where: { adminId: { in: userIds } } });
     await prisma.report.deleteMany({ where: { listingId: { in: listingIds } } });
     await prisma.questionLog.deleteMany({ where: { listingId: { in: listingIds } } });
     await prisma.question.deleteMany({ where: { id: { in: questionIds } } });
@@ -153,5 +154,96 @@ describe("admin reports queue and question log", () => {
     expect((await get(`/admin/question-log?listingId=${other.listing.id}`, admin).expect(200)).body.entries).toHaveLength(1);
     expect((await get(`/admin/question-log?actorId=${asker.id}`, admin).expect(200)).body.entries).toHaveLength(2);
     expect((await get(`/admin/question-log?questionId=${question.id}&limit=1`, admin).expect(200)).body.entries).toHaveLength(1);
+  });
+
+  it("removes a reported answer, leaving the question open, closes every report about it and writes the log and audit trail", async () => {
+    const admin = await person("ADMIN");
+    const { listing, question } = await scene();
+    const [r1, r2] = [await person(), await person()];
+    const mk = (reporterId: string) => prisma.report.create({ data: { questionId: question.id, listingId: listing.id, target: "ANSWER", reporterId, reason: "SPAM", body: question.answer!, postedAt: question.answeredAt! } });
+    const [a, b] = [await mk(r1.id), await mk(r2.id)];
+    await request(url).post(`/admin/reports/${a.id}/remove-post`).set(r1.auth).expect(403);
+
+    expect((await request(url).post(`/admin/reports/${a.id}/remove-post`).set(admin.auth).expect(200)).body).toEqual({ id: a.id, removed: true });
+    const stored = await prisma.question.findUniqueOrThrow({ where: { id: question.id } });
+    expect(stored).toMatchObject({ answer: null, answeredAt: null, deletedAt: null, body: question.body });
+    expect((await prisma.report.findMany({ where: { id: { in: [a.id, b.id] } } })).map((r) => r.status)).toEqual(["HANDLED", "HANDLED"]);
+    expect(await prisma.questionLog.findMany({ where: { questionId: question.id, action: "DELETED" } })).toMatchObject([{ target: "ANSWER", actorId: admin.id, body: question.answer }]);
+    expect(await prisma.adminAction.findMany({ where: { targetId: question.id } })).toMatchObject([{ action: "REMOVE_POST", adminId: admin.id }]);
+
+    expect((await request(url).post(`/admin/reports/${b.id}/remove-post`).set(admin.auth).expect(200)).body).toEqual({ id: b.id, removed: false });
+    expect(await prisma.adminAction.count({ where: { targetId: question.id } })).toBe(1);
+    await request(url).post("/admin/reports/nope/remove-post").set(admin.auth).expect(404);
+  });
+
+  it("removes a reported question and its answer with it, and leaves a newer answer alone when the report was about an older one", async () => {
+    const admin = await person("ADMIN");
+    const first = await scene();
+    const q = await prisma.report.create({ data: { questionId: first.question.id, listingId: first.listing.id, target: "QUESTION", reason: "ABUSE", body: first.question.body, postedAt: first.question.createdAt } });
+    await request(url).post(`/admin/reports/${q.id}/remove-post`).set(admin.auth).expect(200);
+    expect((await prisma.question.findUniqueOrThrow({ where: { id: first.question.id } })).deletedAt).toBeInstanceOf(Date);
+    expect((await prisma.report.findUniqueOrThrow({ where: { id: q.id } })).status).toBe("HANDLED");
+
+    const second = await scene();
+    const old = await prisma.report.create({ data: { questionId: second.question.id, listingId: second.listing.id, target: "ANSWER", reason: "SPAM", body: "an older answer", postedAt: new Date(Date.now() - 3600_000) } });
+    expect((await request(url).post(`/admin/reports/${old.id}/remove-post`).set(admin.auth).expect(200)).body.removed).toBe(false);
+    expect((await prisma.question.findUniqueOrThrow({ where: { id: second.question.id } })).answer).toBe(second.question.answer);
+    expect((await prisma.report.findUniqueOrThrow({ where: { id: old.id } })).status).toBe("HANDLED");
+  });
+
+  it("strikes whoever wrote the reported post (the asker of a question, the seller for an answer) and closes the reports", async () => {
+    const admin = await person("ADMIN");
+    const { seller, asker, listing, question } = await scene();
+    const reporter = await person();
+    const q = await prisma.report.create({ data: { questionId: question.id, listingId: listing.id, target: "QUESTION", reporterId: reporter.id, reason: "CONTACT_DETAILS", body: question.body, postedAt: question.createdAt } });
+    const a = await prisma.report.create({ data: { questionId: question.id, listingId: listing.id, target: "ANSWER", reporterId: reporter.id, reason: "SPAM", body: question.answer!, postedAt: question.answeredAt! } });
+    await request(url).post(`/admin/reports/${q.id}/strike-author`).set(reporter.auth).expect(403);
+    await request(url).post("/admin/reports/nope/strike-author").set(admin.auth).expect(404);
+
+    await request(url).post(`/admin/reports/${q.id}/strike-author`).set(admin.auth).expect(200);
+    await request(url).post(`/admin/reports/${a.id}/strike-author`).set(admin.auth).expect(200);
+    const [askerStrikes, sellerStrikes] = await Promise.all([prisma.strike.findMany({ where: { userId: asker.id } }), prisma.strike.findMany({ where: { userId: seller.id } })]);
+    expect(askerStrikes).toMatchObject([{ listingId: listing.id, givenById: admin.id, reason: expect.stringContaining("Reported question (contact details)") }]);
+    expect(askerStrikes[0]!.reason).toContain(question.body);
+    expect(sellerStrikes).toMatchObject([{ givenById: admin.id, reason: expect.stringContaining("Reported answer (spam)") }]);
+    expect((await prisma.report.findMany({ where: { id: { in: [q.id, a.id] } } })).map((r) => r.status)).toEqual(["HANDLED", "HANDLED"]);
+    expect((await prisma.question.findUniqueOrThrow({ where: { id: question.id } })).deletedAt).toBeNull();
+    expect(await prisma.adminAction.count({ where: { adminId: admin.id, action: "STRIKE_USER" } })).toBe(2);
+  });
+
+  it("refuses to strike when the author's account is gone", async () => {
+    const admin = await person("ADMIN");
+    const { listing, question } = await scene();
+    await prisma.question.update({ where: { id: question.id }, data: { askerId: null } });
+    const r = await prisma.report.create({ data: { questionId: question.id, listingId: listing.id, target: "QUESTION", reason: "ABUSE", body: "rude", postedAt: question.createdAt } });
+    expect((await request(url).post(`/admin/reports/${r.id}/strike-author`).set(admin.auth).expect(409)).body.code).toBe("NO_AUTHOR");
+    expect((await prisma.report.findUniqueOrThrow({ where: { id: r.id } })).status).toBe("OPEN");
+  });
+
+  it("finds a person's conversations by username, email or listing title, with the listing's title on each entry", async () => {
+    const admin = await person("ADMIN");
+    const { seller, asker, listing, question } = await scene();
+    const other = await scene();
+    await prisma.questionLog.createMany({
+      data: [
+        { questionId: question.id, listingId: listing.id, target: "QUESTION", action: "CREATED", actorId: asker.id, body: question.body },
+        { questionId: question.id, listingId: listing.id, target: "ANSWER", action: "CREATED", actorId: seller.id, body: question.answer! },
+        { questionId: other.question.id, listingId: other.listing.id, target: "QUESTION", action: "CREATED", actorId: other.asker.id, body: "elsewhere" },
+      ],
+    });
+    const ids = async (qs: string) => ((await get(`/admin/question-log?q=${encodeURIComponent(qs)}`, admin).expect(200)).body.entries as { questionId: string; listing: { title: string } | null }[]).map((e) => e.questionId);
+
+    // The asker: their question and the seller's answer to it, but nothing from the other listing.
+    expect(await ids(asker.username)).toEqual([question.id, question.id]);
+    expect(await ids(asker.email.toUpperCase())).toEqual([question.id, question.id]);
+    // The seller: their answer, and the whole conversation on the listing they sell.
+    expect(await ids(seller.username)).toEqual([question.id, question.id]);
+    // The listing, by its title and by its id.
+    expect(await ids(listing.title)).toEqual([question.id, question.id]);
+    expect(await ids(listing.id)).toEqual([question.id, question.id]);
+    expect(await ids(`no-such-${stamp}`)).toEqual([]);
+    const entries = (await get(`/admin/question-log?q=${asker.username}`, admin).expect(200)).body.entries;
+    expect(entries[0].listing).toEqual({ id: listing.id, title: listing.title });
+    await get(`/admin/question-log?q=${"x".repeat(101)}`, admin).expect(400);
   });
 });

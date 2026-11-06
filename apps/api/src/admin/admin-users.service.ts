@@ -1,5 +1,8 @@
 import { ConflictException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { giveAdminStrike } from "./admin-strikes";
+import { supportEmail } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
 import { RealtimeGateway } from "../realtime/realtime.gateway";
 
 export interface UserListQuery {
@@ -24,6 +27,7 @@ export class AdminUsersService {
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
     private readonly gateway: RealtimeGateway,
+    @Inject(MAIL_SENDER) private readonly mail: MailSender,
   ) {}
 
   async list({ q, banned, limit }: UserListQuery) {
@@ -44,18 +48,29 @@ export class AdminUsersService {
     const user = await this.prisma.user.findUnique({ where: { id }, select: summary });
     if (!user) throw new NotFoundException();
     const strikes = await this.prisma.strike.findMany({ where: { userId: id }, orderBy: { createdAt: "desc" } });
-    const listings = await this.prisma.listing.findMany({ where: { id: { in: strikes.map((s) => s.listingId) } }, select: { id: true, title: true } });
+    const listings = await this.prisma.listing.findMany({ where: { id: { in: strikes.flatMap((s) => (s.listingId ? [s.listingId] : [])) } }, select: { id: true, title: true } });
     const titleOf = new Map(listings.map((l) => [l.id, l.title]));
     return {
       ...toSummary(user),
-      strikes: strikes.map((s) => ({ id: s.id, createdAt: s.createdAt.toISOString(), orderId: s.orderId, listing: titleOf.has(s.listingId) ? { id: s.listingId, title: titleOf.get(s.listingId)! } : null })),
+      strikes: strikes.map((s) => ({
+        id: s.id,
+        createdAt: s.createdAt.toISOString(),
+        orderId: s.givenById ? null : s.orderId,
+        reason: s.reason,
+        givenByAdmin: s.givenById !== null,
+        listing: s.listingId && titleOf.has(s.listingId) ? { id: s.listingId, title: titleOf.get(s.listingId)! } : null,
+      })),
     };
   }
 
   // An admin cannot be banned (demote them first), so one admin can never lock the others out. One guarded update makes two
   // admins banning the same person at once ban once; the loser gets ALREADY_BANNED.
-  async ban(id: string, reason: string) {
-    const done = await this.prisma.user.updateMany({ where: { id, bannedAt: null, role: { not: "ADMIN" } }, data: { bannedAt: new Date(), banReason: reason } });
+  async ban(adminId: string, id: string, reason: string) {
+    const done = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.user.updateMany({ where: { id, bannedAt: null, role: { not: "ADMIN" } }, data: { bannedAt: new Date(), banReason: reason } });
+      if (updated.count > 0) await tx.adminAction.create({ data: { adminId, action: "BAN_USER", targetId: id, reason } });
+      return updated;
+    });
     if (done.count === 0) {
       const user = await this.prisma.user.findUnique({ where: { id }, select: { role: true, bannedAt: true } });
       if (!user) throw new NotFoundException();
@@ -68,11 +83,33 @@ export class AdminUsersService {
       // The ban is saved and every request is refused already; only the live hang-up failed.
       this.log.error(`Could not disconnect banned user ${id}: ${(error as Error).message}`);
     }
+    await this.emailBan(id, reason);
     return this.get(id);
   }
 
-  async unban(id: string) {
-    const done = await this.prisma.user.updateMany({ where: { id, bannedAt: { not: null } }, data: { bannedAt: null, banReason: null } });
+  // Tells the person why. Best effort and sent straight away: the ban stands whether or not the email goes.
+  private async emailBan(id: string, reason: string) {
+    try {
+      const user = await this.prisma.user.findUnique({ where: { id }, select: { email: true } });
+      if (!user) return;
+      await this.mail.send(user.email, "Your account has been suspended", [
+        "A moderator has suspended your account, so you can no longer sign in, bid or sell.",
+        "",
+        `Reason: ${reason}`,
+        "",
+        `Your existing listings, bids and orders are not changed. If you think this is a mistake, ${supportEmail() ? `write to ${supportEmail()}` : "reply to this email"}.`,
+      ].join("\n"));
+    } catch (error) {
+      this.log.error(`Could not email the ban notice to ${id}: ${(error as Error).message}`);
+    }
+  }
+
+  async unban(adminId: string, id: string) {
+    const done = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.user.updateMany({ where: { id, bannedAt: { not: null } }, data: { bannedAt: null, banReason: null } });
+      if (updated.count > 0) await tx.adminAction.create({ data: { adminId, action: "UNBAN_USER", targetId: id } });
+      return updated;
+    });
     if (done.count === 0) {
       if (!(await this.prisma.user.findUnique({ where: { id }, select: { id: true } }))) throw new NotFoundException();
       throw new ConflictException({ code: "NOT_BANNED", message: "This account is not banned." });
@@ -80,11 +117,39 @@ export class AdminUsersService {
     return this.get(id);
   }
 
+  // Makes an account an admin or an ordinary user again. An admin cannot change their own role (so nobody locks themselves out
+  // by accident) and the last admin cannot be demoted. The admin rows are locked while the count is read, so two admins
+  // demoting each other at the same moment cannot leave the site with none. A demoted admin loses access on their next request
+  // (the guard reads the role from the database every time). A banned account cannot be made an admin.
+  async setRole(adminId: string, id: string, role: "USER" | "ADMIN") {
+    if (id === adminId) throw new ConflictException({ code: "CANNOT_CHANGE_OWN_ROLE", message: "You cannot change your own role. Ask another admin." });
+    await this.prisma.$transaction(async (tx) => {
+      const admins = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "User" WHERE "role" = 'ADMIN' FOR UPDATE`;
+      const user = await tx.user.findUnique({ where: { id }, select: { role: true, bannedAt: true } });
+      if (!user) throw new NotFoundException();
+      if (user.role === role) throw new ConflictException({ code: "SAME_ROLE", message: role === "ADMIN" ? "This account is already an admin." : "This account is not an admin." });
+      if (role === "ADMIN" && user.bannedAt) throw new ConflictException({ code: "BANNED", message: "A banned account cannot be made an admin. Restore it first." });
+      if (role === "USER" && admins.length <= 1) throw new ConflictException({ code: "LAST_ADMIN", message: "This is the last admin, so the role cannot be removed." });
+      await tx.user.update({ where: { id }, data: { role } });
+      await tx.adminAction.create({ data: { adminId, action: "SET_ROLE", targetId: id, reason: role } });
+    });
+    return this.get(id);
+  }
+
+  // A strike for conduct (a reason is required). Two strikes block bidding, as for an unpaid order.
+  async strike(adminId: string, id: string, reason: string) {
+    await this.prisma.$transaction((tx) => giveAdminStrike(tx, adminId, id, reason));
+    return this.get(id);
+  }
+
   // Two strikes block bidding; clearing one brings the person under the limit again. Orders and listings are untouched.
-  async clearStrike(strikeId: string) {
+  async clearStrike(adminId: string, strikeId: string) {
     const strike = await this.prisma.strike.findUnique({ where: { id: strikeId }, select: { userId: true } });
     if (!strike) throw new NotFoundException();
-    await this.prisma.strike.deleteMany({ where: { id: strikeId } });
+    await this.prisma.$transaction(async (tx) => {
+      const deleted = await tx.strike.deleteMany({ where: { id: strikeId } });
+      if (deleted.count > 0) await tx.adminAction.create({ data: { adminId, action: "CLEAR_STRIKE", targetId: strike.userId, reason: strikeId } });
+    });
     return this.get(strike.userId);
   }
 }

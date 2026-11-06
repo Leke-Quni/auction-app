@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "LoginCode" ADD COLUMN "resends" INTEGER NOT NULL DEFAULT 0;

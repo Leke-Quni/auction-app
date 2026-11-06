@@ -54,7 +54,16 @@ export function BidPanel({ listingId, mode, minimumNextBidCents, order }: { list
     );
   }
   if (mode === "owner") return <p className={note}>This is your listing, so you cannot bid on it.</p>;
-  if (mode === "blocked") return <p className={note}>You cannot bid because you did not pay for auctions you won (two strikes).</p>;
+  if (mode === "blocked") {
+    return (
+      <p className={note}>
+        You cannot bid because your account has two strikes (for example, from not paying for auctions you won).{" "}
+        <Link href="/support?appeal" className="text-brand underline">
+          Appeal a strike
+        </Link>
+      </p>
+    );
+  }
   if (mode === "upcoming") return <p className={note}>Bidding opens when the auction starts.</p>;
   if (mode === "ended" && order) {
     const lapsed = order.status === "EXPIRED" || order.status === "CANCELLED";

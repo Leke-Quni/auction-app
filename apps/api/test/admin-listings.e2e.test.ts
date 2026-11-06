@@ -58,6 +58,8 @@ describe("an admin removing a listing", () => {
   });
 
   afterAll(async () => {
+    await prisma.adminAction.deleteMany({ where: { adminId: { in: userIds } } });
+    await prisma.notification.deleteMany({ where: { listingId: { in: listingIds } } });
     await prisma.pendingEndEmail.deleteMany({ where: { listingId: { in: listingIds } } });
     await prisma.order.deleteMany({ where: { listingId: { in: listingIds } } });
     await prisma.bid.deleteMany({ where: { listingId: { in: listingIds } } });
@@ -111,6 +113,7 @@ describe("an admin removing a listing", () => {
     const stored = await prisma.listing.findUniqueOrThrow({ where: { id: l.id } });
     expect(stored).toMatchObject({ outcome: "NO_SALE", winnerId: null, finalPriceCents: null, removedById: admin.id, removalReason: "Counterfeit goods" });
     expect(stored.closedAt).toBeInstanceOf(Date);
+    expect(await prisma.adminAction.findMany({ where: { targetId: l.id } })).toMatchObject([{ action: "REMOVE_LISTING", adminId: admin.id, reason: "Counterfeit goods" }]);
     expect(stored.endsAt!.getTime()).toBeLessThanOrEqual(Date.now());
     expect(await prisma.order.count({ where: { listingId: l.id } })).toBe(0);
     // The email sweep sends the rows as soon as the close is announced, so wait for the mail itself.
@@ -123,6 +126,11 @@ describe("an admin removing a listing", () => {
       expect(mail).toHaveLength(1);
       expect(mail[0].text).toContain("ended early by a moderator");
     }
+    const toSeller = await emails(seller.email);
+    expect(toSeller).toHaveLength(1);
+    expect(toSeller[0].text).toContain("A moderator ended your auction");
+    expect(toSeller[0].text).toContain("Reason: Counterfeit goods");
+    expect(await prisma.notification.findMany({ where: { userId: seller.id, listingId: l.id } })).toMatchObject([{ type: "LISTING_REMOVED", key: `removed:${l.id}`, data: { reason: "Counterfeit goods" }, readAt: null }]);
     expect(closed).toContainEqual({ type: "AuctionClosed", listingId: l.id, outcome: "NO_SALE", winnerId: null, finalPriceCents: null });
     expect(removedFromSearch).toContain(l.id);
   });
@@ -136,7 +144,7 @@ describe("an admin removing a listing", () => {
     expect((await remove(admin, upcoming.id).expect(200)).body).toMatchObject({ outcome: "NO_BIDS", phase: "ended" });
     const stored = await prisma.listing.findUniqueOrThrow({ where: { id: upcoming.id } });
     expect(stored.startsAt!.getTime()).toBeLessThanOrEqual(stored.endsAt!.getTime());
-    expect(await prisma.pendingEndEmail.count({ where: { listingId: { in: [live.id, upcoming.id] } } })).toBe(0);
+    expect(await prisma.pendingEndEmail.count({ where: { listingId: { in: [live.id, upcoming.id] }, kind: { not: "REMOVED" } } })).toBe(0);
   });
 
   it("refuses a second removal, a draft, a sold auction, an unknown id and a missing reason", async () => {
@@ -231,5 +239,19 @@ describe("an admin removing a listing", () => {
     const res = (await request(url).get(`/admin/listings/${l.id}`).set(admin.auth).expect(200)).body;
     expect(res).toMatchObject({ id: l.id, title: l.title, status: "PUBLISHED", phase: "live", bidCount: 2, currentBidCents: 3000, reservePriceCents: 2000, seller: { id: seller.id, username: seller.username }, highBidder: { id: b.id }, removal: null });
     await request(url).get("/admin/listings/nope").set(admin.auth).expect(404);
+  });
+
+  it("lists published listings by state and search, and counts open reports on the overview, for admins only", async () => {
+    const admin = await person("ADMIN");
+    const user = await person();
+    const seller = await person();
+    const title = `Lister ${stamp}`;
+    const l = await listing(seller.id, { title });
+    await request(url).get("/admin/listings").set(user.auth).expect(403);
+    await request(url).get("/admin/overview").set(user.auth).expect(403);
+    const byTitle = (await request(url).get(`/admin/listings?q=${title.replace(" ", "%20")}&phase=live`).set(admin.auth).expect(200)).body.listings;
+    expect(byTitle).toMatchObject([{ id: l.id, phase: "live", seller: { id: seller.id }, removed: false }]);
+    expect((await request(url).get(`/admin/listings?q=${seller.username}&phase=ended`).set(admin.auth).expect(200)).body.listings).toEqual([]);
+    expect((await request(url).get(`/admin/overview`).set(admin.auth).expect(200)).body).toEqual(expect.objectContaining({ openReports: expect.any(Number), liveListings: expect.any(Number), users: expect.any(Number) }));
   });
 });

@@ -26,6 +26,7 @@ describe("admin accounts: ban, unban and strikes", () => {
   const userIds: string[] = [];
   const listingIds: string[] = [];
   const sockets: Socket[] = [];
+  const sent: { to: string; subject: string; text: string }[] = [];
 
   type Who = { id: string; email: string; username: string; auth: Record<string, string>; token: string };
   const person = async (role: "USER" | "ADMIN" = "USER"): Promise<Who> => {
@@ -42,7 +43,7 @@ describe("admin accounts: ban, unban and strikes", () => {
       .overrideProvider(SEARCH_INDEX)
       .useValue(new NoopSearchIndex())
       .overrideProvider(MAIL_SENDER)
-      .useValue({ send: async () => undefined })
+      .useValue({ send: async (to: string, subject: string, text: string) => void sent.push({ to, subject, text }) })
       .compile();
     app = moduleRef.createNestApplication();
     app.useWebSocketAdapter(new RealtimeAdapter(app));
@@ -54,6 +55,7 @@ describe("admin accounts: ban, unban and strikes", () => {
 
   afterAll(async () => {
     for (const s of sockets) s.close();
+    await prisma.adminAction.deleteMany({ where: { adminId: { in: userIds } } });
     await prisma.strike.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.bidAudit.deleteMany({ where: { listingId: { in: listingIds } } });
     await prisma.bid.deleteMany({ where: { listingId: { in: listingIds } } });
@@ -124,6 +126,7 @@ describe("admin accounts: ban, unban and strikes", () => {
     expect((await unban(admin, user.id).expect(409)).body.code).toBe("NOT_BANNED");
     await ban(admin, user.id).expect(200);
     expect((await ban(admin, user.id, { reason: "Again" }).expect(409)).body.code).toBe("ALREADY_BANNED");
+    expect(sent.filter((m) => m.to === user.email)).toMatchObject([{ subject: "Your account has been suspended", text: expect.stringContaining("Reason: Fraud") }]);
     expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).banReason).toBe("Fraud");
     await unban(admin, "nope").expect(404);
   });
@@ -180,5 +183,86 @@ describe("admin accounts: ban, unban and strikes", () => {
     expect(cleared.strikeCount).toBe(1);
     await bid().expect(201);
     await request(url).delete(`/admin/strikes/${detail.strikes[0].id}`).set(admin.auth).expect(404);
+  });
+
+  it("records which admin banned, restored and cleared a strike, and only for changes that happened", async () => {
+    const [a1, a2] = [await person("ADMIN"), await person("ADMIN")];
+    const user = await person();
+    await ban(a1, user.id, { reason: "Fraud" }).expect(200);
+    await ban(a2, user.id, { reason: "Again" }).expect(409);
+    await strike(user.id);
+    const strikeId = (await request(url).get(`/admin/users/${user.id}`).set(a2.auth)).body.strikes[0].id;
+    await request(url).delete(`/admin/strikes/${strikeId}`).set(a2.auth).expect(200);
+    await request(url).delete(`/admin/strikes/${strikeId}`).set(a2.auth).expect(404);
+    await unban(a2, user.id).expect(200);
+    await unban(a2, user.id).expect(409);
+    const log = (await request(url).get(`/admin/audit?targetId=${user.id}`).set(a1.auth).expect(200)).body.entries;
+    expect(log.map((e: { action: string }) => e.action).sort()).toEqual(["BAN_USER", "CLEAR_STRIKE", "UNBAN_USER"]);
+    expect(log.find((e: { action: string }) => e.action === "BAN_USER")).toMatchObject({ reason: "Fraud", admin: { id: a1.id, username: a1.username } });
+    expect(log.find((e: { action: string }) => e.action === "UNBAN_USER").admin.id).toBe(a2.id);
+    const mine = (await request(url).get(`/admin/audit?adminId=${a1.id}`).set(a1.auth).expect(200)).body.entries;
+    expect(mine).toHaveLength(1);
+    await request(url).get("/admin/audit").set(user.auth).expect(403);
+  });
+
+  const setRole = (admin: Who, id: string, role: string) => request(url).post(`/admin/users/${id}/role`).set(admin.auth).send({ role });
+
+  it("makes an account an admin and takes the role away again, with the audit trail, and a demoted admin is locked out at once", async () => {
+    const boss = await person("ADMIN");
+    const user = await person();
+    await setRole(user, user.id, "ADMIN").expect(403);
+    await setRole(boss, "nope", "ADMIN").expect(404);
+    await setRole(boss, user.id, "SUPER").expect(400);
+
+    expect((await setRole(boss, user.id, "ADMIN").expect(200)).body).toMatchObject({ id: user.id, role: "ADMIN" });
+    await request(url).get("/admin/me").set(user.auth).expect(200);
+    expect((await setRole(boss, user.id, "ADMIN").expect(409)).body.code).toBe("SAME_ROLE");
+
+    expect((await setRole(boss, user.id, "USER").expect(200)).body.role).toBe("USER");
+    await request(url).get("/admin/me").set(user.auth).expect(403);
+    expect((await setRole(boss, user.id, "USER").expect(409)).body.code).toBe("SAME_ROLE");
+
+    const log = (await request(url).get(`/admin/audit?targetId=${user.id}`).set(boss.auth).expect(200)).body.entries;
+    expect(log.map((e: { action: string; reason: string }) => `${e.action}:${e.reason}`).sort()).toEqual(["SET_ROLE:ADMIN", "SET_ROLE:USER"]);
+  });
+
+  it("will not let an admin change their own role or make a banned account an admin", async () => {
+    const a = await person("ADMIN");
+    expect((await setRole(a, a.id, "USER").expect(409)).body.code).toBe("CANNOT_CHANGE_OWN_ROLE");
+    const banned = await person();
+    await prisma.user.update({ where: { id: banned.id }, data: { bannedAt: new Date() } });
+    expect((await setRole(a, banned.id, "ADMIN").expect(409)).body.code).toBe("BANNED");
+  });
+
+  it("gives a strike with a reason that counts like an unpaid auction: two block bidding, and it can be cleared", async () => {
+    const admin = await person("ADMIN");
+    const seller = await person();
+    const bidder = await person();
+    const listing = await prisma.listing.create({
+      data: {
+        sellerId: seller.id, title: `Admin strike ${stamp}`, description: "x", categoryId, condition: "GOOD", startingPriceCents: 1000, durationDays: 3, status: "PUBLISHED",
+        startsAt: new Date(Date.now() - DAY), endsAt: new Date(Date.now() + 2 * DAY), publishedAt: new Date(Date.now() - DAY),
+      },
+    });
+    listingIds.push(listing.id);
+    const give = (who: Who, body: unknown = { reason: "Abusive messages" }) => request(url).post(`/admin/users/${bidder.id}/strike`).set(who.auth).send(body as object);
+    await give(bidder).expect(403);
+    await give(admin, { reason: "  " }).expect(400);
+    await request(url).post("/admin/users/nope/strike").set(admin.auth).send({ reason: "x" }).expect(404);
+    const admin2 = await person("ADMIN");
+    expect((await request(url).post(`/admin/users/${admin2.id}/strike`).set(admin.auth).send({ reason: "x" }).expect(409)).body.code).toBe("CANNOT_STRIKE_ADMIN");
+
+    const first = (await give(admin).expect(200)).body;
+    expect(first.strikeCount).toBe(1);
+    expect(first.strikes[0]).toMatchObject({ reason: "Abusive messages", givenByAdmin: true, orderId: null, listing: null });
+    await give(admin, { reason: "Again" }).expect(200);
+    const bid = () => request(url).post(`/listings/${listing.id}/bids`).set(bidder.auth).send({ amountCents: 1500, idempotencyKey: randomUUID() });
+    expect((await bid().expect(403)).body.code).toBe("BLOCKED");
+
+    const detail = (await request(url).get(`/admin/users/${bidder.id}`).set(admin.auth).expect(200)).body;
+    await request(url).delete(`/admin/strikes/${detail.strikes[0].id}`).set(admin.auth).expect(200);
+    await bid().expect(201);
+    const log = (await request(url).get(`/admin/audit?targetId=${bidder.id}`).set(admin.auth).expect(200)).body.entries;
+    expect(log.filter((e: { action: string }) => e.action === "STRIKE_USER")).toHaveLength(2);
   });
 });

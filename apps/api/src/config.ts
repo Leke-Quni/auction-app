@@ -25,6 +25,9 @@ export const bidLimits = () => ({ perUser: intFromEnv("BID_LIMIT_USER", 10), per
 // How many proxies sit in front of the API and may be believed about the caller's address (Fly's proxy is one).
 export const trustedProxies = () => intFromEnv("TRUST_PROXY", 0);
 
+// Where a suspended person (who cannot use the support form) is told to write. Unset: the ban email says to reply to it.
+export const supportEmail = () => process.env.SUPPORT_EMAIL?.trim() || undefined;
+
 export const loginCodeCooldownSeconds = () => intFromEnv("LOGIN_CODE_COOLDOWN_SECONDS", 30);
 
 // How long an outbid email waits before it is sent (so a bidding war can collapse into one), and how long after one

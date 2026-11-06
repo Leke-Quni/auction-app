@@ -38,6 +38,7 @@ model User {
   leadingListings     Listing[]            @relation("ListingHighBidder")
   wonListings         Listing[]            @relation("ListingWinner")
   strikes             Strike[]
+  supportRequests     SupportRequest[]
   purchases           Order[]              @relation("OrderBuyer")
   sales               Order[]              @relation("OrderSeller")
   bids                Bid[]
@@ -56,6 +57,8 @@ model LoginCode {
   codeHash  String
   expiresAt DateTime
   attempts  Int      @default(0)
+  // How many times this sign-in has asked for a new code (reset by the password step), so "send a new code" cannot be used to flood an inbox.
+  resends   Int      @default(0)
   createdAt DateTime @default(now())
 
   @@index([userId])
@@ -383,6 +386,8 @@ enum EndEmailKind {
   PAYOUT
   // A watched auction ends in about 24 hours.
   ENDING_SOON
+  // The seller's notice that a moderator ended their auction.
+  REMOVED
 }
 
 enum NotificationType {
@@ -392,6 +397,8 @@ enum NotificationType {
   QUESTION_ANSWERED
   // "You won" or "the item is yours to pay for": links to the order to pay.
   WON
+  // A moderator ended the seller's auction.
+  LISTING_REMOVED
 }
 
 // What a person can read later in the bell: each notice the API pushes live is saved here too. `key` says what the
@@ -529,9 +536,73 @@ model Strike {
   id        String   @id @default(cuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  listingId String
+  // The listing the unpaid order was for; null for a strike an admin gave.
+  listingId String?
+  // The unpaid order. An admin's strike has no order and takes an id of its own ("admin_...") so it stays unique.
   orderId   String   @unique
+  // Why an admin gave it, and which admin (a plain id, so the record outlives the account). Both null for a strike the system gave.
+  reason    String?
+  givenById String?
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+// What admins did: one row per ban, restore, strike cleared, listing removed and order opened (it holds both addresses).
+// No foreign keys on purpose, like QuestionLog: the record outlives the account and the listing. Kept for ever.
+model AdminAction {
+  id        String           @id @default(cuid())
+  adminId   String
+  action    AdminActionKind
+  targetId  String
+  // The reason an admin typed, when there was one.
+  reason    String?
+  createdAt DateTime         @default(now())
+
+  @@index([adminId, createdAt])
+  @@index([targetId, createdAt])
+  @@index([createdAt])
+}
+
+enum AdminActionKind {
+  BAN_USER
+  UNBAN_USER
+  CLEAR_STRIKE
+  REMOVE_LISTING
+  VIEW_ORDER
+  REMOVE_POST
+  SET_ROLE
+  STRIKE_USER
+  VIEW_INVOICE
+  HANDLE_SUPPORT
+}
+
+enum SupportKind {
+  GENERAL
+  STRIKE_APPEAL
+}
+
+enum SupportStatus {
+  OPEN
+  HANDLED
+}
+
+// A message to the people who run the site, from a signed-in person: a question or an appeal against a strike. There is no
+// reply thread (private messages are out of scope): an admin answers by email and marks it handled. `strikeId` is a plain id, not
+// a relation, so clearing the strike keeps the appeal that asked for it.
+model SupportRequest {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind        SupportKind
+  strikeId    String?
+  message     String
+  status      SupportStatus @default(OPEN)
+  createdAt   DateTime      @default(now())
+  handledAt   DateTime?
+  handledById String?
+
+  @@index([status, createdAt])
+  @@index([userId])
+  @@index([strikeId])
 }
