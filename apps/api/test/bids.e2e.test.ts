@@ -353,6 +353,18 @@ describe("bids", () => {
       expect(await stored(listing.id)).toMatchObject({ bidCount: accepted, currentBidCents: top.amountCents, highBidderId: top.bidderId });
     }, 30_000);
 
+    it("other requests still get through while 50 bidders queue on one auction", async () => {
+      const bidders = await makePeople(50);
+      const hot = await makeListing();
+      const other = await makeListing();
+      const burst = Promise.all(bidders.map((person, i) => bid(person, hot.id, 1000 + i * 20)));
+      const started = Date.now();
+      const reads = await Promise.all(Array.from({ length: 10 }, () => api().get(`/listings/${other.id}`).expect(200)));
+      expect(reads).toHaveLength(10);
+      expect(Date.now() - started).toBeLessThan(5000);
+      await burst;
+    }, 30_000);
+
     it("one person's request sent 10 times at the same moment places one bid", async () => {
       const [person] = await makePeople(1);
       const listing = await makeListing();
