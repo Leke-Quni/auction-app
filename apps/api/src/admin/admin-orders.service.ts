@@ -1,7 +1,7 @@
 import type { ShippingAddress } from "@auction/shared";
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
-import { deliveryOf } from "../orders/invoice";
+import { deliveryOf, invoiceDataOf, renderInvoice } from "../orders/invoice";
 import { payoutViewOf } from "../orders/payout-view";
 
 export interface OrderListQuery {
@@ -49,6 +49,17 @@ export class AdminOrdersService {
         paidAt: o.paidAt?.toISOString() ?? null,
       })),
     };
+  }
+
+  // The invoice a paid order's buyer gets ("Invoice"), or the sale statement its seller gets, as the same PDF they download. It has the
+  // delivery address and the amounts, so each look is written to the audit record like opening the order.
+  async invoice(adminId: string, id: string, party: "buyer" | "seller"): Promise<{ filename: string; pdf: Buffer }> {
+    const o = await this.prisma.order.findUnique({ where: { id }, include: { listing: { select: { title: true } }, buyer: { select: { username: true } }, seller: { select: { username: true } } } });
+    if (!o) throw new NotFoundException();
+    const data = invoiceDataOf(o, party);
+    if (!data) throw new ConflictException({ code: "NOT_PAID", message: "This order has no invoice yet: it is not paid, or its delivery details are missing." });
+    await this.prisma.adminAction.create({ data: { adminId, action: "VIEW_INVOICE", targetId: id, reason: party } });
+    return { filename: `${party === "buyer" ? "" : "statement-"}${data.invoiceNumber}.pdf`, pdf: await renderInvoice(data) };
   }
 
   // Opening an order shows both addresses, so each time one is opened it is written to the audit record.

@@ -572,4 +572,5 @@ enum AdminActionKind {
   REMOVE_POST
   SET_ROLE
   STRIKE_USER
+  VIEW_INVOICE
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, Req, StreamableFile, UseGuards } from "@nestjs/common";
 import { z } from "zod";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { AdminGuard, JwtAuthGuard, type AuthUser } from "../auth/jwt-auth.guard";
@@ -20,6 +20,7 @@ const ordersQuerySchema = z.object({
   status: z.enum(["AWAITING_PAYMENT", "PAID", "EXPIRED", "CANCELLED"]).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
+const invoiceQuerySchema = z.object({ party: z.enum(["buyer", "seller"]) });
 const roleSchema = z.object({ role: z.enum(["USER", "ADMIN"]) });
 const strikeSchema = z.object({ reason: z.string().trim().min(1).max(500) });
 const banSchema = z.object({ reason: z.string().trim().min(1).max(500) });
@@ -166,6 +167,13 @@ export class AdminController {
   @Get("orders/:id")
   getOrder(@Param("id") id: string, @Req() req: { user: AuthUser }) {
     return this.orders.get(id, req.user.id);
+  }
+
+  // The paid order's invoice as its buyer sees it (`party=buyer`) or the sale statement its seller sees (`party=seller`), as a PDF.
+  @Get("orders/:id/invoice")
+  async orderInvoice(@Param("id") id: string, @Req() req: { user: AuthUser }, @Query(new ZodValidationPipe(invoiceQuerySchema)) query: z.infer<typeof invoiceQuerySchema>) {
+    const { filename, pdf } = await this.orders.invoice(req.user.id, id, query.party);
+    return new StreamableFile(pdf, { type: "application/pdf", disposition: `attachment; filename="${filename}"` });
   }
 
   // What admins did, newest first, optionally one admin's actions or those aimed at one user, listing or order.

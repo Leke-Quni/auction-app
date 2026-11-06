@@ -4,7 +4,7 @@ import { requireAdmin } from "@/lib/require-admin";
 
 interface Entry {
   id: string;
-  action: "BAN_USER" | "UNBAN_USER" | "CLEAR_STRIKE" | "REMOVE_LISTING" | "VIEW_ORDER" | "REMOVE_POST" | "SET_ROLE" | "STRIKE_USER";
+  action: "BAN_USER" | "UNBAN_USER" | "CLEAR_STRIKE" | "REMOVE_LISTING" | "VIEW_ORDER" | "REMOVE_POST" | "SET_ROLE" | "STRIKE_USER" | "VIEW_INVOICE";
   targetId: string;
   reason: string | null;
   createdAt: string;
@@ -12,8 +12,8 @@ interface Entry {
 }
 
 const FILTERS = ["adminId", "targetId"] as const;
-const LABEL = { BAN_USER: "Banned a user", UNBAN_USER: "Restored a user", CLEAR_STRIKE: "Cleared a strike", REMOVE_LISTING: "Removed a listing", VIEW_ORDER: "Opened an order", REMOVE_POST: "Removed a question or answer", SET_ROLE: "Changed an admin role", STRIKE_USER: "Gave a strike" } as const;
-const HREF = { BAN_USER: "/users", UNBAN_USER: "/users", CLEAR_STRIKE: "/users", REMOVE_LISTING: "/listings", VIEW_ORDER: "/orders", REMOVE_POST: "/question-log?questionId=", SET_ROLE: "/users", STRIKE_USER: "/users" } as const;
+const LABEL = { BAN_USER: "Banned a user", UNBAN_USER: "Restored a user", CLEAR_STRIKE: "Cleared a strike", REMOVE_LISTING: "Removed a listing", VIEW_ORDER: "Opened an order", REMOVE_POST: "Removed a question or answer", SET_ROLE: "Changed an admin role", STRIKE_USER: "Gave a strike", VIEW_INVOICE: "Opened an invoice" } as const;
+const HREF = { BAN_USER: "/users", UNBAN_USER: "/users", CLEAR_STRIKE: "/users", REMOVE_LISTING: "/listings", VIEW_ORDER: "/orders", REMOVE_POST: "/question-log?questionId=", SET_ROLE: "/users", STRIKE_USER: "/users", VIEW_INVOICE: "/orders" } as const;
 const when = (iso: string) => new Date(iso).toISOString().replace("T", " ").slice(0, 19) + " UTC";
 
 export default async function AuditLog({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
@@ -65,7 +65,7 @@ export default async function AuditLog({ searchParams }: { searchParams: Promise
                     {e.targetId}
                   </Link>
                 </td>
-                <td className="max-w-md whitespace-pre-wrap break-words p-2">{e.action === "CLEAR_STRIKE" ? <span className="text-muted">strike {e.reason}</span> : e.action === "SET_ROLE" ? <span className="text-muted">now {e.reason === "ADMIN" ? "an admin" : "an ordinary user"}</span> : (e.reason ?? "")}</td>
+                <td className="max-w-md whitespace-pre-wrap break-words p-2">{e.action === "CLEAR_STRIKE" ? <span className="text-muted">strike {e.reason}</span> : e.action === "VIEW_INVOICE" ? <span className="text-muted">{e.reason === "seller" ? "seller's statement" : "buyer's invoice"}</span> : e.action === "SET_ROLE" ? <span className="text-muted">now {e.reason === "ADMIN" ? "an admin" : "an ordinary user"}</span> : (e.reason ?? "")}</td>
               </tr>
             ))}
           </tbody>
