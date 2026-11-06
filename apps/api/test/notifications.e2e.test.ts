@@ -121,7 +121,13 @@ describe("bid notifications", () => {
       where: { userId: { startsWith: `nt_${stamp}_` }, createdAt: { gte: testStart } },
       data: { dueAt: new Date(Date.now() - 1000) },
     });
-    await app.get(NotificationsService).sweep();
+    // sweep() returns at once when the background sweep is mid-run (a busy machine), so keep asking until nothing of ours is still due.
+    for (let i = 0; i < 40; i++) {
+      await app.get(NotificationsService).sweep();
+      const left = await prisma.pendingOutbidEmail.count({ where: { userId: { startsWith: `nt_${stamp}_` }, createdAt: { gte: testStart }, dueAt: { lte: new Date() } } });
+      if (left === 0) return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
   };
   const pending = (userId: string, listingId: string) => prisma.pendingOutbidEmail.findFirst({ where: { userId, listingId } });
 

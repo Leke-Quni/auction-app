@@ -55,7 +55,7 @@ Done-criteria are in `DESIGN.md` section 8. The five build steps are done; what 
 **Earlier slices**
 - **Database connection pool and timeouts.** `packages/db/src/index.ts` uses the default pool, and a bid waits up to 15 seconds for the row lock. Set an explicit pool size, then test a burst of bids on one hot auction to check that other requests still get through.
 - **Playwright end-to-end tests are not in the repo.** The browser checks written during slices 6 and 7 (sign up, rating, watchlist, notifications, orders, admin sign-in and moderation, ban flow, seeded scenarios) were run from throwaway scripts. Turn them into a committed Playwright suite (`DESIGN.md` section 6), including sign up, list, bid, win and pay.
-- **One timing-sensitive API test.** `notifications > the outbid email wait > sends the second email once the quiet period is over` fails when Turbo runs every package's tests at once (the machine is busy) and passes alone and in a serial API run. The API suite already runs its files one at a time, so the older theory (files sharing a database in parallel) no longer explains it. Give it more slack, or run the API tests apart from the others in CI.
+- **One timing-sensitive API test.** Changed 2026-11-06: `flushEmails` in `notifications.e2e.test.ts` now keeps sweeping until nothing of the test's is still due, because `sweep()` returns at once when the background sweep is mid-run (the likely cause of the failure on a busy machine). The full `yarn test` passed (530 API, 290 web); the failure was never reproduced here, so watch for it in CI.
 
 ## 4. Open decisions still to make (from `DESIGN.md` section 7)
 - **Rating comments.** Whether they get the same report button and queue as questions and answers, or admin-only removal.
