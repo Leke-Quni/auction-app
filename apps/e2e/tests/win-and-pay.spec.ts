@@ -20,6 +20,8 @@ test.afterAll(async () => {
 
 test("the high bidder wins when the auction ends, chooses delivery, pays with the test card, and the order is paid", async ({ page }) => {
   await signUp(page, winner);
+  const account = { name: "Pickup Pat", line1: "Rruga Dardania 5", city: "Prizren", postcode: "20000", country: "XK", phone: "+38344765432" };
+  await db().query('UPDATE "User" SET "pickupAddress" = $1 WHERE "email" = $2', [JSON.stringify(account), winner.email]);
   await page.goto(`/listings/${listing.listingId}`);
   await page.getByLabel("Your bid (€)").fill("25");
   await page.getByRole("button", { name: "Place bid" }).click();
@@ -44,6 +46,9 @@ test("the high bidder wins when the auction ends, chooses delivery, pays with th
   await expect(page.getByText(title).first()).toBeVisible();
 
   await page.goto(`/orders/${orderId}/shipping`);
+  // The form starts from the address saved in the account, and every field can be changed.
+  await expect(page.locator('input[name="name"]')).toHaveValue("Pickup Pat");
+  await expect(page.locator('input[name="city"]')).toHaveValue("Prizren");
   await page.locator('input[name="name"]').fill("Ada Buyer");
   await page.locator('input[name="line1"]').fill("Rruga Nene Tereza 10");
   await page.locator('input[name="city"]').fill("Prishtina");
