@@ -535,3 +535,27 @@ model Strike {
 
   @@index([userId])
 }
+
+// What admins did: one row per ban, restore, strike cleared, listing removed and order opened (it holds both addresses).
+// No foreign keys on purpose, like QuestionLog: the record outlives the account and the listing. Kept for ever.
+model AdminAction {
+  id        String           @id @default(cuid())
+  adminId   String
+  action    AdminActionKind
+  targetId  String
+  // The reason an admin typed, when there was one.
+  reason    String?
+  createdAt DateTime         @default(now())
+
+  @@index([adminId, createdAt])
+  @@index([targetId, createdAt])
+  @@index([createdAt])
+}
+
+enum AdminActionKind {
+  BAN_USER
+  UNBAN_USER
+  CLEAR_STRIKE
+  REMOVE_LISTING
+  VIEW_ORDER
+}

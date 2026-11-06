@@ -54,8 +54,12 @@ export class AdminUsersService {
 
   // An admin cannot be banned (demote them first), so one admin can never lock the others out. One guarded update makes two
   // admins banning the same person at once ban once; the loser gets ALREADY_BANNED.
-  async ban(id: string, reason: string) {
-    const done = await this.prisma.user.updateMany({ where: { id, bannedAt: null, role: { not: "ADMIN" } }, data: { bannedAt: new Date(), banReason: reason } });
+  async ban(adminId: string, id: string, reason: string) {
+    const done = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.user.updateMany({ where: { id, bannedAt: null, role: { not: "ADMIN" } }, data: { bannedAt: new Date(), banReason: reason } });
+      if (updated.count > 0) await tx.adminAction.create({ data: { adminId, action: "BAN_USER", targetId: id, reason } });
+      return updated;
+    });
     if (done.count === 0) {
       const user = await this.prisma.user.findUnique({ where: { id }, select: { role: true, bannedAt: true } });
       if (!user) throw new NotFoundException();
@@ -71,8 +75,12 @@ export class AdminUsersService {
     return this.get(id);
   }
 
-  async unban(id: string) {
-    const done = await this.prisma.user.updateMany({ where: { id, bannedAt: { not: null } }, data: { bannedAt: null, banReason: null } });
+  async unban(adminId: string, id: string) {
+    const done = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.user.updateMany({ where: { id, bannedAt: { not: null } }, data: { bannedAt: null, banReason: null } });
+      if (updated.count > 0) await tx.adminAction.create({ data: { adminId, action: "UNBAN_USER", targetId: id } });
+      return updated;
+    });
     if (done.count === 0) {
       if (!(await this.prisma.user.findUnique({ where: { id }, select: { id: true } }))) throw new NotFoundException();
       throw new ConflictException({ code: "NOT_BANNED", message: "This account is not banned." });
@@ -81,10 +89,13 @@ export class AdminUsersService {
   }
 
   // Two strikes block bidding; clearing one brings the person under the limit again. Orders and listings are untouched.
-  async clearStrike(strikeId: string) {
+  async clearStrike(adminId: string, strikeId: string) {
     const strike = await this.prisma.strike.findUnique({ where: { id: strikeId }, select: { userId: true } });
     if (!strike) throw new NotFoundException();
-    await this.prisma.strike.deleteMany({ where: { id: strikeId } });
+    await this.prisma.$transaction(async (tx) => {
+      const deleted = await tx.strike.deleteMany({ where: { id: strikeId } });
+      if (deleted.count > 0) await tx.adminAction.create({ data: { adminId, action: "CLEAR_STRIKE", targetId: strike.userId, reason: strikeId } });
+    });
     return this.get(strike.userId);
   }
 }

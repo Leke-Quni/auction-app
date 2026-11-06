@@ -17,6 +17,41 @@ export class AdminListingsService {
     private readonly closer: AuctionCloseService,
   ) {}
 
+  // Published listings, newest first. `q` matches the id, the title or the seller's username.
+  async list({ q, phase, limit }: { q?: string; phase?: "upcoming" | "live" | "ended" | "removed"; limit: number }) {
+    const term = q?.trim();
+    const now = new Date();
+    const phaseWhere =
+      phase === "upcoming" ? { startsAt: { gt: now } }
+      : phase === "live" ? { startsAt: { lte: now }, endsAt: { gt: now } }
+      : phase === "ended" ? { endsAt: { lte: now } }
+      : phase === "removed" ? { removedAt: { not: null } }
+      : {};
+    const rows = await this.prisma.listing.findMany({
+      where: {
+        status: "PUBLISHED",
+        ...phaseWhere,
+        ...(term ? { OR: [{ id: term }, { title: { contains: term, mode: "insensitive" } }, { seller: { username: { contains: term, mode: "insensitive" } } }] } : {}),
+      },
+      orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
+      take: limit,
+      select: { id: true, title: true, status: true, startsAt: true, endsAt: true, bidCount: true, currentBidCents: true, startingPriceCents: true, outcome: true, removedAt: true, seller: { select: { id: true, username: true } } },
+    });
+    return {
+      listings: rows.map((l) => ({
+        id: l.id,
+        title: l.title,
+        phase: listingPhase(l, now),
+        seller: l.seller,
+        bidCount: l.bidCount,
+        priceCents: l.currentBidCents ?? l.startingPriceCents,
+        endsAt: l.endsAt?.toISOString() ?? null,
+        outcome: l.outcome,
+        removed: l.removedAt !== null,
+      })),
+    };
+  }
+
   async get(id: string) {
     const l = await this.prisma.listing.findUnique({
       where: { id },
@@ -59,6 +94,7 @@ export class AdminListingsService {
       }
       throw new ConflictException({ code: "ALREADY_CLOSED", message: "This auction has already ended" });
     }
+    await this.prisma.adminAction.create({ data: { adminId, action: "REMOVE_LISTING", targetId: id, reason } });
     try {
       await this.search.remove(id);
     } catch (error) {

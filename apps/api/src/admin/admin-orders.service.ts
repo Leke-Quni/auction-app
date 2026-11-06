@@ -51,12 +51,14 @@ export class AdminOrdersService {
     };
   }
 
-  async get(id: string) {
+  // Opening an order shows both addresses, so each time one is opened it is written to the audit record.
+  async get(id: string, adminId: string) {
     const o = await this.prisma.order.findUnique({
       where: { id },
       include: { listing: { select: { id: true, title: true } }, buyer: person, seller: { select: { ...person.select, payoutAccountId: true } }, payout: true, rating: true },
     });
     if (!o) throw new NotFoundException();
+    await this.prisma.adminAction.create({ data: { adminId, action: "VIEW_ORDER", targetId: id } });
     const delivery = deliveryOf(o);
     const who = (u: { id: string; username: string; email: string; firstName: string; lastName: string }) => ({ id: u.id, username: u.username, email: u.email, name: `${u.firstName} ${u.lastName}` });
     return {

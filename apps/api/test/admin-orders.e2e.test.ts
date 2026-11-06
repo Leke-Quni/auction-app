@@ -52,6 +52,7 @@ describe("the admin's view of an order", () => {
   });
 
   afterAll(async () => {
+    await prisma.adminAction.deleteMany({ where: { adminId: { in: userIds } } });
     await prisma.rating.deleteMany({ where: { order: { listingId: { in: listingIds } } } });
     await prisma.payout.deleteMany({ where: { order: { listingId: { in: listingIds } } } });
     await prisma.order.deleteMany({ where: { listingId: { in: listingIds } } });
@@ -92,6 +93,7 @@ describe("the admin's view of an order", () => {
     const admin = await person("ADMIN");
     const { buyer, seller, listing, order: o } = await order({ ...paid, invoiceNumber: `INV-2026-${String(stamp).slice(-6)}`, shipmentStatus: "DELIVERED", trackingCode: "FAKE123", shippedAt: new Date(Date.now() - 2.5 * DAY), inTransitAt: new Date(Date.now() - 2 * DAY), deliveredAt: new Date(Date.now() - 1 * DAY) });
     const res = (await get(admin, `/admin/orders/${o.id}`).expect(200)).body;
+    expect(await prisma.adminAction.findMany({ where: { targetId: o.id } })).toMatchObject([{ action: "VIEW_ORDER", adminId: admin.id }]);
     expect(res).toMatchObject({
       id: o.id, status: "PAID", round: 1, listing: { id: listing.id, title: listing.title },
       buyer: { id: buyer.id, username: buyer.username, email: buyer.email, name: expect.stringContaining("Order") },

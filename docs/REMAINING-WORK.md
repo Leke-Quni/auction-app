@@ -1,52 +1,67 @@
 # Remaining work
 
-Updated 2026-11-05, during slice 7. `docs/DESIGN.md` is the source of truth for every decision; this file lists what is still to do, in the order to do it, plus the working rules.
+Updated 2026-11-05, after the slice 7 build and its first deploy. `docs/DESIGN.md` is the source of truth for every decision; this file lists what is still to do, in the order to do it, plus the working rules.
 
 ## Where things stand
-Slices 1 to 6 are done and merged to `main` (slice 6 in PR #14). Slice 7 (admin) is in progress on branch `slice-7-admin`: step 1 (roles and bans read from the database on every request, `AdminGuard`, `GET /admin/me`) is committed; step 2 (the admin app shell, admin-only sign-in and the slate and indigo theme) is committed; step 3 (reports queue and question log) is committed; step 4 (listing removal, ban and unban, clearing strikes) is done; step 5 (the order view with both addresses) is done. `DESIGN.md` section 7 records every step.
+Slices 1 to 6 are done and merged to `main`. Slice 7 (admin) is built, all five build steps: roles and bans read from the database on every request, the admin app and its sign-in, the reports queue and question log, moderation (remove a listing, ban and unban, clear a strike) and the order view with both addresses. PR #15 put that on `main`. `DESIGN.md` section 7 records every step.
 
-Production is behind: the API on Fly and the Neon database were last set up at the end of slice 5 (30 migrations). The repository now has 40, and slice 6 and the slice 7 work are not deployed.
+Five commits are on `slice-7-admin` and **not yet merged**: the mail guard for sample accounts, the extended seed script, and three speed fixes (Vercel in Frankfurt, pages loading in one wave, a shared admin check). The speed fixes only reach production once they are merged, because Vercel builds from `main`.
 
-## 1. Slice 7: admin (what is left)
-Done-criteria are in `DESIGN.md` section 8. Build order (decided 2026-11-05), one step at a time:
-1. ~~Role and ban freshness in the API.~~ Done.
-2. ~~Admin app shell, admin-only sign-in, theme.~~ Done.
-3. ~~**Reports queue and `QuestionLog`.**~~ Built 2026-11-05 (questions and answers only; rating comments still undecided, section 4). Listed open `Report` rows (the reporter, reason, the words as written, `postedAt`, status `OPEN` or `HANDLED`, and the automatic `CONTACT_DETAILS` ones), mark one handled, and read `QuestionLog` (every post, edit and deletion). Handled reports are deleted by the existing clean-up 30 days later.
-4. ~~**Moderation.**~~ Done 2026-11-05: remove a listing (ends it early with no sale), ban and unban (open sockets are cut at once, the storefront shows a suspended page), clear a strike. See `DESIGN.md`.
-5. ~~**An order with both addresses.**~~ Done 2026-11-05: read only, with search, linked from users and listings. See `DESIGN.md`.
-6. **Deploy the admin app** as its own Vercel project (`AUTH_SECRET` the same as the API, `API_URL`, `ADMIN_URL`) and make the first admin with `yarn workspace @auction/db make-admin <email>`.
+Production, as of 2026-11-05: Neon has all 40 migrations; the API on Fly answers on the new admin routes; the admin app is its own Vercel project and the owner has signed in to it; the first admin was made with `make-admin`. The live site was seeded once with the sample data and cleaned again (`seed 0`), so it holds only real data.
 
-Decided: a ban does not hold back a seller's payout; the API checks the database for the role on every request; the admin theme is light, slate and indigo.
+## 1. Slice 7: what is left
+Done-criteria are in `DESIGN.md` section 8. The five build steps are done; what remains is deploy checks and gaps found while building.
+
+**Deploy checks (owner)**
+- Merge the pull request for the five commits above (https://github.com/Leke-Quni/auction-app/compare/main...slice-7-admin?expand=1), then wait for both Vercel projects to redeploy.
+- In each Vercel project (storefront and admin), Settings, Functions: Function Region must say Frankfurt (`fra1`), matching the `vercel.json` files. Without it the apps run in Washington D.C. and every page crosses the Atlantic.
+- `ADMIN_URL` is not in `turbo.json`'s `globalPassThroughEnv`. It is only read at run time, so nothing should break; add it if the admin sign-in ever redirects to the wrong address.
+
+**Not built in the admin app (decide which to do, section 4)**
+- ~~A record of who did what~~ Done 2026-11-06 (`AdminAction`, Audit log page). Not recorded: sign-ins and who marked a report handled.
+- **Telling people.** A banned person gets no email, and a seller whose listing is removed sees only a banner on the page (no email, no bell entry).
+- **Removing a reported post.** The reports queue can mark a report handled and link to the author, but cannot delete the reported question or answer itself.
+- ~~Finding things~~ Done 2026-11-06 (Overview counts, open-reports badge, Listings page).
+- **Changing an order.** The order view is read only: no refund, cancel or address correction.
+- **Smaller:** banning an admin without demoting them first, clearing all of a person's strikes in one click, and hiding a removed listing's words and photos from the public (today it shows as an ended auction with a banner).
+- **Rating comments** have no report button or moderation path (decision, section 4).
+- **Admin app tests.** `apps/admin` has no tests of its own; its behaviour is covered by API tests and by throwaway browser scripts.
 
 ## 2. Production and deploy (only the owner can do these)
-- **Run the 10 new migrations on Neon** (`yarn workspace @auction/db migrate:deploy` against the Neon `DATABASE_URL`) **before** deploying the new API.
+- **Keep the Fly API awake.** The free trial stops the machine 5 minutes after each start whatever `fly.toml` says (Fly's own event log shows it), and the next request waits about 5 seconds for a boot; sockets drop and the background sweeps pause in between. Ping `https://auction-api-leke.fly.dev/health` every minute from a free scheduler (for example cron-job.org) to cut the stopped time to about a minute per cycle.
+- **Check Neon's usage.** The API's sweeps query the database every few seconds, so its compute never idles; on the free plan that can use up the monthly compute allowance. Look at the usage page.
 - **Stripe:** `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` on Fly, plus a webhook endpoint at `https://auction-api-leke.fly.dev/payments/stripe/webhook`. Until then production uses the fake payment provider. Payouts also need Connect and Accounts v2 enabled on the Stripe account and the platform's loss-liability acknowledgement accepted (Platform profile in the Dashboard); both were done on the test sandbox.
-- A verified Resend domain, so won, pay-now, shipping, ending-soon and outbid emails reach people other than the Resend account owner (`MAIL_FROM` too).
+- A verified Resend domain, so won, pay-now, shipping, ending-soon and outbid emails reach people other than the Resend account owner (`MAIL_FROM` too). Until then the admin sign-in code only arrives for the account that owns the Resend account.
 - `REDIS_URL` (Upstash) on Fly, and `NEXT_PUBLIC_API_URL` on Vercel pointing at the Fly address. Deployed environments search Postgres until Typesense is hosted.
 - Rotate the Neon password and the QStash token (both were shown in a chat while setting up), then `fly secrets set` the new values.
+- **Seeding production for a demo** (the owner runs it; it never runs on its own): the command, with `--owner`, `--allow-remote` and `--confirm-host`, is in `DESIGN.md` section 6, and `seed 0` with the same flags removes it. Sample times are relative to the moment it runs and mostly run out within a week (the named scenarios within minutes to days), so run it again to refresh. Deploy the API with the mail guard first.
 
 ## 3. Loose ends
 **Not proven or not tried by hand**
 - **The EUR seller payout against real Stripe.** The owner's test sandbox is a US account that only holds USD, so Stripe refuses a EUR transfer there. Everything up to the transfer works (account creation, readiness, the sweep). It needs a platform that settles in EUR.
-- Payment expiry, the runner-up offer, the strike and the "the item is yours to pay for" notice (slice 5, step 5) have not been tried by hand in a browser: win an auction, set `payBy` in the past, then miss a second payment and try to bid.
 - "Set up payouts" opens Stripe's hosted onboarding page (it works on `http://localhost`, but the page has a captcha, so it cannot be scripted). Finishing it by hand through the app's own button has not been done end to end.
+- A socket refused because the database could not be asked (`UNAVAILABLE`) has no test; the reminder toast's wording has no test of its own (the bell's does).
+- Load testing has not been done. Planned: browsing and search over a seeded database, and a burst of bidders on one auction (bids are limited to 10 per person and 30 per address a minute, so it needs many sample accounts or lifted limits). Run the first round locally; Postgres search, the Fly trial machine and Neon's free tier are the likely limits in production.
 
 **Small gaps, by choice**
 - Payout: no Stripe webhook for account changes (the account is asked about live), no email nudging a seller who has not set up payouts, and no early release on buyer confirmation (decided: timer only, 3 days after delivery). The transfer is not tied to the buyer's charge when that charge settled in a non-EUR currency, and nothing handles a refund or dispute after payment.
 - Shipping updates are emails only, opt-in, and not in the bell. Two simultaneous "Mark as shipped" clicks could both reach a real carrier (harmless with the fake one; a real carrier must dedupe by order id).
-- The "ending soon" reminder is not moved when anti-sniping extends an auction, and a 1-day auction can never send one (its last 24 hours are already running when it starts).
+- The "ending soon" reminder is not moved when anti-sniping extends an auction, and a 1-day auction can never send one (its last 24 hours are already running when it starts). The "24 hours left to pay" reminder is sent once; there is no closer second one.
 - The unread count on an open page is not pushed when notifications expire; sales that closed before orders existed have no order; a person cannot see their strikes except in the listing note and the email.
-- Rating comments have no report or moderation path yet (see section 4).
+- A draft or unknown listing answers HTTP 200 with a "not found" page, not a real 404, because the root `loading.tsx` streams before the page knows. It was like this before the speed fixes.
+- The web app has no "waking up" message for the first request after the Fly machine has stopped.
+- `apps/web/next-env.d.ts` is tracked but rewritten by typegen, so it shows as modified after every typecheck. Commit the generated form once, or ignore the file.
 
 **Earlier slices**
 - **Database connection pool and timeouts.** `packages/db/src/index.ts` uses the default pool, and a bid waits up to 15 seconds for the row lock. Set an explicit pool size, then test a burst of bids on one hot auction to check that other requests still get through.
-- ~~Banned users on the storefront.~~ Done with step 4: a `/suspended` page, sign-out, and a sign-in message.
-- **Playwright end-to-end tests are not in the repo.** The browser checks written during slices 6 and 7 (sign up, rating, watchlist, notifications, orders, admin sign-in) were run from throwaway scripts. Turn them into a committed Playwright suite (`DESIGN.md` section 6), including sign up, list, bid, win and pay.
-- **Flaky tests under a full run.** `full-workflow` and a few others occasionally fail in a full API run and always pass alone. The likely cause (not proven) is that the test files share one database and run in parallel, so one file's background email sweep can send another file's pending emails through the wrong fake sender. Running API test files one at a time would probably fix it, at roughly twice the run time.
+- **Playwright end-to-end tests are not in the repo.** The browser checks written during slices 6 and 7 (sign up, rating, watchlist, notifications, orders, admin sign-in and moderation, ban flow, seeded scenarios) were run from throwaway scripts. Turn them into a committed Playwright suite (`DESIGN.md` section 6), including sign up, list, bid, win and pay.
+- **One timing-sensitive API test.** `notifications > the outbid email wait > sends the second email once the quiet period is over` fails when Turbo runs every package's tests at once (the machine is busy) and passes alone and in a serial API run. The API suite already runs its files one at a time, so the older theory (files sharing a database in parallel) no longer explains it. Give it more slack, or run the API tests apart from the others in CI.
 
 ## 4. Open decisions still to make (from `DESIGN.md` section 7)
-- ~~An admin removing a listing that has bids.~~ Decided 2026-11-05: end it early with no sale.
-- **Rating comments.** Whether they get the same report button and queue as questions and answers, or admin-only removal. Decide in slice 7 step 3 or 4.
+- **Rating comments.** Whether they get the same report button and queue as questions and answers, or admin-only removal.
+- **Telling people about moderation.** Whether a ban or a listing removal should email the person (and put a bell entry in front of the seller).
+- **A removed listing's content.** Whether its words and photos stay public (an ended auction with a banner, as now) or are hidden.
+- **Which gaps in section 1 to build** before launch, and which to leave.
 - Query library for server data: React Query or SWR.
 - Username squatting: a cleanup rule for stale unverified accounts, before launch.
 - Whether to keep `BidAudit` rows for ever (no clean-up exists).

@@ -54,6 +54,7 @@ describe("admin accounts: ban, unban and strikes", () => {
 
   afterAll(async () => {
     for (const s of sockets) s.close();
+    await prisma.adminAction.deleteMany({ where: { adminId: { in: userIds } } });
     await prisma.strike.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.bidAudit.deleteMany({ where: { listingId: { in: listingIds } } });
     await prisma.bid.deleteMany({ where: { listingId: { in: listingIds } } });
@@ -180,5 +181,25 @@ describe("admin accounts: ban, unban and strikes", () => {
     expect(cleared.strikeCount).toBe(1);
     await bid().expect(201);
     await request(url).delete(`/admin/strikes/${detail.strikes[0].id}`).set(admin.auth).expect(404);
+  });
+
+  it("records which admin banned, restored and cleared a strike, and only for changes that happened", async () => {
+    const [a1, a2] = [await person("ADMIN"), await person("ADMIN")];
+    const user = await person();
+    await ban(a1, user.id, { reason: "Fraud" }).expect(200);
+    await ban(a2, user.id, { reason: "Again" }).expect(409);
+    await strike(user.id);
+    const strikeId = (await request(url).get(`/admin/users/${user.id}`).set(a2.auth)).body.strikes[0].id;
+    await request(url).delete(`/admin/strikes/${strikeId}`).set(a2.auth).expect(200);
+    await request(url).delete(`/admin/strikes/${strikeId}`).set(a2.auth).expect(404);
+    await unban(a2, user.id).expect(200);
+    await unban(a2, user.id).expect(409);
+    const log = (await request(url).get(`/admin/audit?targetId=${user.id}`).set(a1.auth).expect(200)).body.entries;
+    expect(log.map((e: { action: string }) => e.action).sort()).toEqual(["BAN_USER", "CLEAR_STRIKE", "UNBAN_USER"]);
+    expect(log.find((e: { action: string }) => e.action === "BAN_USER")).toMatchObject({ reason: "Fraud", admin: { id: a1.id, username: a1.username } });
+    expect(log.find((e: { action: string }) => e.action === "UNBAN_USER").admin.id).toBe(a2.id);
+    const mine = (await request(url).get(`/admin/audit?adminId=${a1.id}`).set(a1.auth).expect(200)).body.entries;
+    expect(mine).toHaveLength(1);
+    await request(url).get("/admin/audit").set(user.auth).expect(403);
   });
 });
