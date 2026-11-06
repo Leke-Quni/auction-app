@@ -3,6 +3,7 @@ import { adminApiFetch } from "@/lib/api";
 
 export interface Overview {
   openReports: number;
+  openSupport: number;
   liveListings: number;
   upcomingListings: number;
   awaitingPaymentOrders: number;

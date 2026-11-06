@@ -38,6 +38,7 @@ model User {
   leadingListings     Listing[]            @relation("ListingHighBidder")
   wonListings         Listing[]            @relation("ListingWinner")
   strikes             Strike[]
+  supportRequests     SupportRequest[]
   purchases           Order[]              @relation("OrderBuyer")
   sales               Order[]              @relation("OrderSeller")
   bids                Bid[]
@@ -573,4 +574,35 @@ enum AdminActionKind {
   SET_ROLE
   STRIKE_USER
   VIEW_INVOICE
+  HANDLE_SUPPORT
+}
+
+enum SupportKind {
+  GENERAL
+  STRIKE_APPEAL
+}
+
+enum SupportStatus {
+  OPEN
+  HANDLED
+}
+
+// A message to the people who run the site, from a signed-in person: a question or an appeal against a strike. There is no
+// reply thread (private messages are out of scope): an admin answers by email and marks it handled. `strikeId` is a plain id, not
+// a relation, so clearing the strike keeps the appeal that asked for it.
+model SupportRequest {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind        SupportKind
+  strikeId    String?
+  message     String
+  status      SupportStatus @default(OPEN)
+  createdAt   DateTime      @default(now())
+  handledAt   DateTime?
+  handledById String?
+
+  @@index([status, createdAt])
+  @@index([userId])
+  @@index([strikeId])
 }

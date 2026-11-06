@@ -1,7 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { createBareUser, createLiveListing, db, deleteListing, deletePerson, newPerson, signUp, useKnownCode } from "./helpers";
+import { ADMIN_URL, createBareUser, createLiveListing, db, deleteListing, deletePerson, newPerson, signInToAdmin, signUp } from "./helpers";
 
-const ADMIN_URL = process.env.E2E_ADMIN_URL ?? "http://localhost:3001";
 const admin = newPerson();
 const title = `E2E moderation ${Date.now()}`;
 let listing: { listingId: string; sellerId: string };
@@ -27,17 +26,7 @@ test("an admin signs in to the admin app, bans a user, removes a listing, and bo
   const storefront = await browser.newContext();
   await signUp(await storefront.newPage(), admin);
   await storefront.close();
-  const made = await db().query<{ id: string }>('UPDATE "User" SET "role" = \'ADMIN\' WHERE "email" = $1 RETURNING "id"', [admin.email]);
-  adminId = made.rows[0]!.id;
-
-  await page.goto(`${ADMIN_URL}/sign-in`);
-  await page.locator('input[name="email"]').fill(admin.email);
-  await page.locator('input[name="password"]').fill(admin.password);
-  await page.locator("form button").first().click();
-  await page.getByPlaceholder("123456").waitFor();
-  await page.getByPlaceholder("123456").fill(await useKnownCode(admin.email));
-  await page.locator("form button").first().click();
-  await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
+  adminId = await signInToAdmin(page, admin);
 
   page.on("dialog", (dialog) => void dialog.accept());
 

@@ -1,0 +1,82 @@
+import Link from "next/link";
+import { adminApiFetch } from "@/lib/api";
+import { requireAdmin } from "@/lib/require-admin";
+import { clearStrikeAndCloseAction, handleSupportAction } from "./actions";
+import { ConfirmForm } from "./confirm-form";
+
+interface Request {
+  id: string;
+  kind: "GENERAL" | "STRIKE_APPEAL";
+  status: "OPEN" | "HANDLED";
+  message: string;
+  createdAt: string;
+  handledAt: string | null;
+  user: { id: string; username: string; email: string; strikeCount: number };
+  strike: { id: string; createdAt: string; reason: string | null; givenByAdmin: boolean; listingTitle: string | null } | null;
+}
+
+const when = (iso: string) => new Date(iso).toISOString().replace("T", " ").slice(0, 16) + " UTC";
+
+export default async function Support({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
+  await requireAdmin();
+  const status = (await searchParams).status === "HANDLED" ? "HANDLED" : "OPEN";
+  const res = await adminApiFetch(`/admin/support?status=${status}`);
+  if (!res.ok) throw new Error(`API /admin/support failed: ${res.status}`);
+  const { requests, openCount } = (await res.json()) as { requests: Request[]; openCount: number };
+  const tab = (value: "OPEN" | "HANDLED", label: string) => (
+    <Link href={value === "OPEN" ? "/support" : "/support?status=HANDLED"} aria-current={status === value ? "page" : undefined} className={`rounded px-3 py-1 ${status === value ? "bg-accent font-semibold text-white" : "border border-line bg-panel hover:bg-page"}`}>
+      {label}
+    </Link>
+  );
+  return (
+    <div className="space-y-3">
+      <h1 className="text-lg font-bold">Support</h1>
+      <p className="text-muted">Questions and strike appeals sent through the support form. Answer by email to the address shown, then close the request here.</p>
+      <div className="flex gap-2">
+        {tab("OPEN", `Open (${openCount})`)}
+        {tab("HANDLED", "Handled")}
+      </div>
+      {requests.length === 0 ? (
+        <p className="rounded border border-line bg-panel p-4 text-muted">{status === "OPEN" ? "Nothing waiting." : "Nothing handled yet."}</p>
+      ) : (
+        <ul className="space-y-3">
+          {requests.map((r) => (
+            <li key={r.id} className="space-y-2 rounded border border-line bg-panel p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p>
+                  <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${r.kind === "STRIKE_APPEAL" ? "bg-warn-soft text-warn" : "bg-info-soft text-info"}`}>{r.kind === "STRIKE_APPEAL" ? "Strike appeal" : "Question"}</span>{" "}
+                  <Link href={`/users/${r.user.id}`} className="text-accent underline">
+                    @{r.user.username}
+                  </Link>{" "}
+                  <a href={`mailto:${r.user.email}`} className="text-accent underline">
+                    {r.user.email}
+                  </a>{" "}
+                  <span className="text-muted">{when(status === "OPEN" ? r.createdAt : (r.handledAt ?? r.createdAt))}</span>
+                </p>
+                {r.status === "OPEN" && (
+                  <div className="flex gap-2">
+                    {r.kind === "STRIKE_APPEAL" && r.strike && <ConfirmForm action={clearStrikeAndCloseAction} fields={{ id: r.id, strikeId: r.strike.id }} label="Clear the strike and close" confirm={`Clear this strike for @${r.user.username} and close the request? They are not emailed: write to them yourself.`} tone="primary" />}
+                    <ConfirmForm action={handleSupportAction} fields={{ id: r.id }} label={r.kind === "STRIKE_APPEAL" && r.strike ? "Refuse and close" : "Mark handled"} confirm="Close this request? They are not emailed: write to them yourself." tone="plain" />
+                  </div>
+                )}
+              </div>
+              {r.kind === "STRIKE_APPEAL" && (
+                <p className="rounded bg-page p-2 text-muted">
+                  {r.strike ? (
+                    <>
+                      The strike ({when(r.strike.createdAt)}): {r.strike.givenByAdmin ? "given by an admin" : `did not pay for ${r.strike.listingTitle ?? "an auction"}`}
+                      {r.strike.reason ? `. ${r.strike.reason}` : ""} They have {r.user.strikeCount} strike{r.user.strikeCount === 1 ? "" : "s"} in all.
+                    </>
+                  ) : (
+                    "That strike has been cleared already."
+                  )}
+                </p>
+              )}
+              <p className="whitespace-pre-wrap break-words">{r.message}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}

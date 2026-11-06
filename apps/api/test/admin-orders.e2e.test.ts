@@ -180,7 +180,7 @@ describe("the admin's view of an order", () => {
   it("hands an admin the buyer's invoice and the seller's statement of a paid order as PDFs, and writes each look to the audit trail", async () => {
     const admin = await person("ADMIN");
     const user = await person();
-    const { order: o } = await order({ ...paid, invoiceNumber: `INV-2026-9${String(stamp).slice(-5)}`, shipmentStatus: "DELIVERED" });
+    const { order: o } = await order({ ...paid, invoiceNumber: `INV-2027-${String(stamp).slice(-6)}`, shipmentStatus: "DELIVERED" });
     const pdf = (who: Who, party: string) => request(url).get(`/admin/orders/${o.id}/invoice?party=${party}`).set(who.auth).buffer(true).parse((res, done) => {
       const chunks: Buffer[] = [];
       res.on("data", (c: Buffer) => chunks.push(c));

@@ -1,6 +1,6 @@
 import { ConflictException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { giveAdminStrike } from "./admin-strikes";
-import { webUrl } from "../config";
+import { supportEmail } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
 import { RealtimeGateway } from "../realtime/realtime.gateway";
@@ -97,7 +97,7 @@ export class AdminUsersService {
         "",
         `Reason: ${reason}`,
         "",
-        `Your existing listings, bids and orders are not changed. If you think this is a mistake, contact support through ${webUrl()}.`,
+        `Your existing listings, bids and orders are not changed. If you think this is a mistake, ${supportEmail() ? `write to ${supportEmail()}` : "reply to this email"}.`,
       ].join("\n"));
     } catch (error) {
       this.log.error(`Could not email the ban notice to ${id}: ${(error as Error).message}`);

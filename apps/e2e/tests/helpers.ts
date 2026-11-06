@@ -93,3 +93,20 @@ export async function createBareUser(prefix: string) {
   );
   return { id, username, email: `${n}@e2e.test` };
 }
+
+const ADMIN_URL = process.env.E2E_ADMIN_URL ?? "http://localhost:3001";
+export { ADMIN_URL };
+
+// Makes a new account (already signed up through the storefront) an admin in the database and signs it in to the admin app.
+export async function signInToAdmin(page: Page, admin: Person): Promise<string> {
+  const made = await db().query<{ id: string }>('UPDATE "User" SET "role" = \'ADMIN\' WHERE "email" = $1 RETURNING "id"', [admin.email]);
+  await page.goto(`${ADMIN_URL}/sign-in`);
+  await page.locator('input[name="email"]').fill(admin.email);
+  await page.locator('input[name="password"]').fill(admin.password);
+  await page.locator("form button").first().click();
+  await page.getByPlaceholder("123456").waitFor();
+  await page.getByPlaceholder("123456").fill(await useKnownCode(admin.email));
+  await page.locator("form button").first().click();
+  await page.getByRole("heading", { name: "Overview" }).waitFor();
+  return made.rows[0]!.id;
+}

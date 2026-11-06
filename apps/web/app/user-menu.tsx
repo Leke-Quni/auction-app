@@ -64,6 +64,9 @@ export function UserMenu({ username, signOutAction }: { username: string; signOu
           <Link role="menuitem" href="/account/settings" onClick={() => setOpen(false)} className={itemClass}>
             Settings
           </Link>
+          <Link role="menuitem" href="/support" onClick={() => setOpen(false)} className={itemClass}>
+            Support
+          </Link>
           <form action={signOutAction} className="border-t border-line">
             <button role="menuitem" className={`${itemClass} cursor-pointer`}>
               Sign out

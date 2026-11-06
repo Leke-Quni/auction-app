@@ -7,6 +7,7 @@ export default async function Overview() {
   const o = await getOverview();
   const cards: { label: string; value: number; href: string; hot?: boolean }[] = [
     { label: "Open reports", value: o.openReports, href: "/reports", hot: o.openReports > 0 },
+    { label: "Open support requests", value: o.openSupport, href: "/support", hot: o.openSupport > 0 },
     { label: "Live auctions", value: o.liveListings, href: "/listings?phase=live" },
     { label: "Upcoming auctions", value: o.upcomingListings, href: "/listings?phase=upcoming" },
     { label: "Orders awaiting payment", value: o.awaitingPaymentOrders, href: "/orders?status=AWAITING_PAYMENT" },

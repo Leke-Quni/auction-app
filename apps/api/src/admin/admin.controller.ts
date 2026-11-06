@@ -4,11 +4,13 @@ import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { AdminGuard, JwtAuthGuard, type AuthUser } from "../auth/jwt-auth.guard";
 import { AdminAuditService } from "./admin-audit.service";
 import { AdminListingsService } from "./admin-listings.service";
+import { AdminSupportService } from "./admin-support.service";
 import { AdminOverviewService } from "./admin-overview.service";
 import { AdminOrdersService } from "./admin-orders.service";
 import { AdminReportsService } from "./admin-reports.service";
 import { AdminUsersService } from "./admin-users.service";
 
+const supportQuerySchema = z.object({ status: z.enum(["OPEN", "HANDLED"]).default("OPEN"), limit: z.coerce.number().int().min(1).max(200).default(100) });
 const reportsQuerySchema = z.object({ status: z.enum(["OPEN", "HANDLED"]).default("OPEN"), limit: z.coerce.number().int().min(1).max(200).default(100) });
 const usersQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
@@ -51,6 +53,7 @@ export class AdminController {
     private readonly orders: AdminOrdersService,
     private readonly audit: AdminAuditService,
     private readonly overview: AdminOverviewService,
+    private readonly support: AdminSupportService,
   ) {}
 
   // Who the admin app is talking to. It also tells the admin app whether a signed-in person may use it at all.
@@ -63,6 +66,18 @@ export class AdminController {
   @Get("overview")
   getOverview() {
     return this.overview.get();
+  }
+
+  // What people sent through the support form: appeals against strikes and general questions.
+  @Get("support")
+  listSupport(@Query(new ZodValidationPipe(supportQuerySchema)) query: z.infer<typeof supportQuerySchema>) {
+    return this.support.list(query);
+  }
+
+  @Post("support/:id/handle")
+  @HttpCode(200)
+  handleSupport(@Param("id") id: string, @Req() req: { user: AuthUser }) {
+    return this.support.handle(req.user.id, id);
   }
 
   // The reports queue: open ones oldest first, handled ones newest first, with how many are open in all.
