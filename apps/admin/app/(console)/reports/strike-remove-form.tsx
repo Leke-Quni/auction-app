@@ -1,15 +1,20 @@
 "use client";
 
-export function StrikeRemoveForm({ action, id, username, what }: { action: (formData: FormData) => Promise<void>; id: string; username: string; what: string }) {
+import { useActionState } from "react";
+import type { StrikeRemoveResult } from "./actions";
+
+export function StrikeRemoveForm({ action, id, username, what }: { action: (state: StrikeRemoveResult, formData: FormData) => Promise<StrikeRemoveResult>; id: string; username: string; what: string }) {
+  const [state, formAction, pending] = useActionState(action, {});
   return (
     <form
-      action={action}
+      action={formAction}
       onSubmit={(e) => {
         if (!window.confirm(`Give @${username} a strike and remove this ${what}? The reports about it are closed. This cannot be undone.`)) e.preventDefault();
       }}
     >
       <input type="hidden" name="id" value={id} />
-      <button className="cursor-pointer rounded bg-danger px-2 py-0.5 font-semibold text-white">Strike @{username} and remove {what}</button>
+      <button disabled={pending} className="cursor-pointer rounded bg-danger px-2 py-0.5 font-semibold text-white disabled:opacity-60">Strike @{username} and remove {what}</button>
+      {state.error && <p role="alert" className="mt-1 max-w-xs text-red-700">{state.error}</p>}
     </form>
   );
 }
