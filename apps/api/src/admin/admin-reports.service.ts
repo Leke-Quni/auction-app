@@ -67,8 +67,8 @@ export class AdminReportsService {
   }
 
   // Takes the reported question or answer down and closes every open report about that same post, all in one transaction.
-  // A question is deleted the way its asker deletes it (the answer under it goes with it); an answer is taken back, which
-  // leaves the question open again. If the post is already gone or was replaced by a newer one, nothing is removed and the
+  // A question is marked removed by moderation (its answer is hidden with it); an answer is marked removed too and stays final, so
+  // the seller cannot answer again. The words stay in the database and the log. If the post is already gone or was replaced by a newer one, nothing is removed and the
   // reports are just closed, so a double click or a stale page is harmless. Works after the auction has ended.
   async removePost(adminId: string, reportId: string) {
     const report = await this.prisma.report.findUnique({ where: { id: reportId } });
@@ -110,8 +110,8 @@ export class AdminReportsService {
     return true;
   }
 
-  // Takes a question (with its answer) or just its answer down straight from the question log, with no report needed. It removes whatever
-  // is there now, closes every open report about that kind of post on the question, and is a no-op (removed: false) when it is already gone.
+  // Takes a question (with its answer) or just its answer down straight from the question log, with no report needed. It removes the post as
+  // it is now (checked against `version`, below), closes every open report about that kind of post on the question, and is a no-op (removed: false) when it is already gone.
   // `version` is what the page showed (see `questions` in the log); if the post was edited since, nothing is removed and `stale` says so,
   // so the admin never takes down words they did not read.
   async removeQuestionPost(adminId: string, questionId: string, target: "QUESTION" | "ANSWER", version?: string) {

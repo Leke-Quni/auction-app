@@ -337,8 +337,8 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
     return { removedImageUrls: await this.unsharedUrls(listing.images.map((i) => i.url)) };
   }
 
-  // A seller whose auction ended without a sale can list the item again with one click: a new draft with the same details,
-  // pickup address and photos (the old listing stays as the record). The draft is not published, so the seller can change
+  // A seller whose auction ended without a sale can list the item again with one click: a new draft with the same details
+  // and photos (the old listing stays as the record). The pickup address is not copied: the draft's form starts from the seller's default. The draft is not published, so the seller can change
   // anything first, and while that draft exists, asking again returns it. Only a listing that closed with no bids or no sale qualifies, never one that sold or is still running.
   async relist(sellerId: string, id: string) {
     const old = await this.getOwned(sellerId, id);
