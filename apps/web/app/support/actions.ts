@@ -3,6 +3,7 @@
 import { supportRequestSchema, suspendedSupportSchema } from "@auction/shared";
 import { auth } from "@/auth";
 import { apiFetch, authedApiFetch } from "@/lib/api";
+import { viewerIpHeaders } from "@/lib/viewer-ip";
 import { apiErrorMessage } from "@/lib/api-error";
 
 export interface SupportState {
@@ -33,7 +34,7 @@ export async function sendSuspendedSupportAction(_: SupportState, formData: Form
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check the form." };
   let res: Response;
   try {
-    res = await apiFetch("/support/suspended", { method: "POST", body: JSON.stringify(parsed.data) });
+    res = await apiFetch("/support/suspended", { method: "POST", body: JSON.stringify(parsed.data), headers: await viewerIpHeaders() });
   } catch {
     return { error: "Could not reach the server. Try again." };
   }

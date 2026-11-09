@@ -1,17 +1,25 @@
 import "reflect-metadata";
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
+import { VIEWER_IP_HEADER, VIEWER_IP_SIGNATURE_HEADER } from "@auction/shared";
 import { SignJWT } from "jose";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
+import { signViewerIp } from "../src/common/client-ip";
 import { MAIL_SENDER } from "../src/email/mail-sender";
 import { NoopSearchIndex, SEARCH_INDEX } from "../src/search/search-index";
 
 const stamp = Date.now();
 let counter = 0;
+// A different signed viewer address for each call, so the per-address limit of the suspended-page endpoint never carries over between runs.
+let ipCounter = 0;
+const freshIp = () => {
+  const ip = `10.${Math.floor(stamp / 65_536) % 250}.${(stamp % 250) + 1}.${(++ipCounter % 250) + 1}-${stamp}`;
+  return { [VIEWER_IP_HEADER]: ip, [VIEWER_IP_SIGNATURE_HEADER]: signViewerIp(ip) };
+};
 
 describe("support requests and strike appeals", () => {
   let app: INestApplication;
@@ -189,10 +197,10 @@ describe("support requests and strike appeals", () => {
     const fine = await person();
     await prisma.user.update({ where: { id: banned.id }, data: { bannedAt: new Date(), banReason: "Fraud" } });
     const emailOf = async (who: Who) => (await prisma.user.findUniqueOrThrow({ where: { id: who.id }, select: { email: true } })).email;
-    const post = (email: string, message = "Please lift my ban") => api().post("/support/suspended").send({ email, message });
+    const post = (email: string, message = "Please lift my ban") => api().post("/support/suspended").set(freshIp()).send({ email, message });
 
     await post("not-an-email").expect(400);
-    await api().post("/support/suspended").send({ email: await emailOf(banned), message: "  " }).expect(400);
+    await api().post("/support/suspended").set(freshIp()).send({ email: await emailOf(banned), message: "  " }).expect(400);
 
     await post((await emailOf(banned)).toUpperCase()).expect(204);
     await post(await emailOf(banned), "Second try").expect(204);
@@ -217,7 +225,7 @@ describe("support requests and strike appeals", () => {
     const user = await person();
     await prisma.user.updateMany({ where: { id: banned.id }, data: { bannedAt: new Date(), banReason: "Fraud" } });
     const emailOf = async (who: Who) => (await prisma.user.findUniqueOrThrow({ where: { id: who.id }, select: { email: true } })).email;
-    await api().post("/support/suspended").send({ email: await emailOf(banned), message: "Sorry" }).expect(204);
+    await api().post("/support/suspended").set(freshIp()).send({ email: await emailOf(banned), message: "Sorry" }).expect(204);
     const id = (await prisma.supportRequest.findFirstOrThrow({ where: { userId: banned.id, kind: "BAN_APPEAL" } })).id;
     const general = (await send(user, { kind: "GENERAL", message: "Hello" }).expect(201)).body.id;
 
@@ -242,7 +250,7 @@ describe("support requests and strike appeals", () => {
     for (const who of [refused, lifted]) await prisma.user.update({ where: { id: who.id }, data: { bannedAt: new Date(), banReason: "Fraud" } });
     const emailOf = async (who: Who) => (await prisma.user.findUniqueOrThrow({ where: { id: who.id }, select: { email: true } })).email;
     const appeal = async (who: Who) => {
-      await api().post("/support/suspended").send({ email: await emailOf(who), message: "Please" }).expect(204);
+      await api().post("/support/suspended").set(freshIp()).send({ email: await emailOf(who), message: "Please" }).expect(204);
       return (await prisma.supportRequest.findFirstOrThrow({ where: { userId: who.id, kind: "BAN_APPEAL" } })).id;
     };
     const refusedId = await appeal(refused);
@@ -257,5 +265,12 @@ describe("support requests and strike appeals", () => {
     const liftedEmail = await emailOf(lifted);
     expect(sent.filter((m) => m.to === refusedEmail)).toMatchObject([{ subject: "Your suspension appeal was denied", text: expect.stringContaining("stays suspended") }]);
     expect(sent.filter((m) => m.to === liftedEmail)).toEqual([]);
+  });
+
+  it("limits the suspended-page endpoint per connection as well as per email", async () => {
+    const ip = freshIp();
+    const post = (email: string) => api().post("/support/suspended").set(ip).send({ email, message: "Hello" });
+    for (let i = 0; i < 20; i++) await post(`ip-limit-${stamp}-${i}@example.com`).expect(204);
+    expect((await post(`ip-limit-${stamp}-next@example.com`).expect(429)).body.code).toBe("RATE_LIMITED");
   });
 });

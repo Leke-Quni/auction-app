@@ -1,5 +1,6 @@
 import { suspendedSupportSchema, type SuspendedSupportInput } from "@auction/shared";
-import { Body, Controller, HttpCode, Post } from "@nestjs/common";
+import { Body, Controller, HttpCode, Post, Req } from "@nestjs/common";
+import { clientIp } from "../common/client-ip";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { SupportService } from "./support.service";
 
@@ -10,7 +11,7 @@ export class SuspendedSupportController {
 
   @Post()
   @HttpCode(204)
-  async create(@Body(new ZodValidationPipe(suspendedSupportSchema)) body: SuspendedSupportInput) {
-    await this.support.createBanAppeal(body);
+  async create(@Req() req: Parameters<typeof clientIp>[0], @Body(new ZodValidationPipe(suspendedSupportSchema)) body: SuspendedSupportInput) {
+    await this.support.createBanAppeal(body, clientIp(req));
   }
 }
