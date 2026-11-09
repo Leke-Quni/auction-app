@@ -17,6 +17,10 @@ export interface QuestionLogQuery {
 
 // What the admin app reads to moderate questions and answers. Reports and the log have no foreign keys, so the people and
 // listings they point to are looked up here and shown as null when they are gone.
+// Says which version of a question or answer an admin was looking at: its time and when it was last edited. An edit keeps the time, so the
+// two together tell the page the admin read from a changed one.
+const versionOf = (post: { at: Date | null; editedAt: Date | null }) => `${post.at?.getTime() ?? 0}:${post.editedAt?.getTime() ?? 0}`;
+
 @Injectable()
 export class AdminReportsService {
   constructor(@Inject(PRISMA) private readonly prisma: Prisma) {}
@@ -108,16 +112,20 @@ export class AdminReportsService {
 
   // Takes a question (with its answer) or just its answer down straight from the question log, with no report needed. It removes whatever
   // is there now, closes every open report about that kind of post on the question, and is a no-op (removed: false) when it is already gone.
-  async removeQuestionPost(adminId: string, questionId: string, target: "QUESTION" | "ANSWER") {
+  // `version` is what the page showed (see `questions` in the log); if the post was edited since, nothing is removed and `stale` says so,
+  // so the admin never takes down words they did not read.
+  async removeQuestionPost(adminId: string, questionId: string, target: "QUESTION" | "ANSWER", version?: string) {
     return this.prisma.$transaction(async (tx) => {
       const question = await tx.question.findUnique({ where: { id: questionId } });
       if (!question) throw new NotFoundException();
+      const current = target === "QUESTION" ? versionOf({ at: question.createdAt, editedAt: question.editedAt }) : versionOf({ at: question.answeredAt, editedAt: question.answerEditedAt });
+      if (version !== undefined && version !== current) return { questionId, removed: false, stale: true };
       const removed = await this.takeDown(tx, adminId, question, target);
       await tx.report.updateMany({ where: { questionId, target, status: "OPEN" }, data: { status: "HANDLED", handledAt: new Date() } });
       // A question goes with its answer, so reports about that answer have nothing left to point at.
       if (target === "QUESTION") await tx.report.updateMany({ where: { questionId, target: "ANSWER", status: "OPEN" }, data: { status: "HANDLED", handledAt: new Date() } });
       if (removed) await tx.adminAction.create({ data: { adminId, action: "REMOVE_POST", targetId: questionId, reason: `${target === "QUESTION" ? "Question" : "Answer"}, from the question log` } });
-      return { questionId, removed };
+      return { questionId, removed, stale: false };
     });
   }
 
@@ -167,10 +175,10 @@ export class AdminReportsService {
     });
     const people = await this.usernames(rows.map((r) => r.actorId));
     const titles = new Map((await this.prisma.listing.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.listingId))] } }, select: { id: true, title: true } })).map((l) => [l.id, l.title]));
-    const questions = await this.prisma.question.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.questionId))] } }, select: { id: true, deletedAt: true, moderatedAt: true, answerModeratedAt: true, answer: true } });
+    const questions = await this.prisma.question.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.questionId))] } }, select: { id: true, createdAt: true, editedAt: true, answeredAt: true, answerEditedAt: true, deletedAt: true, moderatedAt: true, answerModeratedAt: true, answer: true } });
     return {
       // Whether each question and its answer are still up, so the page offers a remove button only where there is something to remove.
-      questions: Object.fromEntries(questions.map((qn) => [qn.id, { questionUp: !qn.deletedAt && !qn.moderatedAt, answerUp: !qn.deletedAt && !qn.moderatedAt && !qn.answerModeratedAt && qn.answer !== null }])),
+      questions: Object.fromEntries(questions.map((qn) => [qn.id, { questionVersion: versionOf({ at: qn.createdAt, editedAt: qn.editedAt }), answerVersion: versionOf({ at: qn.answeredAt, editedAt: qn.answerEditedAt }), questionUp: !qn.deletedAt && !qn.moderatedAt, answerUp: !qn.deletedAt && !qn.moderatedAt && !qn.answerModeratedAt && qn.answer !== null }])),
       entries: rows.map((r) => ({
         id: r.id,
         questionId: r.questionId,

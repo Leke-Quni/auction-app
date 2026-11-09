@@ -33,7 +33,7 @@ const listingsQuerySchema = z.object({
   phase: z.enum(["upcoming", "live", "ended", "removed"]).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
-const removeQuestionPostSchema = z.object({ target: z.enum(["QUESTION", "ANSWER"]) });
+const removeQuestionPostSchema = z.object({ target: z.enum(["QUESTION", "ANSWER"]), version: z.string().max(64).optional() });
 const logQuerySchema = z.object({
   questionId: z.string().min(1).optional(),
   listingId: z.string().min(1).optional(),
@@ -118,7 +118,7 @@ export class AdminController {
   @Post("questions/:id/remove")
   @HttpCode(200)
   removeQuestionPost(@Param("id") id: string, @Req() req: { user: AuthUser }, @Body(new ZodValidationPipe(removeQuestionPostSchema)) body: z.infer<typeof removeQuestionPostSchema>) {
-    return this.reports.removeQuestionPost(req.user.id, id, body.target);
+    return this.reports.removeQuestionPost(req.user.id, id, body.target, body.version);
   }
 
   // Every post, edit and deletion of questions and answers, newest first, optionally for one question, listing or person.

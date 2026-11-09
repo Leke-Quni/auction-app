@@ -200,26 +200,43 @@ describe("admin reports queue and question log", () => {
     const { listing, question } = await scene();
     await prisma.questionLog.create({ data: { questionId: question.id, listingId: listing.id, target: "QUESTION", action: "CREATED", actorId: user.id, body: question.body } });
     const state = async () => (await get(`/admin/question-log?questionId=${question.id}`, admin).expect(200)).body.questions[question.id];
-    expect(await state()).toEqual({ questionUp: true, answerUp: true });
+    expect(await state()).toMatchObject({ questionUp: true, answerUp: true });
 
     await request(url).post(`/admin/questions/${question.id}/remove`).set(user.auth).send({ target: "ANSWER" }).expect(403);
     await request(url).post(`/admin/questions/${question.id}/remove`).set(admin.auth).send({ target: "NOPE" }).expect(400);
     await request(url).post("/admin/questions/nope/remove").set(admin.auth).send({ target: "ANSWER" }).expect(404);
 
     const report = await prisma.report.create({ data: { questionId: question.id, listingId: listing.id, target: "ANSWER", reason: "SPAM", body: question.answer!, postedAt: question.answeredAt! } });
-    expect((await request(url).post(`/admin/questions/${question.id}/remove`).set(admin.auth).send({ target: "ANSWER" }).expect(200)).body).toEqual({ questionId: question.id, removed: true });
+    expect((await request(url).post(`/admin/questions/${question.id}/remove`).set(admin.auth).send({ target: "ANSWER" }).expect(200)).body).toMatchObject({ questionId: question.id, removed: true });
     expect((await prisma.question.findUniqueOrThrow({ where: { id: question.id } })).answerModeratedAt).toBeInstanceOf(Date);
     expect((await prisma.report.findUniqueOrThrow({ where: { id: report.id } })).status).toBe("HANDLED");
-    expect(await state()).toEqual({ questionUp: true, answerUp: false });
+    expect(await state()).toMatchObject({ questionUp: true, answerUp: false });
     expect((await request(url).post(`/admin/questions/${question.id}/remove`).set(admin.auth).send({ target: "ANSWER" }).expect(200)).body.removed).toBe(false);
 
     expect((await request(url).post(`/admin/questions/${question.id}/remove`).set(admin.auth).send({ target: "QUESTION" }).expect(200)).body.removed).toBe(true);
-    expect(await state()).toEqual({ questionUp: false, answerUp: false });
+    expect(await state()).toMatchObject({ questionUp: false, answerUp: false });
     const lateAnswerReport = await prisma.report.create({ data: { questionId: question.id, listingId: listing.id, target: "ANSWER", reason: "SPAM", body: "x", postedAt: new Date() } });
     await request(url).post(`/admin/questions/${question.id}/remove`).set(admin.auth).send({ target: "QUESTION" }).expect(200);
     expect((await prisma.report.findUniqueOrThrow({ where: { id: lateAnswerReport.id } })).status).toBe("HANDLED");
     expect(await prisma.questionLog.findMany({ where: { questionId: question.id, action: "DELETED" }, orderBy: { createdAt: "asc" } })).toMatchObject([{ target: "ANSWER", actorId: admin.id }, { target: "QUESTION", actorId: admin.id }]);
     expect(await prisma.adminAction.count({ where: { targetId: question.id, action: "REMOVE_POST" } })).toBe(2);
+  });
+
+  it("removes nothing from the question log if the post was edited after the admin read it", async () => {
+    const admin = await person("ADMIN");
+    const { listing, question } = await scene();
+    await prisma.questionLog.create({ data: { questionId: question.id, listingId: listing.id, target: "QUESTION", action: "CREATED", actorId: admin.id, body: question.body } });
+    const versions = async () => (await get(`/admin/question-log?questionId=${question.id}`, admin).expect(200)).body.questions[question.id];
+    const seen = await versions();
+
+    await prisma.question.update({ where: { id: question.id }, data: { answer: "A different answer", answerEditedAt: new Date(Date.now() + 5000) } });
+    const stale = (await request(url).post(`/admin/questions/${question.id}/remove`).set(admin.auth).send({ target: "ANSWER", version: seen.answerVersion }).expect(200)).body;
+    expect(stale).toMatchObject({ removed: false, stale: true });
+    expect((await prisma.question.findUniqueOrThrow({ where: { id: question.id } })).answerModeratedAt).toBeNull();
+
+    const fresh = await versions();
+    expect(fresh.answerVersion).not.toBe(seen.answerVersion);
+    expect((await request(url).post(`/admin/questions/${question.id}/remove`).set(admin.auth).send({ target: "ANSWER", version: fresh.answerVersion }).expect(200)).body).toMatchObject({ removed: true, stale: false });
   });
 
   it("shows a removed answer or question on the listing page as removed by moderation, with the asker but not the words, and no one can change, vote on or report it", async () => {
