@@ -11,6 +11,8 @@ export function SupportForm({ strikes, startWithAppeal, email }: { strikes: Supp
   const [state, action, pending] = useActionState<SupportState, FormData>(sendSupportAction, {});
   const open = strikes.filter((s) => !s.appealed);
   const [kind, setKind] = useState<"GENERAL" | "STRIKE_APPEAL">(startWithAppeal && open.length > 0 ? "STRIKE_APPEAL" : "GENERAL");
+  const [strikeId, setStrikeId] = useState(open[0]?.id ?? "");
+  const chosen = strikes.find((s) => s.id === strikeId);
   return (
     <form action={action} className="space-y-3 border border-line bg-white p-4">
       <fieldset className="space-y-1">
@@ -26,7 +28,7 @@ export function SupportForm({ strikes, startWithAppeal, email }: { strikes: Supp
       {kind === "STRIKE_APPEAL" && (
         <label className="block">
           <span className="text-xs text-muted">Which strike?</span>
-          <select name="strikeId" required defaultValue={open[0]?.id ?? ""} className="mt-1 w-full border border-[#888] bg-white p-1.5 text-sm">
+          <select name="strikeId" required value={strikeId} onChange={(e) => setStrikeId(e.target.value)} className="mt-1 w-full border border-[#888] bg-white p-1.5 text-sm">
             {strikes.map((s) => (
               <option key={s.id} value={s.id} disabled={s.appealed}>
                 {when(s.createdAt)}: {s.givenByAdmin ? `given by an admin${s.reason ? ` (${s.reason.slice(0, 60)})` : ""}` : `did not pay for ${s.listingTitle ?? "an auction"}`}
@@ -34,6 +36,20 @@ export function SupportForm({ strikes, startWithAppeal, email }: { strikes: Supp
               </option>
             ))}
           </select>
+          {chosen && (
+            <div className="mt-2 space-y-1 border border-line bg-[#f7f7f7] p-2 text-sm" data-testid="strike-details">
+              <p className="font-bold">The strike you are appealing</p>
+              <p>Given on {when(chosen.createdAt)}</p>
+              {chosen.givenByAdmin ? (
+                <>
+                  <p>Given by an admin{chosen.listingTitle ? ` about "${chosen.listingTitle}"` : ""}.</p>
+                  {chosen.reason && <p className="whitespace-pre-wrap break-words">Reason: {chosen.reason}</p>}
+                </>
+              ) : (
+                <p>You did not pay for {chosen.listingTitle ? `"${chosen.listingTitle}"` : "an auction"} within 48 hours of winning it.</p>
+              )}
+            </div>
+          )}
         </label>
       )}
       <label className="block">

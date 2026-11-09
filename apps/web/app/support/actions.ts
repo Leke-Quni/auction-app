@@ -1,8 +1,8 @@
 "use server";
 
-import { supportRequestSchema } from "@auction/shared";
+import { supportRequestSchema, suspendedSupportSchema } from "@auction/shared";
 import { auth } from "@/auth";
-import { authedApiFetch } from "@/lib/api";
+import { apiFetch, authedApiFetch } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 
 export interface SupportState {
@@ -25,4 +25,19 @@ export async function sendSupportAction(_: SupportState, formData: FormData): Pr
   if (res.status === 404 || res.status === 409 || res.status === 429) return { error: await apiErrorMessage(res) };
   if (!res.ok) return { error: "Something went wrong. Try again." };
   return { ok: parsed.data.kind === "STRIKE_APPEAL" ? "Your appeal was sent. We will answer by email." : "Your message was sent. We will answer by email." };
+}
+
+// From the suspended page, signed out. The API answers the same whether or not the email belongs to a suspended account.
+export async function sendSuspendedSupportAction(_: SupportState, formData: FormData): Promise<SupportState> {
+  const parsed = suspendedSupportSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check the form." };
+  let res: Response;
+  try {
+    res = await apiFetch("/support/suspended", { method: "POST", body: JSON.stringify(parsed.data) });
+  } catch {
+    return { error: "Could not reach the server. Try again." };
+  }
+  if (res.status === 429) return { error: await apiErrorMessage(res) };
+  if (!res.ok) return { error: "Something went wrong. Try again." };
+  return { ok: "Your message was sent. We will answer by email." };
 }

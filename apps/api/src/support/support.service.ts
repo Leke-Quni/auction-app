@@ -1,4 +1,4 @@
-import { SUPPORT_RATE_LIMIT, type SupportRequestInput, type SupportStrike } from "@auction/shared";
+import { SUPPORT_BANNED_RATE_LIMIT, SUPPORT_RATE_LIMIT, type SupportRequestInput, type SupportStrike, type SuspendedSupportInput } from "@auction/shared";
 import { ConflictException, HttpException, HttpStatus, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { RATE_LIMITER, type RateLimiter } from "../rate-limit/rate-limiter";
@@ -27,6 +27,22 @@ export class SupportService {
       listingTitle: s.listingId ? (titleOf.get(s.listingId) ?? null) : null,
       appealed: appealed.has(s.id),
     }));
+  }
+
+  // From the suspended page, with no sign-in (a suspended account cannot sign in). It saves a request only when the email belongs to a
+  // suspended account that has none waiting, and answers the same either way, so it reveals nothing about accounts. The limit is
+  // per email, whatever the account, for the same reason.
+  async createBanAppeal({ email, message }: SuspendedSupportInput) {
+    if (!(await this.limiter.allow(`rl:support-banned:${email}`, SUPPORT_BANNED_RATE_LIMIT.limit, SUPPORT_BANNED_RATE_LIMIT.windowSeconds))) {
+      throw new HttpException({ code: "RATE_LIMITED", message: "You have sent several messages today. Wait for our answer, or try again tomorrow." }, HttpStatus.TOO_MANY_REQUESTS);
+    }
+    const user = await this.prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" }, bannedAt: { not: null } }, select: { id: true } });
+    if (!user) return;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`support:${user.id}`}))`;
+      if (await tx.supportRequest.findFirst({ where: { userId: user.id, kind: "BAN_APPEAL", status: "OPEN" }, select: { id: true } })) return;
+      await tx.supportRequest.create({ data: { userId: user.id, kind: "BAN_APPEAL", message } });
+    });
   }
 
   async create(userId: string, input: SupportRequestInput) {

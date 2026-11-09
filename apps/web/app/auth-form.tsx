@@ -40,6 +40,13 @@ export function AuthForm({
         </p>
       )}
       {state.error && <p className="text-urgent">{state.error}</p>}
+      {state.error?.includes("suspended") && (
+        <p>
+          <Link href="/suspended" className="text-brand underline">
+            Contact support
+          </Link>
+        </p>
+      )}
       <button disabled={pending} className="w-full cursor-pointer bg-brand p-2 font-bold text-white hover:bg-brand-dark disabled:opacity-60">
         {pending ? "..." : submit}
       </button>
