@@ -18,6 +18,8 @@ export function ImageUploader({ userId, initial }: { userId: string; initial: st
   const fileInput = useRef<HTMLInputElement>(null);
 
   const uploadedRef = useRef(new Set<string>());
+  // Photos deleted because the visitor left. If the page is brought back with the Back button they would show as dead images.
+  const discardedRef = useRef(new Set<string>());
   // What the server holds; a save refreshes the page, which brings a new `initial`.
   const savedRef = useRef(new Set(initial));
   savedRef.current = new Set(initial);
@@ -27,11 +29,23 @@ export function ImageUploader({ userId, initial }: { userId: string; initial: st
       const urls = [...uploadedRef.current].filter((u) => !savedRef.current.has(u));
       uploadedRef.current.clear();
       if (urls.length === 0) return;
+      for (const u of urls) discardedRef.current.add(u);
       const body = new Blob([JSON.stringify({ urls })], { type: "application/json" });
       if (!navigator.sendBeacon?.("/api/uploads/discard", body)) void fetch("/api/uploads/discard", { method: "POST", body, keepalive: true }).catch(() => undefined);
     };
+    const restored = (e: PageTransitionEvent) => {
+      if (!e.persisted || discardedRef.current.size === 0) return;
+      const gone = discardedRef.current;
+      setUrls((current) => current.filter((u) => !gone.has(u)));
+      discardedRef.current = new Set();
+      setError("Photos you had not saved were discarded when you left. Add them again.");
+    };
     window.addEventListener(DISCARD_EVENT, discard);
-    return () => window.removeEventListener(DISCARD_EVENT, discard);
+    window.addEventListener("pageshow", restored);
+    return () => {
+      window.removeEventListener(DISCARD_EVENT, discard);
+      window.removeEventListener("pageshow", restored);
+    };
   }, []);
 
   const addFiles = async (files: File[]) => {

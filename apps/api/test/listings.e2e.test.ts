@@ -414,6 +414,19 @@ describe("listings", () => {
     });
   });
 
+  describe("photos no listing uses", () => {
+    it("reports which of the given photo URLs are not held by any listing, for signed-in people only", async () => {
+      const listing = await createPublished();
+      const used = listing.images[0].url as string;
+      const loose = image(sellerId, 77).url;
+      await api().post("/listing-images/unused").send({ urls: [loose] }).expect(401);
+      const res = await api().post("/listing-images/unused").set(as(seller)).send({ urls: [used, loose] }).expect(200);
+      expect(res.body).toEqual({ urls: [loose] });
+      await api().post("/listing-images/unused").set(as(seller)).send({ urls: "nope" }).expect(400);
+      await api().post("/listing-images/unused").set(as(seller)).send({ urls: Array.from({ length: 9 }, (_, i) => image(sellerId, i).url) }).expect(400);
+    });
+  });
+
   describe("deleting a draft", () => {
     it("removes it and reports its photos so the web app can delete them", async () => {
       const draft = await createDraft();

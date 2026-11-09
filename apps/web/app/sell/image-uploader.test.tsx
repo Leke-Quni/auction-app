@@ -117,4 +117,19 @@ describe("ImageUploader", () => {
     window.dispatchEvent(new Event(DISCARD_EVENT));
     expect(beacon).not.toHaveBeenCalled();
   });
+
+  it("drops the photos it discarded if the page is brought back with the Back button", async () => {
+    Object.defineProperty(navigator, "sendBeacon", { value: vi.fn(() => true), configurable: true });
+    upload.mockResolvedValueOnce({ url: blobUrl("fresh") });
+    const { choose, hidden } = setup([blobUrl("kept")]);
+    choose(file("1.jpg"));
+    await waitFor(() => expect(hidden()).toEqual([blobUrl("kept"), blobUrl("fresh")]));
+
+    window.dispatchEvent(new Event(DISCARD_EVENT));
+    const back = new Event("pageshow") as PageTransitionEvent;
+    Object.defineProperty(back, "persisted", { value: true });
+    window.dispatchEvent(back);
+    await waitFor(() => expect(hidden()).toEqual([blobUrl("kept")]));
+    expect(screen.getByText(/discarded when you left/)).toBeTruthy();
+  });
 });

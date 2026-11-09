@@ -372,6 +372,11 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Photos a relisted draft shares with the listing it came from must stay in Blob when one of them lets go of a photo.
+  // Which of these photo URLs no listing holds any more, so the web app may delete them from Blob. Used when a form is abandoned.
+  unusedImageUrls(urls: string[]) {
+    return this.unsharedUrls(urls);
+  }
+
   private async unsharedUrls(urls: string[]) {
     if (urls.length === 0) return urls;
     const stillUsed = new Set((await this.prisma.listingImage.findMany({ where: { url: { in: urls } }, select: { url: true } })).map((i) => i.url));

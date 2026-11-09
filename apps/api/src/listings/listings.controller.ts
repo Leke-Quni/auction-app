@@ -1,4 +1,5 @@
 import {
+  MAX_IMAGES,
   createListingSchema,
   listingImagesSchema,
   pickupAddressSchema,
@@ -25,6 +26,7 @@ const pageSchema = z.object({
 });
 
 const imagesBodySchema = z.object({ images: listingImagesSchema });
+const unusedImagesSchema = z.object({ urls: z.array(z.string().url().max(2048)).max(MAX_IMAGES) });
 
 @Controller()
 export class ListingsController {
@@ -66,6 +68,14 @@ export class ListingsController {
     @Body(new ZodValidationPipe(updateListingSchema)) body: UpdateListingInput,
   ) {
     return this.listings.update(req.user.id, id, body);
+  }
+
+  // Of the given photo URLs, the ones no listing uses (so they can be deleted from storage).
+  @Post("listing-images/unused")
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  async unusedImages(@Body(new ZodValidationPipe(unusedImagesSchema)) body: z.infer<typeof unusedImagesSchema>) {
+    return { urls: await this.listings.unusedImageUrls(body.urls) };
   }
 
   @Put("listings/:id/images")
