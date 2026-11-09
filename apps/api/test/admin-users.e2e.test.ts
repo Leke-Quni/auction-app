@@ -212,6 +212,10 @@ describe("admin accounts: ban, unban and strikes", () => {
     const byId = (await request(url).get(`/admin/audit?q=${a1.id}`).set(a1.auth).expect(200)).body.entries;
     expect(byId.length).toBe(byName.length);
     expect((await request(url).get("/admin/audit?q=nobody-by-this-name-zz").set(a1.auth).expect(200)).body.entries).toEqual([]);
+    // An admin who has since been demoted is still found by name: their actions are kept for ever.
+    await prisma.user.update({ where: { id: a1.id }, data: { role: "USER" } });
+    const afterDemotion = (await request(url).get(`/admin/audit?q=${a1.username.slice(0, 8)}`).set(a2.auth).expect(200)).body.entries;
+    expect(afterDemotion.map((e: { id: string }) => e.id)).toEqual(byName.map((e: { id: string }) => e.id));
     await request(url).get("/admin/audit").set(user.auth).expect(403);
   });
 

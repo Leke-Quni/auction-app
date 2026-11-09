@@ -15,10 +15,11 @@ export class AdminAuditService {
   constructor(@Inject(PRISMA) private readonly prisma: Prisma) {}
 
   // `q` finds entries by the admin who acted: part of their username or email, or their id (which still works once the account is gone).
+  // Any account is searched, not only current admins, since a demoted admin's actions are kept and still listed.
   async list({ adminId, targetId, q, limit }: AuditQuery) {
     const term = q?.trim();
     const adminIds = term
-      ? [term, ...(await this.prisma.user.findMany({ where: { role: "ADMIN", OR: [{ username: { contains: term, mode: "insensitive" } }, { email: { contains: term, mode: "insensitive" } }, { id: term }] }, select: { id: true }, take: 50 })).map((u) => u.id)]
+      ? [term, ...(await this.prisma.user.findMany({ where: { OR: [{ username: { contains: term, mode: "insensitive" } }, { email: { contains: term, mode: "insensitive" } }, { id: term }] }, select: { id: true }, take: 50 })).map((u) => u.id)]
       : null;
     const rows = await this.prisma.adminAction.findMany({
       where: { ...(adminId ? { adminId } : {}), ...(targetId ? { targetId } : {}), ...(adminIds ? { adminId: adminId ? { in: adminIds.filter((id) => id === adminId) } : { in: adminIds } } : {}) },
