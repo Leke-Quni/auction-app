@@ -9,6 +9,7 @@ import "./globals.css";
 import { NotificationBell } from "./notification-bell";
 import { Notifications } from "./notifications";
 import { SearchBox } from "./search-box";
+import { SignedOutNotice } from "./signed-out-notice";
 import { UserMenu } from "./user-menu";
 
 export const metadata: Metadata = { title: "Auctionly" };
@@ -52,7 +53,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   username={session.user.name ?? ""}
                   signOutAction={async () => {
                     "use server";
-                    await signOut({ redirectTo: "/" });
+                    await signOut({ redirectTo: "/?signedOut=1" });
                   }}
                 />
               </>
@@ -64,12 +65,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             )}
           </div>
         </header>
+        <SignedOutNotice />
         {session && <Notifications />}
         <main className="mx-auto w-full max-w-3xl flex-1 p-3">{children}</main>
         <footer className="border-t border-line bg-white px-4 py-3">
           <div className="mx-auto flex max-w-3xl items-center justify-between px-3">
             <Link href="/sell/new" className="font-bold text-brand underline">
               Sell something
+            </Link>
+            <Link href="/support" className="text-brand underline">
+              Support
             </Link>
           </div>
         </footer>

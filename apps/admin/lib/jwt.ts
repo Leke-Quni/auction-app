@@ -1,11 +1,12 @@
 import type { JWT, JWTDecodeParams, JWTEncodeParams } from "next-auth/jwt";
 import { jwtVerify, SignJWT } from "jose";
+import { SESSION_MAX_AGE_SECONDS } from "./session-lifetime";
 
 const keys = (secret: string | string[]) =>
   (Array.isArray(secret) ? secret : [secret]).map((s) => new TextEncoder().encode(s));
 
 // Auth.js encrypts its JWTs by default. NestJS verifies them with the shared secret, so we sign plain HS256 JWTs.
-export async function encodeJwt({ token = {}, secret, maxAge = 30 * 24 * 60 * 60 }: JWTEncodeParams) {
+export async function encodeJwt({ token = {}, secret, maxAge = SESSION_MAX_AGE_SECONDS }: JWTEncodeParams) {
   const jwt = new SignJWT({ ...token })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()

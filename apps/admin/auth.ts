@@ -3,13 +3,14 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { apiFetch } from "@/lib/api";
 import { decodeJwt, encodeJwt } from "@/lib/jwt";
+import { SESSION_MAX_AGE_SECONDS } from "@/lib/session-lifetime";
 
 // Its own cookie names: on localhost the storefront and this app share cookies, and must not sign each other out.
 const cookie = (name: string) => ({ name: `admin.${name}`, options: { httpOnly: true, sameSite: "lax" as const, path: "/", secure: process.env.NODE_ENV === "production" } });
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   trustHost: true,
-  session: { strategy: "jwt" },
+  session: { strategy: "jwt", maxAge: SESSION_MAX_AGE_SECONDS },
   jwt: { encode: encodeJwt, decode: decodeJwt },
   pages: { signIn: "/sign-in" },
   cookies: { sessionToken: cookie("session-token"), callbackUrl: cookie("callback-url"), csrfToken: cookie("csrf-token") },
