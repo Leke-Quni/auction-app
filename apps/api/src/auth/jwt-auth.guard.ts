@@ -12,6 +12,7 @@ export interface AuthUser {
   id: string;
   email: string;
   role: (typeof USER_ROLES)[number];
+  isSuperAdmin: boolean;
 }
 
 /** Returns the user id for a valid token, or null for a malformed, expired, or incomplete one. The token's role is not trusted. */
@@ -36,10 +37,10 @@ export type TokenUser = { status: "ok"; user: AuthUser } | { status: "banned" } 
 export async function loadTokenUser(prisma: Prisma, token: string): Promise<TokenUser> {
   const verified = await verifyToken(token);
   if (!verified) return { status: "invalid" };
-  const user = await prisma.user.findUnique({ where: { id: verified.id }, select: { id: true, email: true, role: true, bannedAt: true } });
+  const user = await prisma.user.findUnique({ where: { id: verified.id }, select: { id: true, email: true, role: true, isSuperAdmin: true, bannedAt: true } });
   if (!user) return { status: "invalid" };
   if (user.bannedAt) return { status: "banned" };
-  return { status: "ok", user: { id: user.id, email: user.email, role: user.role } };
+  return { status: "ok", user: { id: user.id, email: user.email, role: user.role, isSuperAdmin: user.isSuperAdmin } };
 }
 
 const bearer = (header: string | undefined) => (header?.startsWith("Bearer ") ? header.slice(7) : null);

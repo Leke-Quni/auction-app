@@ -11,6 +11,7 @@ interface User {
   email: string;
   name: string;
   role: "USER" | "ADMIN";
+  isSuperAdmin: boolean;
   createdAt: string;
   emailVerified: boolean;
   bannedAt: string | null;
@@ -33,7 +34,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
   const rows: [string, React.ReactNode][] = [
     ["Name", u.name],
     ["Email", `${u.email}${u.emailVerified ? "" : " (not verified)"}`],
-    ["Role", u.role],
+    ["Role", u.isSuperAdmin ? "SUPER ADMIN" : u.role],
     ["Joined", when(u.createdAt)],
     ["Listings", String(u.listingCount)],
     ["Bids", String(u.bidCount)],
@@ -117,7 +118,11 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
 
       <div className="space-y-2 rounded border border-line bg-panel p-4">
         <h2 className="font-bold">Admin role</h2>
-        {u.id === me.id ? (
+        {!me.isSuperAdmin ? (
+          <p className="text-muted">Only a super admin can change admin roles.</p>
+        ) : u.isSuperAdmin ? (
+          <p className="text-muted">A super admin&apos;s role can only be changed from the command line.</p>
+        ) : u.id === me.id ? (
           <p className="text-muted">This is you. Another admin has to change your role.</p>
         ) : (
           <>

@@ -27,12 +27,13 @@ const roleSchema = z.object({ role: z.enum(["USER", "ADMIN"]) });
 const strikeSchema = z.object({ reason: z.string().trim().min(1).max(500) });
 const banSchema = z.object({ reason: z.string().trim().min(1).max(500) });
 const removeListingSchema = z.object({ reason: z.string().trim().min(1).max(500) });
-const auditQuerySchema = z.object({ adminId: z.string().min(1).optional(), targetId: z.string().min(1).optional(), limit: z.coerce.number().int().min(1).max(200).default(100) });
+const auditQuerySchema = z.object({ adminId: z.string().min(1).optional(), targetId: z.string().min(1).optional(), q: z.string().trim().max(100).optional(), limit: z.coerce.number().int().min(1).max(200).default(100) });
 const listingsQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
   phase: z.enum(["upcoming", "live", "ended", "removed"]).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
+const removeQuestionPostSchema = z.object({ target: z.enum(["QUESTION", "ANSWER"]) });
 const logQuerySchema = z.object({
   questionId: z.string().min(1).optional(),
   listingId: z.string().min(1).optional(),
@@ -59,7 +60,7 @@ export class AdminController {
   // Who the admin app is talking to. It also tells the admin app whether a signed-in person may use it at all.
   @Get("me")
   me(@Req() req: { user: AuthUser }) {
-    return { id: req.user.id, email: req.user.email, role: req.user.role };
+    return { id: req.user.id, email: req.user.email, role: req.user.role, isSuperAdmin: req.user.isSuperAdmin };
   }
 
   // Counts for the Overview page and the sidebar badge.
@@ -87,6 +88,13 @@ export class AdminController {
     return this.support.grantAppeal(req.user.id, id);
   }
 
+  // Grants a ban appeal: lifts the ban and closes the request in one transaction.
+  @Post("support/:id/lift-ban")
+  @HttpCode(200)
+  liftBan(@Param("id") id: string, @Req() req: { user: AuthUser }) {
+    return this.support.liftBan(req.user.id, id);
+  }
+
   // The reports queue: open ones oldest first, handled ones newest first, with how many are open in all.
   @Get("reports")
   listReports(@Query(new ZodValidationPipe(reportsQuerySchema)) query: z.infer<typeof reportsQuerySchema>) {
@@ -104,6 +112,13 @@ export class AdminController {
   @HttpCode(200)
   removePost(@Param("id") id: string, @Req() req: { user: AuthUser }) {
     return this.reports.removePost(req.user.id, id);
+  }
+
+  // Takes a question or an answer down straight from the question log, with no report needed.
+  @Post("questions/:id/remove")
+  @HttpCode(200)
+  removeQuestionPost(@Param("id") id: string, @Req() req: { user: AuthUser }, @Body(new ZodValidationPipe(removeQuestionPostSchema)) body: z.infer<typeof removeQuestionPostSchema>) {
+    return this.reports.removeQuestionPost(req.user.id, id, body.target);
   }
 
   // Every post, edit and deletion of questions and answers, newest first, optionally for one question, listing or person.
@@ -170,7 +185,7 @@ export class AdminController {
   @Post("users/:id/role")
   @HttpCode(200)
   setRole(@Param("id") id: string, @Req() req: { user: AuthUser }, @Body(new ZodValidationPipe(roleSchema)) body: z.infer<typeof roleSchema>) {
-    return this.users.setRole(req.user.id, id, body.role);
+    return this.users.setRole(req.user.id, req.user.isSuperAdmin, id, body.role);
   }
 
   // Removes one strike, so a person at the limit can bid again.
