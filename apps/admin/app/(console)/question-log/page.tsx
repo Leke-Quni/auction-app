@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { adminApiFetch } from "@/lib/api";
 import { requireAdmin } from "@/lib/require-admin";
+import { removeQuestionPostAction } from "./actions";
+import { RemoveButton } from "./remove-button";
 
 interface Entry {
   id: string;
@@ -45,7 +47,7 @@ export default async function QuestionLog({ searchParams }: { searchParams: Prom
   if (!searching) query.set("limit", String(RECENT));
   const res = await adminApiFetch(`/admin/question-log?${query}`);
   if (!res.ok) throw new Error(`API /admin/question-log failed: ${res.status}`);
-  const { entries } = (await res.json()) as { entries: Entry[] };
+  const { entries, questions } = (await res.json()) as { entries: Entry[]; questions: Record<string, { questionUp: boolean; answerUp: boolean }> };
   const groups = conversations(entries);
   return (
     <div className="space-y-3">
@@ -109,6 +111,12 @@ export default async function QuestionLog({ searchParams }: { searchParams: Prom
                       </div>
                     </li>
                   ))}
+                  {(questions[questionId]?.questionUp || questions[questionId]?.answerUp) && (
+                    <li className="flex gap-2 pt-1">
+                      {questions[questionId]?.answerUp && <RemoveButton action={removeQuestionPostAction} id={questionId} target="ANSWER" />}
+                      {questions[questionId]?.questionUp && <RemoveButton action={removeQuestionPostAction} id={questionId} target="QUESTION" />}
+                    </li>
+                  )}
                 </ol>
               ))}
             </div>

@@ -166,7 +166,8 @@ describe("admin reports queue and question log", () => {
 
     expect((await request(url).post(`/admin/reports/${a.id}/remove-post`).set(admin.auth).expect(200)).body).toEqual({ id: a.id, removed: true });
     const stored = await prisma.question.findUniqueOrThrow({ where: { id: question.id } });
-    expect(stored).toMatchObject({ answer: null, answeredAt: null, deletedAt: null, body: question.body });
+    expect(stored).toMatchObject({ answer: question.answer, deletedAt: null, moderatedAt: null, body: question.body });
+    expect(stored.answerModeratedAt).toBeInstanceOf(Date);
     expect((await prisma.report.findMany({ where: { id: { in: [a.id, b.id] } } })).map((r) => r.status)).toEqual(["HANDLED", "HANDLED"]);
     expect(await prisma.questionLog.findMany({ where: { questionId: question.id, action: "DELETED" } })).toMatchObject([{ target: "ANSWER", actorId: admin.id, body: question.answer }]);
     expect(await prisma.adminAction.findMany({ where: { targetId: question.id } })).toMatchObject([{ action: "REMOVE_POST", adminId: admin.id }]);
@@ -180,15 +181,70 @@ describe("admin reports queue and question log", () => {
     const admin = await person("ADMIN");
     const first = await scene();
     const q = await prisma.report.create({ data: { questionId: first.question.id, listingId: first.listing.id, target: "QUESTION", reason: "ABUSE", body: first.question.body, postedAt: first.question.createdAt } });
+    const ans = await prisma.report.create({ data: { questionId: first.question.id, listingId: first.listing.id, target: "ANSWER", reason: "SPAM", body: first.question.answer!, postedAt: first.question.answeredAt! } });
     await request(url).post(`/admin/reports/${q.id}/remove-post`).set(admin.auth).expect(200);
-    expect((await prisma.question.findUniqueOrThrow({ where: { id: first.question.id } })).deletedAt).toBeInstanceOf(Date);
+    expect((await prisma.question.findUniqueOrThrow({ where: { id: first.question.id } })).moderatedAt).toBeInstanceOf(Date);
     expect((await prisma.report.findUniqueOrThrow({ where: { id: q.id } })).status).toBe("HANDLED");
+    expect((await prisma.report.findUniqueOrThrow({ where: { id: ans.id } })).status).toBe("HANDLED");
 
     const second = await scene();
     const old = await prisma.report.create({ data: { questionId: second.question.id, listingId: second.listing.id, target: "ANSWER", reason: "SPAM", body: "an older answer", postedAt: new Date(Date.now() - 3600_000) } });
     expect((await request(url).post(`/admin/reports/${old.id}/remove-post`).set(admin.auth).expect(200)).body.removed).toBe(false);
     expect((await prisma.question.findUniqueOrThrow({ where: { id: second.question.id } })).answer).toBe(second.question.answer);
     expect((await prisma.report.findUniqueOrThrow({ where: { id: old.id } })).status).toBe("HANDLED");
+  });
+
+  it("removes an answer or a question straight from the question log with no report, and the log says what is still up", async () => {
+    const admin = await person("ADMIN");
+    const user = await person();
+    const { listing, question } = await scene();
+    await prisma.questionLog.create({ data: { questionId: question.id, listingId: listing.id, target: "QUESTION", action: "CREATED", actorId: user.id, body: question.body } });
+    const state = async () => (await get(`/admin/question-log?questionId=${question.id}`, admin).expect(200)).body.questions[question.id];
+    expect(await state()).toEqual({ questionUp: true, answerUp: true });
+
+    await request(url).post(`/admin/questions/${question.id}/remove`).set(user.auth).send({ target: "ANSWER" }).expect(403);
+    await request(url).post(`/admin/questions/${question.id}/remove`).set(admin.auth).send({ target: "NOPE" }).expect(400);
+    await request(url).post("/admin/questions/nope/remove").set(admin.auth).send({ target: "ANSWER" }).expect(404);
+
+    const report = await prisma.report.create({ data: { questionId: question.id, listingId: listing.id, target: "ANSWER", reason: "SPAM", body: question.answer!, postedAt: question.answeredAt! } });
+    expect((await request(url).post(`/admin/questions/${question.id}/remove`).set(admin.auth).send({ target: "ANSWER" }).expect(200)).body).toEqual({ questionId: question.id, removed: true });
+    expect((await prisma.question.findUniqueOrThrow({ where: { id: question.id } })).answerModeratedAt).toBeInstanceOf(Date);
+    expect((await prisma.report.findUniqueOrThrow({ where: { id: report.id } })).status).toBe("HANDLED");
+    expect(await state()).toEqual({ questionUp: true, answerUp: false });
+    expect((await request(url).post(`/admin/questions/${question.id}/remove`).set(admin.auth).send({ target: "ANSWER" }).expect(200)).body.removed).toBe(false);
+
+    expect((await request(url).post(`/admin/questions/${question.id}/remove`).set(admin.auth).send({ target: "QUESTION" }).expect(200)).body.removed).toBe(true);
+    expect(await state()).toEqual({ questionUp: false, answerUp: false });
+    const lateAnswerReport = await prisma.report.create({ data: { questionId: question.id, listingId: listing.id, target: "ANSWER", reason: "SPAM", body: "x", postedAt: new Date() } });
+    await request(url).post(`/admin/questions/${question.id}/remove`).set(admin.auth).send({ target: "QUESTION" }).expect(200);
+    expect((await prisma.report.findUniqueOrThrow({ where: { id: lateAnswerReport.id } })).status).toBe("HANDLED");
+    expect(await prisma.questionLog.findMany({ where: { questionId: question.id, action: "DELETED" }, orderBy: { createdAt: "asc" } })).toMatchObject([{ target: "ANSWER", actorId: admin.id }, { target: "QUESTION", actorId: admin.id }]);
+    expect(await prisma.adminAction.count({ where: { targetId: question.id, action: "REMOVE_POST" } })).toBe(2);
+  });
+
+  it("shows a removed answer or question on the listing page as removed by moderation, with the asker but not the words, and no one can change, vote on or report it", async () => {
+    const admin = await person("ADMIN");
+    const voter = await person();
+    const { seller, asker, listing, question } = await scene();
+    const page = async () => (await get(`/listings/${listing.id}/questions`).expect(200)).body.items.find((i: { id: string }) => i.id === question.id);
+    expect(await page()).toMatchObject({ body: "Call me on +38344123456", moderated: false, answer: { body: "Sure, buy it now", moderated: false } });
+
+    await request(url).post(`/admin/questions/${question.id}/remove`).set(admin.auth).send({ target: "ANSWER" }).expect(200);
+    expect(await page()).toMatchObject({ asker: { username: asker.username }, body: "Call me on +38344123456", moderated: false, answer: { body: null, moderated: true } });
+    await request(url).patch(`/questions/${question.id}/answer`).set(seller.auth).send({ body: "Changed my answer" }).expect(403);
+    await request(url).delete(`/questions/${question.id}/answer`).set(seller.auth).expect(403);
+    await request(url).post(`/questions/${question.id}/answer`).set(seller.auth).send({ body: "A second answer" }).expect(409);
+    await request(url).put(`/questions/${question.id}/vote`).set(voter.auth).send({ target: "ANSWER", value: "LIKE" }).expect(404);
+    await request(url).post(`/questions/${question.id}/report`).set(voter.auth).send({ target: "ANSWER", reason: "SPAM" }).expect(404);
+
+    await request(url).post(`/admin/questions/${question.id}/remove`).set(admin.auth).send({ target: "QUESTION" }).expect(200);
+    expect(await page()).toMatchObject({ asker: { username: asker.username }, body: null, moderated: true, answer: null });
+    await request(url).patch(`/questions/${question.id}`).set(asker.auth).send({ body: "Edited" }).expect(403);
+    await request(url).delete(`/questions/${question.id}`).set(asker.auth).expect(403);
+    await request(url).put(`/questions/${question.id}/vote`).set(voter.auth).send({ target: "QUESTION", value: "LIKE" }).expect(404);
+    await request(url).post(`/questions/${question.id}/report`).set(voter.auth).send({ target: "QUESTION", reason: "SPAM" }).expect(404);
+    expect(JSON.stringify(await page())).not.toContain("Call me on");
+    expect((await prisma.question.findUniqueOrThrow({ where: { id: question.id } })).body).toBe("Call me on +38344123456");
   });
 
   it("strikes whoever wrote the reported post (the asker of a question, the seller for an answer) and closes the reports", async () => {

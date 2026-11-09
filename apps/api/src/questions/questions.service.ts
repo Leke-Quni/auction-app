@@ -29,22 +29,30 @@ interface QuestionRow {
   answeredAt: Date | null;
   editedAt: Date | null;
   answerEditedAt: Date | null;
+  moderatedAt: Date | null;
+  answerModeratedAt: Date | null;
   asker: { id: string; username: string } | null;
 }
 
 const noVotes = (): VoteSummary => ({ likes: 0, dislikes: 0, mine: null });
 type VoteSummaries = QuestionItem["votes"];
 
-// A question whose asker's account is gone keeps its place and its answer, but not its words.
-const toItem = (row: QuestionRow, votes: VoteSummaries): QuestionItem => ({
-  id: row.id,
-  createdAt: row.createdAt.toISOString(),
-  asker: row.asker,
-  body: row.asker ? row.body : null,
-  editedAt: row.editedAt?.toISOString() ?? null,
-  answer: row.answer && row.answeredAt ? { body: row.answer, answeredAt: row.answeredAt.toISOString(), editedAt: row.answerEditedAt?.toISOString() ?? null } : null,
-  votes,
-});
+// A question whose asker's account is gone keeps its place and its answer, but not its words. One a moderator removed keeps its
+// asker and shows no words, and its answer is not shown; a removed answer shows no words either.
+const toItem = (row: QuestionRow, votes: VoteSummaries): QuestionItem => {
+  if (row.moderatedAt) return { id: row.id, createdAt: row.createdAt.toISOString(), asker: row.asker, body: null, moderated: true, editedAt: null, answer: null, votes: { question: noVotes(), answer: noVotes() } };
+  const answerRemoved = row.answerModeratedAt !== null;
+  return {
+    id: row.id,
+    createdAt: row.createdAt.toISOString(),
+    asker: row.asker,
+    body: row.asker ? row.body : null,
+    moderated: false,
+    editedAt: row.editedAt?.toISOString() ?? null,
+    answer: row.answer && row.answeredAt ? { body: answerRemoved ? null : row.answer, moderated: answerRemoved, answeredAt: row.answeredAt.toISOString(), editedAt: answerRemoved ? null : (row.answerEditedAt?.toISOString() ?? null) } : null,
+    votes: answerRemoved ? { question: votes.question, answer: noVotes() } : votes,
+  };
+};
 
 const include = { asker: { select: { id: true, username: true } } } as const;
 
@@ -85,6 +93,7 @@ export class QuestionsService {
 
   async answer(userId: string, questionId: string, body: string): Promise<QuestionItem> {
     const question = await this.find(questionId);
+    if (question.moderatedAt) throw refuse("NOT_FOUND");
     if (question.listing.sellerId !== userId) throw refuse("NOT_SELLER");
     if (question.answer !== null) throw refuse("ALREADY_ANSWERED");
     // Only the first of two answers at the same moment is saved.
@@ -106,7 +115,7 @@ export class QuestionsService {
   // and the asker does not vote on their own question.
   async vote(userId: string, questionId: string, target: VoteTarget, value: VoteValue | null): Promise<VoteSummary> {
     const question = await this.find(questionId);
-    if (target === "ANSWER" && question.answer === null) throw refuse("NOT_FOUND");
+    if (question.moderatedAt || (target === "ANSWER" && (question.answer === null || question.answerModeratedAt))) throw refuse("NOT_FOUND");
     if (question.listing.sellerId === userId) throw refuse("SELLER_VOTE");
     if (target === "QUESTION" && question.askerId === userId) throw refuse("OWN_POST");
     const key = { questionId_userId_target: { questionId, userId, target } };
@@ -143,7 +152,7 @@ export class QuestionsService {
   // remove or change a buyer's question. Every change is written to the log with the text before it.
   async editQuestion(userId: string, questionId: string, body: string): Promise<QuestionItem> {
     const question = await this.find(questionId);
-    if (question.askerId !== userId) throw refuse("NOT_ALLOWED");
+    if (question.askerId !== userId || question.moderatedAt) throw refuse("NOT_ALLOWED");
     this.ensureOpen(question.listing);
     if (body !== question.body) {
       const saved = await this.prisma.$transaction(async (tx) => {
@@ -161,7 +170,7 @@ export class QuestionsService {
 
   async deleteQuestion(userId: string, questionId: string) {
     const question = await this.find(questionId);
-    if (question.askerId !== userId) throw refuse("NOT_ALLOWED");
+    if (question.askerId !== userId || question.moderatedAt) throw refuse("NOT_ALLOWED");
     this.ensureOpen(question.listing);
     await this.prisma.$transaction(async (tx) => {
       const result = await tx.question.updateMany({ where: { id: questionId, deletedAt: null }, data: { deletedAt: new Date() } });
@@ -175,6 +184,7 @@ export class QuestionsService {
     const question = await this.find(questionId);
     if (question.listing.sellerId !== userId) throw refuse("NOT_SELLER");
     if (question.answer === null) throw refuse("NOT_FOUND");
+    if (question.moderatedAt || question.answerModeratedAt) throw refuse("NOT_ALLOWED");
     this.ensureOpen(question.listing);
     if (body !== question.answer) {
       const saved = await this.prisma.$transaction(async (tx) => {
@@ -194,6 +204,7 @@ export class QuestionsService {
     const question = await this.find(questionId);
     if (question.listing.sellerId !== userId) throw refuse("NOT_SELLER");
     if (question.answer === null) throw refuse("NOT_FOUND");
+    if (question.moderatedAt || question.answerModeratedAt) throw refuse("NOT_ALLOWED");
     this.ensureOpen(question.listing);
     const answer = question.answer;
     // The votes were for that answer, so a new answer starts from none.
@@ -211,7 +222,7 @@ export class QuestionsService {
   // are now; nothing is hidden and nobody is told. Moderators work through the reports in the admin app (slice 6).
   async report(userId: string, questionId: string, target: VoteTarget, reason: ReportReason) {
     const question = await this.find(questionId);
-    const text = target === "QUESTION" ? (question.askerId ? question.body : null) : question.answer;
+    const text = question.moderatedAt ? null : target === "QUESTION" ? (question.askerId ? question.body : null) : question.answerModeratedAt ? null : question.answer;
     if (text === null) throw refuse("NOT_FOUND");
     if ((target === "QUESTION" ? question.askerId : question.listing.sellerId) === userId) throw refuse("SELF_REPORT");
     if (!(await this.limiter.allow(`rl:report:${userId}`, REPORT_RATE_LIMIT.limit, REPORT_RATE_LIMIT.windowSeconds))) throw refuse("RATE_LIMITED");

@@ -23,6 +23,7 @@ const question = (over: Partial<QuestionItem> = {}): QuestionItem => ({
   createdAt: minutesAgo(1),
   asker: { id: "anna", username: "anna" },
   body: "Is it genuine?",
+  moderated: false,
   editedAt: null,
   answer: null,
   votes: { question: { likes: 0, dislikes: 0, mine: null }, answer: { likes: 0, dislikes: 0, mine: null } },
@@ -38,7 +39,7 @@ afterEach(cleanup);
 describe("votes", () => {
   const answered = (votes: Partial<QuestionItem["votes"]> = {}) =>
     question({
-      answer: { body: "Yes it is.", answeredAt: minutesAgo(1), editedAt: null },
+      answer: { body: "Yes it is.", moderated: false, answeredAt: minutesAgo(1), editedAt: null },
       votes: { question: { likes: 3, dislikes: 1, mine: null }, answer: { likes: 2, dislikes: 0, mine: "LIKE" }, ...votes },
     });
 
@@ -138,8 +139,8 @@ describe("Questions", () => {
     show({
       total: 2,
       items: [
-        question({ id: "q2", body: "Second?", answer: { body: "Yes.", answeredAt: minutesAgo(0), editedAt: null } }),
-        question({ id: "q3", asker: null, body: null, answer: { body: "Still here.", answeredAt: minutesAgo(2), editedAt: null } }),
+        question({ id: "q2", body: "Second?", answer: { body: "Yes.", moderated: false, answeredAt: minutesAgo(0), editedAt: null } }),
+        question({ id: "q3", asker: null, body: null, answer: { body: "Still here.", moderated: false, answeredAt: minutesAgo(2), editedAt: null } }),
         question({ id: "q1" }),
       ],
     });
@@ -192,10 +193,10 @@ describe("Questions", () => {
   });
 
   it("shows no change or delete menus once the auction has ended", () => {
-    show({ open: false, items: [question({ id: "mine", answer: { body: "A.", answeredAt: minutesAgo(1), editedAt: null } })] });
+    show({ open: false, items: [question({ id: "mine", answer: { body: "A.", moderated: false, answeredAt: minutesAgo(1), editedAt: null } })] });
     expect(screen.queryByRole("button", { name: "Question actions" })).toBeNull();
     cleanup();
-    show({ open: false, isSeller: true, viewerId: "sam", items: [question({ answer: { body: "A.", answeredAt: minutesAgo(1), editedAt: null } })] });
+    show({ open: false, isSeller: true, viewerId: "sam", items: [question({ answer: { body: "A.", moderated: false, answeredAt: minutesAgo(1), editedAt: null } })] });
     expect(screen.queryByRole("button", { name: "Answer actions" })).toBeNull();
   });
 
@@ -221,7 +222,7 @@ describe("Questions", () => {
     show({
       isSeller: true,
       viewerId: "sam",
-      items: [question({ id: "q", editedAt: minutesAgo(1), answer: { body: "Old answer", answeredAt: minutesAgo(5), editedAt: minutesAgo(1) } }), question({ id: "plain", body: "Untouched" })],
+      items: [question({ id: "q", editedAt: minutesAgo(1), answer: { body: "Old answer", moderated: false, answeredAt: minutesAgo(5), editedAt: minutesAgo(1) } }), question({ id: "plain", body: "Untouched" })],
     });
     expect(screen.getAllByText(/\(edited\)/)).toHaveLength(2); // the question and the answer of the first, not the second
     fireEvent.click(screen.getByRole("button", { name: "Answer actions" }));
@@ -241,7 +242,7 @@ describe("Questions", () => {
     await waitFor(() => expect(actions.answerQuestionAction).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByLabelText(/Your answer/)).toBeNull());
 
-    const answered = question({ id: "open", body: "Unanswered?", answer: { body: "Yes.", answeredAt: minutesAgo(0), editedAt: null } });
+    const answered = question({ id: "open", body: "Unanswered?", answer: { body: "Yes.", moderated: false, answeredAt: minutesAgo(0), editedAt: null } });
     const props = { listingId: "L1", total: 1, viewerId: "sam", isSeller: true, open: true };
     rerender(<Questions {...props} items={[answered]} />);
     fireEvent.click(screen.getByRole("button", { name: "Answer actions" }));
@@ -255,7 +256,7 @@ describe("Questions", () => {
   });
 
   describe("reporting", () => {
-    const answered = (over: Partial<QuestionItem> = {}) => question({ id: "q", asker: { id: "ben", username: "ben" }, answer: { body: "An answer.", answeredAt: minutesAgo(1), editedAt: null }, ...over });
+    const answered = (over: Partial<QuestionItem> = {}) => question({ id: "q", asker: { id: "ben", username: "ben" }, answer: { body: "An answer.", moderated: false, answeredAt: minutesAgo(1), editedAt: null }, ...over });
     const pickReport = (menuName: string) => {
       fireEvent.click(screen.getByRole("button", { name: menuName }));
       fireEvent.click(screen.getByRole("menuitem", { name: "Report" }));
@@ -332,8 +333,8 @@ describe("Questions", () => {
       viewerId: "sam",
       items: [
         question({ id: "open", body: "Unanswered?" }),
-        question({ id: "done", body: "Answered?", createdAt: minutesAgo(30), answer: { body: "Fresh answer", answeredAt: minutesAgo(1), editedAt: null } }),
-        question({ id: "stale", body: "Stale?", createdAt: minutesAgo(60), answer: { body: "Old answer", answeredAt: minutesAgo(20), editedAt: null } }),
+        question({ id: "done", body: "Answered?", createdAt: minutesAgo(30), answer: { body: "Fresh answer", moderated: false, answeredAt: minutesAgo(1), editedAt: null } }),
+        question({ id: "stale", body: "Stale?", createdAt: minutesAgo(60), answer: { body: "Old answer", moderated: false, answeredAt: minutesAgo(20), editedAt: null } }),
       ],
     });
     // The seller can only report the questions, not change or delete them.
@@ -354,5 +355,30 @@ describe("Questions", () => {
     fireEvent.change(screen.getByLabelText(/Your answer/), { target: { value: "Yes it is." } });
     fireEvent.click(screen.getByRole("button", { name: "Post answer" }));
     await waitFor(() => expect(actions.answerQuestionAction).toHaveBeenCalledWith("L1", "open", "Yes it is."));
+  });
+});
+
+describe("posts removed by moderation", () => {
+  it("shows the asker but not the words for a removed question, with a link to the rules, and no actions, votes or answer", () => {
+    show({
+      isSeller: true,
+      viewerId: "sam",
+      items: [question({ id: "gone", body: null, moderated: true, answer: null })],
+    });
+    expect(screen.getByText("anna")).toBeTruthy();
+    expect(screen.getByText(/This question was removed by moderation/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: /See what you can and cannot post/ }).getAttribute("href")).toBe("/policies/comments");
+    expect(screen.queryByText("Is it genuine?")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Answer" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Question actions/ })).toBeNull();
+  });
+
+  it("shows a removed answer in place of its words, keeping the question and its actions", () => {
+    show({
+      items: [question({ answer: { body: null, moderated: true, answeredAt: minutesAgo(1), editedAt: null } })],
+    });
+    expect(screen.getByText("Is it genuine?")).toBeTruthy();
+    expect(screen.getByText(/This answer was removed by moderation/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Answer actions/ })).toBeNull();
   });
 });
