@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BID_HISTORY_SHOWN, type OrderView, type QuestionItem } from "@auction/shared";
+import { BID_HISTORY_SHOWN, POLICY_LINKS, type OrderView, type QuestionItem } from "@auction/shared";
 import { notFound } from "next/navigation";
 import { Gallery } from "@/app/gallery";
 import { auth } from "@/auth";
@@ -64,7 +64,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
       {isOwner && (
         <p className="border border-brand bg-white p-2">
           {listing.status === "DRAFT" ? "This is a draft. Only you can see it. " : "This is your listing. "}
-          {!listing.removed && (
+          {!listing.removed && listing.phase !== "ended" && (
             <Link href={`/sell/${listing.id}/edit`} className="text-brand underline">
               {listing.status === "DRAFT" ? "Edit and publish" : "Edit description and photos"}
             </Link>
@@ -79,8 +79,12 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
       )}
       {listing.removed && (
         <p className="border border-red-300 bg-red-50 p-2 text-red-900">
-          A moderator removed this listing and ended the auction with no sale.
-          {isOwner && listing.removalReason ? ` Reason: ${listing.removalReason}` : ""}
+          {isOwner ? "A moderator removed this listing and ended the auction with no sale." : "This listing was removed by moderation and the auction ended with no sale."}
+          {isOwner && listing.removalReason ? ` Reason: ${listing.removalReason}` : ""}{" "}
+          <Link href={POLICY_LINKS.listings} className="underline">
+            See what you can and cannot list, and which photos are allowed
+          </Link>
+          .
         </p>
       )}
       <h1 className="border border-line bg-white p-2 text-lg font-bold">{listing.title}</h1>
@@ -110,7 +114,17 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
       </LiveAuction>
       <div className="border border-line bg-white p-3">
         <h2 className="mb-1 text-sm font-bold">Description</h2>
-        <p className="whitespace-pre-wrap">{listing.description}</p>
+        {listing.removed && !isOwner ? (
+          <p className="italic text-muted">
+            This listing was removed by moderation.{" "}
+            <Link href={POLICY_LINKS.listings} className="text-brand underline">
+              See what you can and cannot list
+            </Link>
+            .
+          </p>
+        ) : (
+          <p className="whitespace-pre-wrap">{listing.description}</p>
+        )}
       </div>
       {published && (
         <Questions
