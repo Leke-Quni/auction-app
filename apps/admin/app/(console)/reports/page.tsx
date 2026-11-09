@@ -91,7 +91,7 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
                   )}</td>
                 <td className="whitespace-nowrap p-2 text-muted">{when(status === "OPEN" ? r.createdAt : (r.handledAt ?? r.createdAt))}</td>
                 <td className="p-2 text-right">
-                  <div className="flex justify-end gap-2">
+                  <div className="flex flex-wrap items-start justify-end gap-2">
                     <Link href={`/question-log?questionId=${r.questionId}`} className="text-accent underline">
                       Log
                     </Link>
