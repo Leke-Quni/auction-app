@@ -57,7 +57,7 @@ export default async function Support({ searchParams }: { searchParams: Promise<
                   <div className="flex gap-2">
                     {r.kind === "STRIKE_APPEAL" && r.strike && <ConfirmForm action={clearStrikeAndCloseAction} fields={{ id: r.id, strikeId: r.strike.id }} label="Clear the strike and close" confirm={`Clear this strike for @${r.user.username} and close the request? They are emailed that it was accepted.`} tone="primary" />}
                     {r.kind === "BAN_APPEAL" && r.user.banned && <ConfirmForm action={liftBanAndCloseAction} fields={{ id: r.id }} label="Unban and close" confirm={`Lift the ban on @${r.user.username} and close the request? They are emailed that their account was restored.`} tone="primary" />}
-                    <ConfirmForm action={handleSupportAction} fields={{ id: r.id }} label={r.kind === "STRIKE_APPEAL" && r.strike ? "Refuse and close" : r.kind === "BAN_APPEAL" && r.user.banned ? "Refuse and close" : "Mark handled"} confirm={r.kind === "STRIKE_APPEAL" && r.strike ? "Refuse this appeal and close the request? They are emailed that it was denied." : "Close this request? They are not emailed: write to them yourself."} tone="plain" />
+                    <ConfirmForm action={handleSupportAction} fields={{ id: r.id }} label={r.kind === "STRIKE_APPEAL" && r.strike ? "Refuse and close" : r.kind === "BAN_APPEAL" && r.user.banned ? "Refuse and close" : "Mark handled"} confirm={(r.kind === "STRIKE_APPEAL" && r.strike) || (r.kind === "BAN_APPEAL" && r.user.banned) ? "Refuse this appeal and close the request? They are emailed that it was denied." : "Close this request? They are not emailed: write to them yourself."} tone="plain" />
                   </div>
                 )}
               </div>

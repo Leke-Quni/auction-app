@@ -234,4 +234,28 @@ describe("support requests and strike appeals", () => {
     const bannedEmail = await emailOf(banned);
     expect(sent.filter((m) => m.to === bannedEmail).map((m) => m.subject)).toEqual(["Your account has been restored"]);
   });
+
+  it("emails a suspended person when their ban appeal is refused, but not when the ban was already lifted", async () => {
+    const admin = await person("ADMIN");
+    const refused = await person();
+    const lifted = await person();
+    for (const who of [refused, lifted]) await prisma.user.update({ where: { id: who.id }, data: { bannedAt: new Date(), banReason: "Fraud" } });
+    const emailOf = async (who: Who) => (await prisma.user.findUniqueOrThrow({ where: { id: who.id }, select: { email: true } })).email;
+    const appeal = async (who: Who) => {
+      await api().post("/support/suspended").send({ email: await emailOf(who), message: "Please" }).expect(204);
+      return (await prisma.supportRequest.findFirstOrThrow({ where: { userId: who.id, kind: "BAN_APPEAL" } })).id;
+    };
+    const refusedId = await appeal(refused);
+    const liftedId = await appeal(lifted);
+    await prisma.user.update({ where: { id: lifted.id }, data: { bannedAt: null, banReason: null } });
+
+    await api().post(`/admin/support/${refusedId}/handle`).set(admin.auth).expect(200);
+    await api().post(`/admin/support/${refusedId}/handle`).set(admin.auth).expect(200);
+    await api().post(`/admin/support/${liftedId}/handle`).set(admin.auth).expect(200);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const refusedEmail = await emailOf(refused);
+    const liftedEmail = await emailOf(lifted);
+    expect(sent.filter((m) => m.to === refusedEmail)).toMatchObject([{ subject: "Your suspension appeal was denied", text: expect.stringContaining("stays suspended") }]);
+    expect(sent.filter((m) => m.to === liftedEmail)).toEqual([]);
+  });
 });

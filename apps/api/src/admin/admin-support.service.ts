@@ -55,17 +55,19 @@ export class AdminSupportService {
 
   // Closing one that is already closed changes nothing, so a double click is harmless.
   async handle(adminId: string, id: string) {
-    let refusedAppealUserId: string | null = null;
+    const refusal: { current: { userId: string; kind: "STRIKE_APPEAL" | "BAN_APPEAL" } | null } = { current: null };
     const done = await this.prisma.$transaction(async (tx) => {
       const request = await tx.supportRequest.findUnique({ where: { id }, select: { kind: true, strikeId: true, userId: true } });
       const updated = await tx.supportRequest.updateMany({ where: { id, status: "OPEN" }, data: { status: "HANDLED", handledAt: new Date(), handledById: adminId } });
       if (updated.count > 0) await tx.adminAction.create({ data: { adminId, action: "HANDLE_SUPPORT", targetId: id } });
       // Closing an appeal whose strike still stands is a refusal; one whose strike is already gone has nothing to refuse.
-      if (updated.count > 0 && request?.kind === "STRIKE_APPEAL" && request.strikeId && (await tx.strike.count({ where: { id: request.strikeId } })) > 0) refusedAppealUserId = request.userId;
+      if (updated.count > 0 && request?.kind === "STRIKE_APPEAL" && request.strikeId && (await tx.strike.count({ where: { id: request.strikeId } })) > 0) refusal.current = { userId: request.userId, kind: "STRIKE_APPEAL" };
+      // Same for a ban appeal: closing it while the account is still suspended is a refusal, and the person has no other way to hear.
+      if (updated.count > 0 && request?.kind === "BAN_APPEAL" && (await tx.user.count({ where: { id: request.userId, bannedAt: { not: null } } })) > 0) refusal.current = { userId: request.userId, kind: "BAN_APPEAL" };
       return updated.count;
     });
     // Not awaited: a slow mail provider must not hold up the admin's request; emailAppealResult never throws.
-    if (refusedAppealUserId) void this.emailAppealResult(refusedAppealUserId, false);
+    if (refusal.current) void this.emailAppealResult(refusal.current.userId, false, refusal.current.kind);
     const row = await this.prisma.supportRequest.findUnique({ where: { id }, select: { id: true, status: true, handledAt: true } });
     if (!row) throw new NotFoundException();
     return { id: row.id, status: row.status, handledAt: row.handledAt?.toISOString() ?? null, changed: done > 0 };
@@ -88,7 +90,7 @@ export class AdminSupportService {
       if (cleared.count > 0) await tx.adminAction.create({ data: { adminId, action: "CLEAR_STRIKE", targetId: request.userId, reason: request.strikeId } });
       return { id, changed: true, strikeCleared: cleared.count > 0 };
     });
-    if (result.strikeCleared) void this.emailAppealResult(userId, true);
+    if (result.strikeCleared) void this.emailAppealResult(userId, true, "STRIKE_APPEAL");
     return result;
   }
 
@@ -113,19 +115,16 @@ export class AdminSupportService {
   }
 
   // Tells the person how their appeal went. Best effort: the decision stands whether or not the email goes.
-  private async emailAppealResult(userId: string, granted: boolean) {
+  private async emailAppealResult(userId: string, granted: boolean, kind: "STRIKE_APPEAL" | "BAN_APPEAL") {
     try {
       const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
       if (!user) return;
       const help = supportEmail() ? `write to ${supportEmail()}` : "reply to this email";
-      await this.mail.send(
-        user.email,
-        granted ? "Your strike appeal was accepted" : "Your strike appeal was denied",
-        (granted
-          ? ["A moderator reviewed your appeal and accepted it. The strike has been removed from your account."]
-          : ["A moderator reviewed your appeal and denied it. The strike stays on your account.", "", `If you have more to add, ${help}.`]
-        ).join("\n"),
-      );
+      const what = kind === "STRIKE_APPEAL" ? "strike appeal" : "suspension appeal";
+      const lines = granted
+        ? ["A moderator reviewed your appeal and accepted it. The strike has been removed from your account."]
+        : [`A moderator reviewed your appeal and denied it. ${kind === "STRIKE_APPEAL" ? "The strike stays on your account." : "Your account stays suspended."}`, "", `If you have more to add, ${help}.`];
+      await this.mail.send(user.email, `Your ${what} was ${granted ? "accepted" : "denied"}`, lines.join("\n"));
     } catch (error) {
       this.log.error(`Could not email the appeal result to ${userId}: ${(error as Error).message}`);
     }
