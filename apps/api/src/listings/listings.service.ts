@@ -24,6 +24,7 @@ import {
 } from "@nestjs/common";
 import type { Prisma as PrismaTypes } from "@auction/db";
 import { JOB_SCHEDULER, type JobScheduler } from "../jobs/job-scheduler";
+import { REMOVED_TITLE } from "./listing-card";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { SEARCH_INDEX, type ListingDocument, type SearchIndex } from "../search/search-index";
 import { isSellerImage } from "./seller-image";
@@ -43,8 +44,6 @@ type ListingRow = PrismaTypes.ListingGetPayload<{ include: typeof listingInclude
 
 // True once a published auction's end has reached its ceiling and cannot move again.
 const isFinal = (l: ListingRow) => (l.startsAt && l.endsAt ? isFinalChance(l.endsAt, extensionCeiling(l.startsAt, l.durationDays)) : false);
-
-const REMOVED_TITLE = "Removed by moderation";
 
 // `forSeller` adds the pickup address, which only the seller may see: it is the seller's home or business address.
 const toDto = (l: ListingRow, now = new Date(), forSeller = false) => ({

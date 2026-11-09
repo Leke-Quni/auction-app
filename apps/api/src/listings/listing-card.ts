@@ -13,17 +13,21 @@ interface CardRow {
   status: "DRAFT" | "PUBLISHED";
   currentBidCents: number | null;
   bidCount: number;
+  // Set when a moderator removed the listing: its title and photo are then not shown.
+  removedAt?: Date | null;
   images: { id: string; url: string }[];
 }
 
+export const REMOVED_TITLE = "Removed by moderation";
+
 export const toListingCard = (l: CardRow, now = new Date()) => ({
   id: l.id,
-  title: l.title,
+  title: l.removedAt ? REMOVED_TITLE : l.title,
   startingPriceCents: l.startingPriceCents,
   phase: listingPhase(l, now),
   startsAt: l.startsAt,
   endsAt: l.endsAt,
-  images: l.images.map((i) => ({ id: i.id, url: i.url })),
+  images: l.removedAt ? [] : l.images.map((i) => ({ id: i.id, url: i.url })),
   finalChance: l.startsAt && l.endsAt ? isFinalChance(l.endsAt, extensionCeiling(l.startsAt, l.durationDays)) : false,
   currentBidCents: l.currentBidCents,
   bidCount: l.bidCount,

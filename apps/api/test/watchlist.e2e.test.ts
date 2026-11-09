@@ -107,6 +107,17 @@ describe("watchlist", () => {
     expect((await api().get(`/listings/${l.id}`).set(as(a)).expect(200)).body.watching).toBe(false);
   });
 
+  it("shows a listing a moderator removed on the watchlist without its title or photo", async () => {
+    const [seller, a] = [await makePerson(), await makePerson()];
+    const l = await listing(seller, { title: "Offensive title" });
+    await prisma.listingImage.create({ data: { listingId: l.id, url: "https://x.public.blob.vercel-storage.com/listings/u/c.jpg", pathname: "listings/u/c.jpg", position: 0 } });
+    await watch(a, l.id).expect(200);
+    await prisma.listing.update({ where: { id: l.id }, data: { removedAt: new Date(), endsAt: new Date(Date.now() - 1000), closedAt: new Date(), outcome: "NO_SALE" } });
+    const card = (await api().get("/watchlist").set(as(a)).expect(200)).body.items.find((i: { id: string }) => i.id === l.id);
+    expect(card).toMatchObject({ title: "Removed by moderation", images: [] });
+    expect(JSON.stringify(card)).not.toContain("Offensive title");
+  });
+
   it("refuses signed-out people, the seller, drafts, unknown listings and ended auctions", async () => {
     const [seller, a] = [await makePerson(), await makePerson()];
     const live = await listing(seller);
