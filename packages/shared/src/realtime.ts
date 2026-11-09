@@ -60,9 +60,11 @@ export interface ExtendedNotice {
   final: boolean;
 }
 
-// Saved for the seller (bell only, no live toast) when a moderator ends their auction.
+// Saved (bell only, no live toast) when a moderator ends an auction: for the seller, and for everyone who bid on it
+// (`bidder: true`, whose bids are void and need not be paid).
 export interface RemovedNotice {
   reason: string;
+  bidder?: boolean;
 }
 
 // For the winner of an auction, when it closes in a sale (`notice:won`).

@@ -66,16 +66,22 @@ export function containsContactDetails(input: string): boolean {
   return false;
 }
 
-// A question as the listing page shows it. A deleted one keeps its place but not its words.
+// Where the community rules live: what may be written in questions and answers, and in a listing's words and photos.
+export const POLICY_LINKS = { comments: "/policies/comments", listings: "/policies/listings" } as const;
+
+// A question as the listing page shows it. A deleted one keeps its place but not its words. One a moderator removed keeps its
+// asker but shows no words (`moderated`), and its answer is not shown at all.
 export interface QuestionItem {
   id: string;
   createdAt: string;
   // Null when the asker's account was deleted; the body is then null too and the answer stays.
   asker: { id: string; username: string } | null;
   body: string | null;
+  moderated: boolean;
   // Set when the asker changed the question; the page shows "(edited)".
   editedAt: string | null;
-  answer: { body: string; answeredAt: string; editedAt: string | null } | null;
+  // `moderated`: a moderator removed the answer, so there are no words (body is null).
+  answer: { body: string | null; moderated: boolean; answeredAt: string; editedAt: string | null } | null;
   votes: { question: VoteSummary; answer: VoteSummary };
 }
 
