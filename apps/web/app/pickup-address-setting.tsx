@@ -4,12 +4,14 @@ import { SHIPPING_COUNTRIES, type ShippingAddress } from "@auction/shared";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { savePickupAddressAction } from "./actions";
 import { AddressFields } from "./address-fields";
+import { useUnsavedChanges } from "./use-unsaved-changes";
 
 // The seller's default pickup address: where our carrier collects what they sell, unless a listing says otherwise.
 export function PickupAddressSetting({ address }: { address: ShippingAddress | null }) {
   const [editing, setEditing] = useState(false);
   const [state, formAction, pending] = useActionState(savePickupAddressAction, {});
   const formRef = useRef<HTMLFormElement>(null);
+  useUnsavedChanges(formRef, editing);
 
   useEffect(() => {
     if (state.ok) setEditing(false);

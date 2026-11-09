@@ -29,9 +29,9 @@ describe("admin accounts: ban, unban and strikes", () => {
   const sent: { to: string; subject: string; text: string }[] = [];
 
   type Who = { id: string; email: string; username: string; auth: Record<string, string>; token: string };
-  const person = async (role: "USER" | "ADMIN" = "USER"): Promise<Who> => {
+  const person = async (role: "USER" | "ADMIN" = "USER", isSuperAdmin = false): Promise<Who> => {
     const n = ++counter;
-    const row = { id: `au_${stamp}_${n}`, email: `au-${n}-${stamp}@example.com`, firstName: "Admin", lastName: "Users", username: `au${n}x${stamp}`, passwordHash: "!test", emailVerified: new Date(), role };
+    const row = { id: `au_${stamp}_${n}`, email: `au-${n}-${stamp}@example.com`, firstName: "Admin", lastName: "Users", username: `au${n}x${stamp}`, passwordHash: "!test", emailVerified: new Date(), role, isSuperAdmin };
     await prisma.user.create({ data: row });
     userIds.push(row.id);
     const token = await new SignJWT({}).setProtectedHeader({ alg: "HS256" }).setSubject(row.id).setExpirationTime("10m").sign(authSecret());
@@ -108,6 +108,8 @@ describe("admin accounts: ban, unban and strikes", () => {
     expect(refused.body.code).toBe("BANNED");
     const back = await unban(admin, user.id).expect(200);
     expect(back.body).toMatchObject({ bannedAt: null, banReason: null });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(sent.filter((m) => m.to === user.email).map((m) => m.subject)).toEqual(["Your account has been suspended", "Your account has been restored"]);
     await request(url).get("/notifications").set(user.auth).expect(200);
   });
 
@@ -202,13 +204,25 @@ describe("admin accounts: ban, unban and strikes", () => {
     expect(log.find((e: { action: string }) => e.action === "UNBAN_USER").admin.id).toBe(a2.id);
     const mine = (await request(url).get(`/admin/audit?adminId=${a1.id}`).set(a1.auth).expect(200)).body.entries;
     expect(mine).toHaveLength(1);
+    const byName = (await request(url).get(`/admin/audit?q=${a1.username.slice(0, 8)}`).set(a1.auth).expect(200)).body.entries;
+    expect(byName.length).toBeGreaterThan(0);
+    expect(byName.every((e: { admin: { id: string } }) => e.admin.id === a1.id)).toBe(true);
+    const byEmail = (await request(url).get(`/admin/audit?q=${encodeURIComponent(a1.email)}`).set(a1.auth).expect(200)).body.entries;
+    expect(byEmail.map((e: { id: string }) => e.id)).toEqual(byName.map((e: { id: string }) => e.id));
+    const byId = (await request(url).get(`/admin/audit?q=${a1.id}`).set(a1.auth).expect(200)).body.entries;
+    expect(byId.length).toBe(byName.length);
+    expect((await request(url).get("/admin/audit?q=nobody-by-this-name-zz").set(a1.auth).expect(200)).body.entries).toEqual([]);
+    // An admin who has since been demoted is still found by name: their actions are kept for ever.
+    await prisma.user.update({ where: { id: a1.id }, data: { role: "USER" } });
+    const afterDemotion = (await request(url).get(`/admin/audit?q=${a1.username.slice(0, 8)}`).set(a2.auth).expect(200)).body.entries;
+    expect(afterDemotion.map((e: { id: string }) => e.id)).toEqual(byName.map((e: { id: string }) => e.id));
     await request(url).get("/admin/audit").set(user.auth).expect(403);
   });
 
   const setRole = (admin: Who, id: string, role: string) => request(url).post(`/admin/users/${id}/role`).set(admin.auth).send({ role });
 
   it("makes an account an admin and takes the role away again, with the audit trail, and a demoted admin is locked out at once", async () => {
-    const boss = await person("ADMIN");
+    const boss = await person("ADMIN", true);
     const user = await person();
     await setRole(user, user.id, "ADMIN").expect(403);
     await setRole(boss, "nope", "ADMIN").expect(404);
@@ -226,8 +240,24 @@ describe("admin accounts: ban, unban and strikes", () => {
     expect(log.map((e: { action: string; reason: string }) => `${e.action}:${e.reason}`).sort()).toEqual(["SET_ROLE:ADMIN", "SET_ROLE:USER"]);
   });
 
+  it("lets only a super admin change roles: an ordinary admin is refused, and a super admin's role is not changed from the app", async () => {
+    const boss = await person("ADMIN", true);
+    const other = await person("ADMIN");
+    const user = await person();
+    expect((await setRole(other, user.id, "ADMIN").expect(403)).body.code).toBe("SUPERADMIN_ONLY");
+    expect((await setRole(other, boss.id, "USER").expect(403)).body.code).toBe("SUPERADMIN_ONLY");
+    expect((await setRole(other, other.id, "USER").expect(403)).body.code).toBe("SUPERADMIN_ONLY");
+    expect((await request(url).get("/admin/me").set(boss.auth).expect(200)).body.isSuperAdmin).toBe(true);
+    expect((await request(url).get("/admin/me").set(other.auth).expect(200)).body.isSuperAdmin).toBe(false);
+
+    const second = await person("ADMIN", true);
+    expect((await setRole(boss, second.id, "USER").expect(409)).body.code).toBe("CANNOT_CHANGE_SUPERADMIN");
+    expect(await prisma.user.findUniqueOrThrow({ where: { id: second.id }, select: { role: true, isSuperAdmin: true } })).toEqual({ role: "ADMIN", isSuperAdmin: true });
+    expect((await setRole(boss, other.id, "USER").expect(200)).body).toMatchObject({ role: "USER", isSuperAdmin: false });
+  });
+
   it("will not let an admin change their own role or make a banned account an admin", async () => {
-    const a = await person("ADMIN");
+    const a = await person("ADMIN", true);
     expect((await setRole(a, a.id, "USER").expect(409)).body.code).toBe("CANNOT_CHANGE_OWN_ROLE");
     const banned = await person();
     await prisma.user.update({ where: { id: banned.id }, data: { bannedAt: new Date() } });

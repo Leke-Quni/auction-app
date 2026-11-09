@@ -29,8 +29,8 @@ function RemoveListing({ listingId }: { listingId: string }) {
   );
 }
 
-// The edit page. For a draft the photos sit inside the form, between the details and the price, and save as they
-// change. The photo count is kept here so the Publish button knows whether there is anything to publish.
+// The edit page. The photos sit inside the form (for a draft between the details and the price) and are saved with
+// the Save button, like every other field. Publish counts the photos that are saved, not the ones still being picked.
 export function ListingEditor({
   categories,
   listing,
@@ -44,19 +44,16 @@ export function ListingEditor({
   initialPhotos: string[];
   defaultPickup?: FormListing["pickupAddress"];
 }) {
-  const [count, setCount] = useState(initialPhotos.length);
   const draft = listing.status === "DRAFT";
-  const uploader = (
-    <ImageUploader listingId={listing.id} userId={userId} initial={initialPhotos} onCountChange={setCount} />
-  );
+  const [unsaved, setUnsaved] = useState(false);
+  const uploader = <ImageUploader userId={userId} initial={initialPhotos} />;
 
   return (
     <>
-      <ListingForm categories={categories} listing={listing} photos={draft ? uploader : undefined} defaultPickup={defaultPickup} />
-      {!draft && uploader}
+      <ListingForm categories={categories} listing={listing} photos={uploader} defaultPickup={defaultPickup} onUnsavedChange={setUnsaved} />
       {!draft && <PickupAddressEditor listingId={listing.id} address={listing.pickupAddress ?? null} />}
       {draft ? (
-        <PublishPanel listingId={listing.id} photoCount={count} durationDays={listing.durationDays} />
+        <PublishPanel listingId={listing.id} photoCount={initialPhotos.length} unsaved={unsaved} durationDays={listing.durationDays} />
       ) : (
         <RemoveListing listingId={listing.id} />
       )}

@@ -18,7 +18,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-const setup = (photoCount = 1) => render(<PublishPanel listingId="L1" photoCount={photoCount} durationDays={5} />);
+const setup = (photoCount = 1, unsaved = false) => render(<PublishPanel listingId="L1" photoCount={photoCount} durationDays={5} unsaved={unsaved} />);
 const publishButton = () => screen.getByRole("button", { name: "Publish" }) as HTMLButtonElement;
 
 describe("PublishPanel", () => {
@@ -69,5 +69,12 @@ describe("PublishPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete draft" }));
     await waitFor(() => expect(deleteListingAction).toHaveBeenCalledWith("L1"));
     confirm.mockRestore();
+  });
+
+  it("asks the seller to save first and disables Publish while the form has unsaved changes", () => {
+    setup(2, true);
+    expect(screen.getByText(/You have unsaved changes, including photos\. Press Save above before publishing/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Publish" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Delete draft" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });

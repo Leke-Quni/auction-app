@@ -1,4 +1,4 @@
-import { SUPPORT_RATE_LIMIT, type SupportRequestInput, type SupportStrike } from "@auction/shared";
+import { SUPPORT_BANNED_IP_RATE_LIMIT, SUPPORT_BANNED_RATE_LIMIT, SUPPORT_RATE_LIMIT, type SupportRequestInput, type SupportStrike, type SuspendedSupportInput } from "@auction/shared";
 import { ConflictException, HttpException, HttpStatus, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { RATE_LIMITER, type RateLimiter } from "../rate-limit/rate-limiter";
@@ -27,6 +27,22 @@ export class SupportService {
       listingTitle: s.listingId ? (titleOf.get(s.listingId) ?? null) : null,
       appealed: appealed.has(s.id),
     }));
+  }
+
+  // From the suspended page, with no sign-in (a suspended account cannot sign in). It saves a request only when the email belongs to a
+  // suspended account that has none waiting, and answers the same either way, so it reveals nothing about accounts. The limits are per
+  // address and per email, whatever the account, for the same reason, and every call takes the same path (a lock, a lookup) so a
+  // quick answer does not give the account away either.
+  async createBanAppeal({ email, message }: SuspendedSupportInput, ip: string | null) {
+    const tooMany = (what: string) => new HttpException({ code: "RATE_LIMITED", message: `You have sent several ${what} today. Wait for our answer, or try again tomorrow.` }, HttpStatus.TOO_MANY_REQUESTS);
+    if (ip && !(await this.limiter.allow(`rl:support-banned-ip:${ip}`, SUPPORT_BANNED_IP_RATE_LIMIT.limit, SUPPORT_BANNED_IP_RATE_LIMIT.windowSeconds))) throw tooMany("messages from this connection");
+    if (!(await this.limiter.allow(`rl:support-banned:${email}`, SUPPORT_BANNED_RATE_LIMIT.limit, SUPPORT_BANNED_RATE_LIMIT.windowSeconds))) throw tooMany("messages");
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`support-banned:${email}`}))`;
+      const user = await tx.user.findFirst({ where: { email: { equals: email, mode: "insensitive" }, bannedAt: { not: null } }, select: { id: true } });
+      const waiting = user ? await tx.supportRequest.findFirst({ where: { userId: user.id, kind: "BAN_APPEAL", status: "OPEN" }, select: { id: true } }) : null;
+      if (user && !waiting) await tx.supportRequest.create({ data: { userId: user.id, kind: "BAN_APPEAL", message } });
+    });
   }
 
   async create(userId: string, input: SupportRequestInput) {

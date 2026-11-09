@@ -1,15 +1,18 @@
 "use client";
 
 import { SHIPPING_COUNTRIES, type ShippingAddress } from "@auction/shared";
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { AddressFields } from "../address-fields";
 import { updatePickupAddressAction } from "./actions";
+import { useUnsavedChanges } from "../use-unsaved-changes";
 
 // Where the carrier collects an item, with a way to correct it. Used on a published listing and on the seller's order,
 // since a wrong street or phone number found late must still be fixable.
 export function PickupAddressEditor({ listingId, address }: { listingId: string; address: ShippingAddress | null }) {
   const [editing, setEditing] = useState(false);
   const [state, formAction, pending] = useActionState(updatePickupAddressAction, {});
+  const formRef = useRef<HTMLFormElement>(null);
+  useUnsavedChanges(formRef, editing);
 
   useEffect(() => {
     if (state.ok) setEditing(false);
@@ -34,7 +37,7 @@ export function PickupAddressEditor({ listingId, address }: { listingId: string;
         </>
       )}
       {editing && (
-        <form action={formAction} className="space-y-2">
+        <form ref={formRef} action={formAction} className="space-y-2">
           <input type="hidden" name="listingId" value={listingId} />
           <p className="text-xs text-muted">The carrier calls this number before collecting. Buyers never see this address.</p>
           <AddressFields defaults={address} required nameLabel="Contact name" />

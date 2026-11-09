@@ -2,53 +2,51 @@
 
 import { IMAGE_TYPES, MAX_IMAGES, MAX_IMAGE_BYTES } from "@auction/shared";
 import { uploadPresigned } from "@vercel/blob/client";
-import { useRef, useState } from "react";
-import { saveImagesAction } from "./actions";
+import { useEffect, useRef, useState } from "react";
+import { DISCARD_EVENT } from "../use-unsaved-changes";
 
 const EXTENSIONS: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 const small = "cursor-pointer border border-[#888] bg-white px-1.5 text-xs disabled:opacity-40";
 
-// With a listingId, every change is saved to that listing straight away. Without one (the new-listing form),
-// photos still upload to Blob immediately but only travel along in the form, as a hidden JSON field, and are
-// attached when the draft is created.
-export function ImageUploader({
-  listingId,
-  userId,
-  initial,
-  onCountChange,
-}: {
-  listingId?: string;
-  userId: string;
-  initial: string[];
-  onCountChange?: (count: number) => void;
-}) {
+// Photos upload to Blob as they are picked but only travel along in the form, as a hidden JSON field, and are attached
+// when the form is saved. If the visitor leaves without saving, the photos uploaded meanwhile are deleted again.
+export function ImageUploader({ userId, initial }: { userId: string; initial: string[] }) {
   const [urls, setUrls] = useState(initial);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  // Saves the whole ordered list; on failure the screen goes back to what was last saved.
-  const persist = async (next: string[], previous: string[]) => {
-    if (!listingId) {
-      setUrls(next);
-      onCountChange?.(next.length);
-      return true;
-    }
-    setStatus("Saving…");
-    const result = await saveImagesAction(listingId, next);
-    if (result.error) {
-      setUrls(previous);
-      onCountChange?.(previous.length);
-      setError(result.error);
-      setStatus("");
-      return false;
-    }
-    setUrls(next);
-    onCountChange?.(next.length);
-    setStatus("Saved.");
-    return true;
-  };
+  const uploadedRef = useRef(new Set<string>());
+  // Photos deleted because the visitor left. If the page is brought back with the Back button they would show as dead images.
+  const discardedRef = useRef(new Set<string>());
+  // What the server holds; a save refreshes the page, which brings a new `initial`.
+  const savedRef = useRef(new Set(initial));
+  savedRef.current = new Set(initial);
+
+  useEffect(() => {
+    const discard = () => {
+      const urls = [...uploadedRef.current].filter((u) => !savedRef.current.has(u));
+      uploadedRef.current.clear();
+      if (urls.length === 0) return;
+      for (const u of urls) discardedRef.current.add(u);
+      const body = new Blob([JSON.stringify({ urls })], { type: "application/json" });
+      if (!navigator.sendBeacon?.("/api/uploads/discard", body)) void fetch("/api/uploads/discard", { method: "POST", body, keepalive: true }).catch(() => undefined);
+    };
+    const restored = (e: PageTransitionEvent) => {
+      if (!e.persisted || discardedRef.current.size === 0) return;
+      const gone = discardedRef.current;
+      setUrls((current) => current.filter((u) => !gone.has(u)));
+      discardedRef.current = new Set();
+      setError("Photos you had not saved were discarded when you left. Add them again.");
+    };
+    window.addEventListener(DISCARD_EVENT, discard);
+    window.addEventListener("pageshow", restored);
+    return () => {
+      window.removeEventListener(DISCARD_EVENT, discard);
+      window.removeEventListener("pageshow", restored);
+    };
+  }, []);
 
   const addFiles = async (files: File[]) => {
     setError("");
@@ -76,21 +74,20 @@ export function ImageUploader({
           contentType: file.type,
         });
         uploaded.push(blob.url);
+        uploadedRef.current.add(blob.url);
       }
     } catch (e) {
       setError(`Upload failed: ${(e as Error).message}`);
     }
-    if (uploaded.length > 0) await persist([...urls, ...uploaded], urls);
-    else setStatus("");
+    if (uploaded.length > 0) setUrls([...urls, ...uploaded]);
+    setStatus("");
     setBusy(false);
     if (fileInput.current) fileInput.current.value = "";
   };
 
-  const change = async (next: string[]) => {
+  const change = (next: string[]) => {
     setError("");
-    setBusy(true);
-    await persist(next, urls);
-    setBusy(false);
+    setUrls(next);
   };
 
   const move = (from: number, to: number) => {
@@ -111,9 +108,9 @@ export function ImageUploader({
       </div>
       <p className="text-xs text-muted">
         JPG, PNG, or WebP, up to 5 MB each. The first photo is the cover.
-        {!listingId && " Photos upload as you pick them and are saved when you create the draft."}
+        {" Photos upload as you pick them and are kept when you press Save; leave without saving and they are discarded."}
       </p>
-      {!listingId && <input type="hidden" name="photos" value={JSON.stringify(urls)} />}
+      <input type="hidden" name="photos" value={JSON.stringify(urls)} />
 
       {urls.length > 0 && (
         <ul className="grid grid-cols-4 gap-2">

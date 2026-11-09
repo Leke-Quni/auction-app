@@ -11,7 +11,7 @@ interface Entry {
   admin: { id: string; username: string | null };
 }
 
-const FILTERS = ["adminId", "targetId"] as const;
+const FILTERS = ["adminId", "targetId", "q"] as const;
 const LABEL = { BAN_USER: "Banned a user", UNBAN_USER: "Restored a user", CLEAR_STRIKE: "Cleared a strike", REMOVE_LISTING: "Removed a listing", VIEW_ORDER: "Opened an order", REMOVE_POST: "Removed a question or answer", SET_ROLE: "Changed an admin role", STRIKE_USER: "Gave a strike", VIEW_INVOICE: "Opened an invoice", HANDLE_SUPPORT: "Closed a support request" } as const;
 const HREF = { BAN_USER: "/users", UNBAN_USER: "/users", CLEAR_STRIKE: "/users", REMOVE_LISTING: "/listings", VIEW_ORDER: "/orders", REMOVE_POST: "/question-log?questionId=", SET_ROLE: "/users", STRIKE_USER: "/users", VIEW_INVOICE: "/orders", HANDLE_SUPPORT: "/support" } as const;
 const when = (iso: string) => new Date(iso).toISOString().replace("T", " ").slice(0, 19) + " UTC";
@@ -29,16 +29,25 @@ export default async function AuditLog({ searchParams }: { searchParams: Promise
     <div className="space-y-3">
       <h1 className="text-lg font-bold">Audit log</h1>
       <p className="text-muted">Which admin banned, restored, cleared a strike, removed a listing or opened an order (both addresses), newest first. Entries are kept for ever.</p>
-      {filtered.length > 0 && (
+      <form className="flex flex-wrap items-center gap-2">
+        <input name="q" defaultValue={params.q ?? ""} placeholder="Admin username, email or id" className="w-72 rounded border border-line bg-panel px-2 py-1" />
+        <button className="cursor-pointer rounded bg-accent px-3 py-1 font-semibold text-white hover:bg-accent-dark">Search</button>
+        {params.q && (
+          <Link href="/audit" className="text-accent underline">
+            Show all
+          </Link>
+        )}
+      </form>
+      {filtered.some((k) => k !== "q") && (
         <p>
-          Showing only {filtered.map((k) => `${k} ${params[k]}`).join(", ")}.{" "}
+          Showing only {filtered.filter((k) => k !== "q").map((k) => `${k} ${params[k]}`).join(", ")}.{" "}
           <Link href="/audit" className="text-accent underline">
             Show all
           </Link>
         </p>
       )}
       {entries.length === 0 ? (
-        <p className="rounded border border-line bg-panel p-4 text-muted">No entries.</p>
+        <p className="rounded border border-line bg-panel p-4 text-muted">{params.q ? "No entries for that admin." : "No entries."}</p>
       ) : (
         <table className="w-full border-collapse overflow-hidden rounded border border-line bg-panel text-left">
           <thead className="bg-page text-muted">
@@ -55,9 +64,13 @@ export default async function AuditLog({ searchParams }: { searchParams: Promise
               <tr key={e.id} className="border-t border-line align-top">
                 <td className="whitespace-nowrap p-2 text-muted">{when(e.createdAt)}</td>
                 <td className="p-2">
-                  <Link href={`/audit?adminId=${encodeURIComponent(e.admin.id)}`} className="text-accent underline">
-                    {e.admin.username ? `@${e.admin.username}` : "deleted user"}
-                  </Link>
+                  {e.admin.username ? (
+                    <Link href={`/users/${encodeURIComponent(e.admin.id)}`} className="text-accent underline">
+                      @{e.admin.username}
+                    </Link>
+                  ) : (
+                    "deleted user"
+                  )}
                 </td>
                 <td className="p-2">{LABEL[e.action]}</td>
                 <td className="p-2">

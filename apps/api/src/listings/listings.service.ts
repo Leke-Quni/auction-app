@@ -24,6 +24,7 @@ import {
 } from "@nestjs/common";
 import type { Prisma as PrismaTypes } from "@auction/db";
 import { JOB_SCHEDULER, type JobScheduler } from "../jobs/job-scheduler";
+import { REMOVED_TITLE } from "./listing-card";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { SEARCH_INDEX, type ListingDocument, type SearchIndex } from "../search/search-index";
 import { isSellerImage } from "./seller-image";
@@ -48,8 +49,9 @@ const isFinal = (l: ListingRow) => (l.startsAt && l.endsAt ? isFinalChance(l.end
 const toDto = (l: ListingRow, now = new Date(), forSeller = false) => ({
   ...(forSeller ? { pickupAddress: l.pickupAddress } : {}),
   id: l.id,
-  title: l.title,
-  description: l.description,
+  // A listing a moderator removed shows its seller but none of its words or photos to anyone but the seller.
+  title: l.removedAt && !forSeller ? REMOVED_TITLE : l.title,
+  description: l.removedAt && !forSeller ? "" : l.description,
   category: { id: l.category.id, slug: l.category.slug, name: l.category.name },
   condition: l.condition,
   startingPriceCents: l.startingPriceCents,
@@ -77,7 +79,7 @@ const toDto = (l: ListingRow, now = new Date(), forSeller = false) => ({
   endsAt: l.endsAt,
   publishedAt: l.publishedAt,
   seller: l.seller,
-  images: l.images.map((i) => ({ id: i.id, url: i.url, position: i.position })),
+  images: l.removedAt && !forSeller ? [] : l.images.map((i) => ({ id: i.id, url: i.url, position: i.position })),
 });
 
 // Only live and upcoming published listings are searchable.
@@ -223,6 +225,7 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
   async update(sellerId: string, id: string, input: UpdateListingInput) {
     const listing = await this.getOwned(sellerId, id);
     this.refuseIfModeratorRemoved(listing);
+    this.refuseIfEnded(listing);
 
     if (listing.status === "PUBLISHED") {
       const locked = Object.keys(input).filter((k) => k !== "description");
@@ -273,6 +276,7 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
   async setImages(sellerId: string, id: string, images: ListingImageInput[]) {
     const listing = await this.getOwned(sellerId, id);
     this.refuseIfModeratorRemoved(listing);
+    this.refuseIfEnded(listing);
     if (listing.status === "PUBLISHED" && images.length === 0) {
       throw new BadRequestException("A published listing needs at least one photo");
     }
@@ -315,6 +319,7 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
 
   async remove(sellerId: string, id: string) {
     const listing = await this.getOwned(sellerId, id);
+    this.refuseIfEnded(listing);
     // One statement checks and deletes, so a bid that lands at the same moment cannot be deleted with the listing: the
     // bid transaction holds the row's lock, this waits for it, then sees the bid count and deletes nothing.
     // A listing a moderator removed stays as the record of why, so the seller cannot delete it either.
@@ -332,8 +337,8 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
     return { removedImageUrls: await this.unsharedUrls(listing.images.map((i) => i.url)) };
   }
 
-  // A seller whose auction ended without a sale can list the item again with one click: a new draft with the same details,
-  // pickup address and photos (the old listing stays as the record). The draft is not published, so the seller can change
+  // A seller whose auction ended without a sale can list the item again with one click: a new draft with the same details
+  // and photos (the old listing stays as the record). The pickup address is not copied: the draft's form starts from the seller's default. The draft is not published, so the seller can change
   // anything first, and while that draft exists, asking again returns it. Only a listing that closed with no bids or no sale qualifies, never one that sold or is still running.
   async relist(sellerId: string, id: string) {
     const old = await this.getOwned(sellerId, id);
@@ -358,7 +363,6 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
           startingPriceCents: old.startingPriceCents,
           reservePriceCents: old.reservePriceCents,
           durationDays: old.durationDays,
-          ...(old.pickupAddress ? { pickupAddress: old.pickupAddress } : {}),
           images: { create: old.images.map((image) => ({ url: image.url, pathname: image.pathname, position: image.position })) },
         },
         include: listingInclude,
@@ -368,6 +372,11 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Photos a relisted draft shares with the listing it came from must stay in Blob when one of them lets go of a photo.
+  // Which of these photo URLs no listing holds any more, so the web app may delete them from Blob. Used when a form is abandoned.
+  unusedImageUrls(urls: string[]) {
+    return this.unsharedUrls(urls);
+  }
+
   private async unsharedUrls(urls: string[]) {
     if (urls.length === 0) return urls;
     const stillUsed = new Set((await this.prisma.listingImage.findMany({ where: { url: { in: urls } }, select: { url: true } })).map((i) => i.url));
@@ -384,6 +393,15 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
   // A moderator took the listing down, so its words and photos cannot be changed to put the same content back.
   private refuseIfModeratorRemoved(listing: { removedAt: Date | null }) {
     if (listing.removedAt) throw new ConflictException("A listing that a moderator removed cannot be changed");
+  }
+
+  // An ended auction is closed by the system and stays as the record; the seller can only list it again (relist).
+  private refuseIfEnded(listing: { status: string; closedAt: Date | null; endsAt: Date | null; removedAt: Date | null }) {
+    // A moderator removal has its own message.
+    if (listing.removedAt) return;
+    if (listing.status === "PUBLISHED" && (listing.closedAt || (listing.endsAt && listing.endsAt <= new Date()))) {
+      throw new ConflictException("An auction that has ended can no longer be changed or removed");
+    }
   }
 
   private async getOwned(sellerId: string, id: string) {

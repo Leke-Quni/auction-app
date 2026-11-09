@@ -22,6 +22,8 @@ model User {
   passwordHash        String
   emailVerified       DateTime?
   role                Role                 @default(USER)
+  // Only a super admin changes other people's admin roles. Made from the command line only (make-admin --super).
+  isSuperAdmin        Boolean              @default(false)
   // Set by an admin: the person cannot sign in or use the API. Checked on every request, so it takes effect at once.
   bannedAt            DateTime?
   banReason           String?
@@ -440,6 +442,10 @@ model Question {
   // Set when the asker changes their question or the seller changes their answer.
   editedAt       DateTime?
   answerEditedAt DateTime?
+  // A moderator took the question or the answer down. The words stay (for the admin log) but are never shown, the page says it was
+  // removed by moderation, and nobody can edit, vote on or report it any more. A removed answer is final: the question stays answered.
+  moderatedAt       DateTime?
+  answerModeratedAt DateTime?
 
   votes QuestionVote[]
 
@@ -578,6 +584,7 @@ enum AdminActionKind {
 }
 
 enum SupportKind {
+  BAN_APPEAL
   GENERAL
   STRIKE_APPEAL
 }

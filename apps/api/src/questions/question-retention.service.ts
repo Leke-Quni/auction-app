@@ -35,7 +35,7 @@ export class QuestionRetentionService implements OnModuleInit, OnModuleDestroy {
            OR (NOT EXISTS (SELECT 1 FROM "Listing" l WHERE l."id" = ql."listingId") AND ql."createdAt" < ${cutoff})`;
       const questions = await this.prisma.$executeRaw`
         DELETE FROM "Question" q USING "Listing" l
-        WHERE q."listingId" = l."id" AND q."deletedAt" IS NOT NULL AND l."endsAt" < ${cutoff}`;
+        WHERE q."listingId" = l."id" AND (q."deletedAt" IS NOT NULL OR q."moderatedAt" IS NOT NULL) AND l."endsAt" < ${cutoff}`;
       const reports = await this.prisma.$executeRaw`DELETE FROM "Report" WHERE "status" = 'HANDLED' AND "handledAt" < ${cutoff}`;
       if (entries + questions + reports > 0) this.log.log(`Removed ${entries} log entries, ${questions} deleted questions and ${reports} handled reports older than ${QUESTION_LOG_RETENTION_DAYS} days`);
       return { entries, questions, reports };

@@ -55,9 +55,11 @@ export default async function MyListingsPage() {
                 <td className="border border-line p-1.5">{formatEur(l.startingPriceCents)}</td>
                 <td className="border border-line p-1.5">{l.endsAt ? <LocalTime iso={l.endsAt} /> : "—"}</td>
                 <td className="border border-line p-1.5">
-                  <Link href={`/sell/${l.id}/edit`} className="text-brand underline">
-                    Edit
-                  </Link>
+                  {l.phase !== "ended" && (
+                    <Link href={`/sell/${l.id}/edit`} className="text-brand underline">
+                      Edit
+                    </Link>
+                  )}
                 </td>
               </tr>
             ))}

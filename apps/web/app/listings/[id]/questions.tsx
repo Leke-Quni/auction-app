@@ -1,6 +1,6 @@
 "use client";
 
-import { ANSWER_MAX_LENGTH, QUESTION_MAX_LENGTH, REPORT_REASON_LABELS, REPORT_REASONS, type QuestionItem, type ReportReason, type VoteSummary, type VoteTarget, type VoteValue } from "@auction/shared";
+import { ANSWER_MAX_LENGTH, POLICY_LINKS, QUESTION_MAX_LENGTH, REPORT_REASON_LABELS, REPORT_REASONS, type QuestionItem, type ReportReason, type VoteSummary, type VoteTarget, type VoteValue } from "@auction/shared";
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { LocalTime } from "@/app/local-time";
@@ -251,6 +251,19 @@ function MoreMenu({ label, items, disabled }: { label: string; items: MenuItem[]
   );
 }
 
+// Shown in place of the words of a post a moderator removed.
+function Removed({ what }: { what: "question" | "answer" }) {
+  return (
+    <p className="italic text-muted">
+      This {what} was removed by moderation.{" "}
+      <Link href={POLICY_LINKS.comments} className="text-brand underline">
+        See what you can and cannot post
+      </Link>
+      .
+    </p>
+  );
+}
+
 function Row({ question, listingId, viewerId, isSeller, open }: { question: QuestionItem; listingId: string; viewerId?: string; isSeller: boolean; open: boolean }) {
   const { pending, error, run } = useAction();
   const [answering, setAnswering] = useState(false);
@@ -259,8 +272,8 @@ function Row({ question, listingId, viewerId, isSeller, open }: { question: Ques
 
   const mine = question.asker !== null && question.asker.id === viewerId;
   // Changing or deleting a post is open only while the auction has not ended.
-  const canChangeQuestion = mine && open;
-  const canChangeAnswer = isSeller && question.answer !== null && open;
+  const canChangeQuestion = mine && open && !question.moderated;
+  const canChangeAnswer = isSeller && question.answer !== null && !question.answer.moderated && open;
   // Anyone signed in may report what someone else wrote.
   const reportItem = (target: "QUESTION" | "ANSWER"): MenuItem => ({
     label: "Report",
@@ -276,7 +289,7 @@ function Row({ question, listingId, viewerId, isSeller, open }: { question: Ques
         { label: "Edit question", onSelect: () => setEditing("question") },
         { label: "Delete question", confirm: { text: "Delete this question? This cannot be undone.", onConfirm: () => run(() => deleteQuestionAction(listingId, question.id)) } },
       ]
-    : viewerId !== undefined && !mine && question.body !== null
+    : viewerId !== undefined && !mine && question.body !== null && !question.moderated
       ? [reportItem("QUESTION")]
       : [];
   const answerItems: MenuItem[] = canChangeAnswer
@@ -284,7 +297,7 @@ function Row({ question, listingId, viewerId, isSeller, open }: { question: Ques
         { label: "Edit answer", onSelect: () => setEditing("answer") },
         { label: "Delete answer", confirm: { text: "Delete this answer? This cannot be undone.", onConfirm: () => run(() => deleteAnswerAction(listingId, question.id)) } },
       ]
-    : viewerId !== undefined && !isSeller && question.answer !== null
+    : viewerId !== undefined && !isSeller && question.answer !== null && !question.answer.moderated
       ? [reportItem("ANSWER")]
       : [];
 
@@ -310,16 +323,20 @@ function Row({ question, listingId, viewerId, isSeller, open }: { question: Ques
               }}
               onCancel={() => setEditing(null)}
             />
+          ) : question.moderated ? (
+            <Removed what="question" />
           ) : question.body !== null ? (
             <p className="whitespace-pre-wrap">{question.body}</p>
           ) : (
             <p className="italic text-muted">This message can&apos;t be displayed because the user was deleted.</p>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <Votes listingId={listingId} questionId={question.id} target="QUESTION" votes={question.votes.question} canVote={viewerId !== undefined && !mine && !isSeller} signedIn={viewerId !== undefined} />
-          <MoreMenu label="Question actions" disabled={pending} items={questionItems} />
-        </div>
+        {!question.moderated && (
+          <div className="flex shrink-0 items-center gap-1">
+            <Votes listingId={listingId} questionId={question.id} target="QUESTION" votes={question.votes.question} canVote={viewerId !== undefined && !mine && !isSeller} signedIn={viewerId !== undefined} />
+            <MoreMenu label="Question actions" disabled={pending} items={questionItems} />
+          </div>
+        )}
       </div>
       {question.answer && (
         <div className="space-y-0.5 border-l-4 border-brand bg-[#f0fdfa] p-2">
@@ -329,12 +346,14 @@ function Row({ question, listingId, viewerId, isSeller, open }: { question: Ques
                 <b className="text-[#222]">Seller&apos;s answer</b> · <LocalTime iso={question.answer.answeredAt} />
                 {question.answer.editedAt && " (edited)"}
               </p>
-              {editing === "answer" ? (
+              {question.answer.moderated || question.answer.body === null ? (
+                <Removed what="answer" />
+              ) : editing === "answer" ? (
                 <TextForm
                   label="Edit your answer"
                   max={ANSWER_MAX_LENGTH}
                   submit="Save"
-                  initial={question.answer.body}
+                  initial={question.answer.body ?? ""}
                   onSubmit={async (body) => {
                     const result = await editAnswerAction(listingId, question.id, body);
                     if (result.ok) setEditing(null);
@@ -346,14 +365,16 @@ function Row({ question, listingId, viewerId, isSeller, open }: { question: Ques
                 <p className="whitespace-pre-wrap">{question.answer.body}</p>
               )}
             </div>
+            {!question.answer.moderated && (
             <div className="flex shrink-0 items-center gap-1">
               <Votes listingId={listingId} questionId={question.id} target="ANSWER" votes={question.votes.answer} canVote={viewerId !== undefined && !isSeller} signedIn={viewerId !== undefined} />
               <MoreMenu label="Answer actions" disabled={pending} items={answerItems} />
             </div>
+            )}
           </div>
         </div>
       )}
-      {isSeller && !question.answer && !answering && (
+      {isSeller && !question.answer && !question.moderated && !answering && (
         <div>
           <button
             type="button"

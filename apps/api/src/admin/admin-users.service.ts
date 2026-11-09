@@ -1,8 +1,9 @@
-import { ConflictException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { giveAdminStrike } from "./admin-strikes";
 import { supportEmail } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
+import { emailUnbanNotice } from "./unban-notice";
 import { RealtimeGateway } from "../realtime/realtime.gateway";
 
 export interface UserListQuery {
@@ -12,7 +13,7 @@ export interface UserListQuery {
 }
 
 const summary = {
-  id: true, username: true, email: true, firstName: true, lastName: true, role: true, createdAt: true, emailVerified: true, bannedAt: true, banReason: true,
+  id: true, username: true, email: true, firstName: true, lastName: true, role: true, isSuperAdmin: true, createdAt: true, emailVerified: true, bannedAt: true, banReason: true,
   _count: { select: { strikes: true, listings: true, bids: true } },
 } as const;
 
@@ -115,6 +116,7 @@ export class AdminUsersService {
       if (!(await this.prisma.user.findUnique({ where: { id }, select: { id: true } }))) throw new NotFoundException();
       throw new ConflictException({ code: "NOT_BANNED", message: "This account is not banned." });
     }
+    void emailUnbanNotice(this.prisma, this.mail, this.log, id);
     return this.get(id);
   }
 
@@ -122,13 +124,16 @@ export class AdminUsersService {
   // by accident) and the last admin cannot be demoted. The admin rows are locked while the count is read, so two admins
   // demoting each other at the same moment cannot leave the site with none. A demoted admin loses access on their next request
   // (the guard reads the role from the database every time). A banned account cannot be made an admin.
-  async setRole(adminId: string, id: string, role: "USER" | "ADMIN") {
+  // Only a super admin changes roles, and a super admin's own role is left alone (it is changed from the command line).
+  async setRole(adminId: string, actorIsSuperAdmin: boolean, id: string, role: "USER" | "ADMIN") {
+    if (!actorIsSuperAdmin) throw new ForbiddenException({ code: "SUPERADMIN_ONLY", message: "Only a super admin can change admin roles." });
     if (id === adminId) throw new ConflictException({ code: "CANNOT_CHANGE_OWN_ROLE", message: "You cannot change your own role. Ask another admin." });
     await this.prisma.$transaction(async (tx) => {
       const admins = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "User" WHERE "role" = 'ADMIN' FOR UPDATE`;
       await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${id} FOR UPDATE`;
-      const user = await tx.user.findUnique({ where: { id }, select: { role: true, bannedAt: true } });
+      const user = await tx.user.findUnique({ where: { id }, select: { role: true, isSuperAdmin: true, bannedAt: true } });
       if (!user) throw new NotFoundException();
+      if (user.isSuperAdmin) throw new ConflictException({ code: "CANNOT_CHANGE_SUPERADMIN", message: "A super admin's role can only be changed from the command line." });
       if (user.role === role) throw new ConflictException({ code: "SAME_ROLE", message: role === "ADMIN" ? "This account is already an admin." : "This account is not an admin." });
       if (role === "ADMIN" && user.bannedAt) throw new ConflictException({ code: "BANNED", message: "A banned account cannot be made an admin. Restore it first." });
       if (role === "USER" && admins.length <= 1) throw new ConflictException({ code: "LAST_ADMIN", message: "This is the last admin, so the role cannot be removed." });
@@ -157,7 +162,7 @@ export class AdminUsersService {
 }
 
 const toSummary = (u: {
-  id: string; username: string; email: string; firstName: string; lastName: string; role: string; createdAt: Date; emailVerified: Date | null; bannedAt: Date | null; banReason: string | null;
+  id: string; username: string; email: string; firstName: string; lastName: string; role: string; isSuperAdmin: boolean; createdAt: Date; emailVerified: Date | null; bannedAt: Date | null; banReason: string | null;
   _count: { strikes: number; listings: number; bids: number };
 }) => ({
   id: u.id,
@@ -165,6 +170,7 @@ const toSummary = (u: {
   email: u.email,
   name: `${u.firstName} ${u.lastName}`,
   role: u.role,
+  isSuperAdmin: u.isSuperAdmin,
   createdAt: u.createdAt.toISOString(),
   emailVerified: u.emailVerified !== null,
   bannedAt: u.bannedAt?.toISOString() ?? null,

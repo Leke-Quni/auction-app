@@ -6,6 +6,7 @@ import { adminApiFetch } from "@/lib/api";
 export interface AdminUser {
   id: string;
   email: string;
+  isSuperAdmin: boolean;
 }
 
 // Every admin page asks the API who this is on each request. A demoted admin or a banned account is sent away at once, even

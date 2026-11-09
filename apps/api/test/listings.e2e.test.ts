@@ -396,10 +396,34 @@ describe("listings", () => {
       await api().get(`/listings/${listing.id}`).expect(404);
     });
 
+    it("cannot be edited or removed by the seller once the auction has ended, with or without bids", async () => {
+      const listing = await createPublished();
+      await prisma.listing.update({ where: { id: listing.id }, data: { startsAt: new Date(Date.now() - 6 * DAY), endsAt: new Date(Date.now() - 1000) } });
+      await api().patch(`/listings/${listing.id}`).set(as(seller)).send({ description: "Changing it afterwards" }).expect(409);
+      await api().put(`/listings/${listing.id}/images`).set(as(seller)).send({ images: [image(sellerId, 1)] }).expect(409);
+      await api().delete(`/listings/${listing.id}`).set(as(seller)).expect(409);
+      await prisma.listing.update({ where: { id: listing.id }, data: { closedAt: new Date(), outcome: "NO_BIDS" } });
+      await api().delete(`/listings/${listing.id}`).set(as(seller)).expect(409);
+      await api().get(`/listings/${listing.id}`).expect(200);
+    });
+
     it("cannot be changed by others (403, since it is public)", async () => {
       const listing = await createPublished();
       await api().patch(`/listings/${listing.id}`).set(as(other)).send({ description: "Taking over this one" }).expect(403);
       await api().put(`/listings/${listing.id}/images`).set(as(other)).send({ images: [image(otherId, 1)] }).expect(403);
+    });
+  });
+
+  describe("photos no listing uses", () => {
+    it("reports which of the given photo URLs are not held by any listing, for signed-in people only", async () => {
+      const listing = await createPublished();
+      const used = listing.images[0].url as string;
+      const loose = image(sellerId, 77).url;
+      await api().post("/listing-images/unused").send({ urls: [loose] }).expect(401);
+      const res = await api().post("/listing-images/unused").set(as(seller)).send({ urls: [used, loose] }).expect(200);
+      expect(res.body).toEqual({ urls: [loose] });
+      await api().post("/listing-images/unused").set(as(seller)).send({ urls: "nope" }).expect(400);
+      await api().post("/listing-images/unused").set(as(seller)).send({ urls: Array.from({ length: 9 }, (_, i) => image(sellerId, i).url) }).expect(400);
     });
   });
 
@@ -423,14 +447,14 @@ describe("listings", () => {
       return listing;
     };
 
-    it("copies an auction that had no bids into a new draft with the same details and photos", async () => {
+    it("copies an auction that had no bids into a new draft with the same details and photos, but not the pickup address", async () => {
       const old = await ended("NO_BIDS");
       const res = await api().post(`/listings/${old.id}/relist`).set(as(seller)).expect(201);
       expect(res.body).toMatchObject({ status: "DRAFT", title: "Relist me", reservePriceCents: 5000, startingPriceCents: 1000, durationDays: 5, condition: "GOOD", closedAt: null, outcome: null, bidCount: 0 });
       expect(res.body.id).not.toBe(old.id);
       expect(res.body.images).toHaveLength(1);
       const saved = await prisma.listing.findUniqueOrThrow({ where: { id: res.body.id } });
-      expect(saved.pickupAddress).toMatchObject({ line1: "Rr. Dardania 12" });
+      expect(saved.pickupAddress).toBeNull(); // the form starts from the seller's default address, not the old listing's
       expect(saved.startsAt).toBeNull();
       expect((await prisma.listing.findUniqueOrThrow({ where: { id: old.id } })).outcome).toBe("NO_BIDS"); // the old one stays as the record
     });
@@ -438,6 +462,8 @@ describe("listings", () => {
     it("works for an auction that ended without a sale, and the new draft can be published", async () => {
       const old = await ended("NO_SALE");
       const draft = (await api().post(`/listings/${old.id}/relist`).set(as(seller)).expect(201)).body;
+      await api().post(`/listings/${draft.id}/publish`).set(as(seller)).send({}).expect(400);
+      await api().patch(`/listings/${draft.id}`).set(as(seller)).send({ pickupAddress: validListing.pickupAddress }).expect(200);
       const published = (await api().post(`/listings/${draft.id}/publish`).set(as(seller)).send({}).expect(200)).body;
       expect(published.status).toBe("PUBLISHED");
     });
@@ -449,6 +475,7 @@ describe("listings", () => {
       expect(new Set(results.map((r) => r.body.id)).size).toBe(1);
       expect(await prisma.listing.count({ where: { relistedFromId: old.id } })).toBe(1);
       const draftId = results[0]!.body.id;
+      await api().patch(`/listings/${draftId}`).set(as(seller)).send({ pickupAddress: validListing.pickupAddress }).expect(200);
       await api().post(`/listings/${draftId}/publish`).set(as(seller)).send({}).expect(200);
       const again = await api().post(`/listings/${old.id}/relist`).set(as(seller)).expect(201);
       expect(again.body.id).not.toBe(draftId);

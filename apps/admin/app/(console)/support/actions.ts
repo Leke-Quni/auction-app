@@ -40,3 +40,15 @@ export async function clearStrikeAndCloseAction(_: ActionResult, formData: FormD
   revalidatePath("/support");
   return changed ? {} : { error: "Another admin already closed this request, so nothing was changed." };
 }
+
+// Grants a ban appeal: one API call lifts the ban and closes the request together.
+export async function liftBanAndCloseAction(_: ActionResult, formData: FormData): Promise<ActionResult> {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  if (!id) return {};
+  const res = await adminApiFetch(`/admin/support/${encodeURIComponent(id)}/lift-ban`, { method: "POST" });
+  if (!res.ok) return failure(res, "Could not lift the ban");
+  const { changed } = (await res.json()) as { changed: boolean };
+  revalidatePath("/support");
+  return changed ? {} : { error: "Another admin already closed this request, so nothing was changed." };
+}

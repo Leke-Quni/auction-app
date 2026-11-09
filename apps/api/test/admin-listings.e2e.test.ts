@@ -131,6 +131,10 @@ describe("an admin removing a listing", () => {
     expect(toSeller[0].text).toContain("A moderator ended your auction");
     expect(toSeller[0].text).toContain("Reason: Counterfeit goods");
     expect(await prisma.notification.findMany({ where: { userId: seller.id, listingId: l.id } })).toMatchObject([{ type: "LISTING_REMOVED", key: `removed:${l.id}`, data: { reason: "Counterfeit goods" }, readAt: null }]);
+    // Everyone who bid gets a bell entry too (their email is the "auction ended" one), flagged as a bidder's.
+    for (const bidder of [a, b]) {
+      expect(await prisma.notification.findMany({ where: { userId: bidder.id, listingId: l.id, type: "LISTING_REMOVED" } })).toMatchObject([{ key: `removed:${l.id}`, data: { reason: "Counterfeit goods", bidder: true }, readAt: null }]);
+    }
     expect(closed).toContainEqual({ type: "AuctionClosed", listingId: l.id, outcome: "NO_SALE", winnerId: null, finalPriceCents: null });
     expect(removedFromSearch).toContain(l.id);
   });
@@ -238,7 +242,27 @@ describe("an admin removing a listing", () => {
     const { l, b } = await biddingWar(seller);
     const res = (await request(url).get(`/admin/listings/${l.id}`).set(admin.auth).expect(200)).body;
     expect(res).toMatchObject({ id: l.id, title: l.title, status: "PUBLISHED", phase: "live", bidCount: 2, currentBidCents: 3000, reservePriceCents: 2000, seller: { id: seller.id, username: seller.username }, highBidder: { id: b.id }, removal: null });
+    expect(Array.isArray(res.images)).toBe(true);
+    expect(typeof res.description).toBe("string");
+    expect(res.description.length).toBeGreaterThan(0);
+    await prisma.listingImage.createMany({ data: [{ listingId: l.id, url: "https://x.public.blob.vercel-storage.com/listings/u/b.jpg", pathname: "listings/u/b.jpg", position: 1 }, { listingId: l.id, url: "https://x.public.blob.vercel-storage.com/listings/u/a.jpg", pathname: "listings/u/a.jpg", position: 0 }] });
+    expect((await request(url).get(`/admin/listings/${l.id}`).set(admin.auth).expect(200)).body.images).toEqual(["https://x.public.blob.vercel-storage.com/listings/u/a.jpg", "https://x.public.blob.vercel-storage.com/listings/u/b.jpg"]);
     await request(url).get("/admin/listings/nope").set(admin.auth).expect(404);
+  });
+
+  it("shows a removed listing to the public without its words or photos, but the seller still sees them", async () => {
+    const admin = await person("ADMIN");
+    const seller = await person();
+    const { l } = await biddingWar(seller);
+    await prisma.listingImage.create({ data: { listingId: l.id, url: "https://x.public.blob.vercel-storage.com/listings/u/a.jpg", pathname: "listings/u/a.jpg", position: 0 } });
+    await remove(admin, l.id, { reason: "Offensive" }).expect(200);
+
+    const visitor = (await request(url).get(`/listings/${l.id}`).expect(200)).body;
+    expect(visitor).toMatchObject({ removed: true, title: "Removed by moderation", description: "", images: [], seller: { id: seller.id } });
+    expect(JSON.stringify(visitor)).not.toContain(l.title);
+    const owner = (await request(url).get(`/listings/${l.id}`).set(seller.auth).expect(200)).body;
+    expect(owner).toMatchObject({ removed: true, title: l.title, description: "For the admin removal tests." });
+    expect(owner.images).toHaveLength(1);
   });
 
   it("lists published listings by state and search, and counts open reports on the overview, for admins only", async () => {

@@ -1,17 +1,17 @@
 import Link from "next/link";
 import { adminApiFetch } from "@/lib/api";
 import { requireAdmin } from "@/lib/require-admin";
-import { clearStrikeAndCloseAction, handleSupportAction } from "./actions";
+import { clearStrikeAndCloseAction, handleSupportAction, liftBanAndCloseAction } from "./actions";
 import { ConfirmForm } from "./confirm-form";
 
 interface Request {
   id: string;
-  kind: "GENERAL" | "STRIKE_APPEAL";
+  kind: "GENERAL" | "STRIKE_APPEAL" | "BAN_APPEAL";
   status: "OPEN" | "HANDLED";
   message: string;
   createdAt: string;
   handledAt: string | null;
-  user: { id: string; username: string; email: string; strikeCount: number };
+  user: { id: string; username: string; email: string; strikeCount: number; banned: boolean; banReason: string | null };
   strike: { id: string; createdAt: string; reason: string | null; givenByAdmin: boolean; listingTitle: string | null } | null;
 }
 
@@ -31,7 +31,7 @@ export default async function Support({ searchParams }: { searchParams: Promise<
   return (
     <div className="space-y-3">
       <h1 className="text-lg font-bold">Support</h1>
-      <p className="text-muted">Questions and strike appeals sent through the support form. Answer by email to the address shown, then close the request here.</p>
+      <p className="text-muted">Questions, strike appeals and ban appeals (written from the suspended page) sent through the support form. Strike appeals email the person when you clear the strike or refuse; for a question, answer by email to the address shown, then close the request here.</p>
       <div className="flex gap-2">
         {tab("OPEN", `Open (${openCount})`)}
         {tab("HANDLED", "Handled")}
@@ -44,7 +44,7 @@ export default async function Support({ searchParams }: { searchParams: Promise<
             <li key={r.id} className="space-y-2 rounded border border-line bg-panel p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p>
-                  <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${r.kind === "STRIKE_APPEAL" ? "bg-warn-soft text-warn" : "bg-info-soft text-info"}`}>{r.kind === "STRIKE_APPEAL" ? "Strike appeal" : "Question"}</span>{" "}
+                  <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${r.kind === "GENERAL" ? "bg-info-soft text-info" : "bg-warn-soft text-warn"}`}>{r.kind === "STRIKE_APPEAL" ? "Strike appeal" : r.kind === "BAN_APPEAL" ? "Ban appeal" : "Question"}</span>{" "}
                   <Link href={`/users/${r.user.id}`} className="text-accent underline">
                     @{r.user.username}
                   </Link>{" "}
@@ -55,11 +55,17 @@ export default async function Support({ searchParams }: { searchParams: Promise<
                 </p>
                 {r.status === "OPEN" && (
                   <div className="flex gap-2">
-                    {r.kind === "STRIKE_APPEAL" && r.strike && <ConfirmForm action={clearStrikeAndCloseAction} fields={{ id: r.id, strikeId: r.strike.id }} label="Clear the strike and close" confirm={`Clear this strike for @${r.user.username} and close the request? They are not emailed: write to them yourself.`} tone="primary" />}
-                    <ConfirmForm action={handleSupportAction} fields={{ id: r.id }} label={r.kind === "STRIKE_APPEAL" && r.strike ? "Refuse and close" : "Mark handled"} confirm="Close this request? They are not emailed: write to them yourself." tone="plain" />
+                    {r.kind === "STRIKE_APPEAL" && r.strike && <ConfirmForm action={clearStrikeAndCloseAction} fields={{ id: r.id, strikeId: r.strike.id }} label="Clear the strike and close" confirm={`Clear this strike for @${r.user.username} and close the request? They are emailed that it was accepted.`} tone="primary" />}
+                    {r.kind === "BAN_APPEAL" && r.user.banned && <ConfirmForm action={liftBanAndCloseAction} fields={{ id: r.id }} label="Unban and close" confirm={`Lift the ban on @${r.user.username} and close the request? They are emailed that their account was restored.`} tone="primary" />}
+                    <ConfirmForm action={handleSupportAction} fields={{ id: r.id }} label={r.kind === "STRIKE_APPEAL" && r.strike ? "Refuse and close" : r.kind === "BAN_APPEAL" && r.user.banned ? "Refuse and close" : "Mark handled"} confirm={(r.kind === "STRIKE_APPEAL" && r.strike) || (r.kind === "BAN_APPEAL" && r.user.banned) ? "Refuse this appeal and close the request? They are emailed that it was denied." : "Close this request? They are not emailed: write to them yourself."} tone="plain" />
                   </div>
                 )}
               </div>
+              {r.kind === "BAN_APPEAL" && (
+                <p className="rounded bg-page p-2 text-muted">
+                  {r.user.banned ? `Banned. Reason: ${r.user.banReason ?? "none given"}.` : "This account is not banned any more."} "Unban and close" lifts it and emails the person that their account was restored.
+                </p>
+              )}
               {r.kind === "STRIKE_APPEAL" && (
                 <p className="rounded bg-page p-2 text-muted">
                   {r.strike ? (
