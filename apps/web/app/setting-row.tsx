@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useRef, useState } from "react";
 import type { FormState } from "./actions";
 import { FieldInput, type Field } from "./fields-form";
+import { useUnsavedChanges } from "./use-unsaved-changes";
 
 // Shows a setting's current value with an Edit button. Edit opens a small form in place.
 // The form stays mounted while closed (just hidden), so its fields keep their state and Cancel can reset them.
@@ -22,6 +23,7 @@ export function SettingRow({
   const [editing, setEditing] = useState(false);
   const [state, formAction, pending] = useActionState(action, {});
   const formRef = useRef<HTMLFormElement>(null);
+  useUnsavedChanges(formRef, editing);
 
   useEffect(() => {
     if (state.ok) setEditing(false);

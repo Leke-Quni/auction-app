@@ -71,6 +71,11 @@ export async function saveListingAction(_: SellFormState, formData: FormData): P
     }
     redirect(`/sell/${created.id}/edit`);
   }
+  // The photos picked on this page are saved together with the rest.
+  if (formData.has("photos")) {
+    const saved = await saveImagesAction(id, readPhotoUrls(formData.get("photos")));
+    if (saved.error) return { error: `Your changes were saved, but the photos were not: ${saved.error}` };
+  }
   revalidatePath(`/sell/${id}/edit`);
   return { ok: "Saved." };
 }

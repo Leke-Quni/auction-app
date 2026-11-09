@@ -2,10 +2,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { upload, saveImagesAction } = vi.hoisted(() => ({ upload: vi.fn(), saveImagesAction: vi.fn(async () => ({})) }));
+const { upload } = vi.hoisted(() => ({ upload: vi.fn() }));
 vi.mock("@vercel/blob/client", () => ({ uploadPresigned: upload }));
 vi.mock("./actions", () => ({
-  saveImagesAction,
   saveListingAction: vi.fn(async () => ({})),
   publishListingAction: vi.fn(async () => ({})),
   updatePickupAddressAction: vi.fn(async () => ({})),
@@ -44,27 +43,22 @@ describe("ListingEditor", () => {
     expect(publishButton().disabled).toBe(false);
   });
 
-  it("draft with no photos cannot be published until one is added", async () => {
+  it("draft with no saved photos cannot be published; photos picked but not saved do not count", async () => {
     upload.mockResolvedValue({ url: url("new") });
     render(<ListingEditor categories={categories} listing={listing} userId="u1" initialPhotos={[]} />);
     expect(publishButton().disabled).toBe(true);
     expect(screen.getByText("Add at least one photo to publish.")).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("Photo files"), { target: { files: [new File([new Uint8Array(10)], "a.jpg", { type: "image/jpeg" })] } });
-    await waitFor(() => expect(saveImagesAction).toHaveBeenCalledWith("L1", [url("new")]));
-    await waitFor(() => expect(publishButton().disabled).toBe(false));
+    await waitFor(() => expect(screen.getByText("Photos (1/8)")).toBeTruthy());
+    expect(publishButton().disabled).toBe(true);
+    expect(screen.getByText(/You have unsaved changes, including photos/)).toBeTruthy();
   });
 
-  it("removing the last photo disables Publish again", async () => {
-    render(<ListingEditor categories={categories} listing={listing} userId="u1" initialPhotos={[url("a")]} />);
-    fireEvent.click(screen.getByRole("button", { name: "Remove photo 1" }));
-    await waitFor(() => expect(publishButton().disabled).toBe(true));
-  });
-
-  it("published: photos sit below the form, and there is no Publish panel", () => {
+  it("published: photos sit inside the form with the description, and there is no Publish panel", () => {
     render(<ListingEditor categories={categories} listing={{ ...listing, status: "PUBLISHED" }} userId="u1" initialPhotos={[url("a")]} />);
     const form = screen.getByRole("button", { name: "Save" }).closest("form")!;
-    expect(form.contains(screen.getByRole("heading", { name: /Photos/ }))).toBe(false);
+    expect(form.contains(screen.getByRole("heading", { name: /Photos/ }))).toBe(true);
     expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
   });
 

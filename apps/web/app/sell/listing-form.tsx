@@ -1,9 +1,10 @@
 "use client";
 
 import { AUCTION_DURATIONS, CONDITION_LABELS, LISTING_CONDITIONS, SHIPPING_COUNTRIES, formatDuration, formatEur, type ShippingAddress } from "@auction/shared";
-import { useActionState, type ReactNode } from "react";
+import { useActionState, useRef, type ReactNode } from "react";
 import { AddressFields } from "../address-fields";
 import { saveListingAction } from "./actions";
+import { useUnsavedChanges } from "../use-unsaved-changes";
 
 export interface FormListing {
   id: string;
@@ -30,15 +31,20 @@ export function ListingForm({
   listing,
   photos,
   defaultPickup,
+  onUnsavedChange,
 }: {
   categories: { id: string; name: string }[];
   listing?: FormListing;
   photos?: ReactNode;
   // The seller's saved default pickup address, offered when the listing has none of its own.
   defaultPickup?: ShippingAddress | null;
+  // Told whenever the form gains or loses edits that are not saved yet.
+  onUnsavedChange?: (unsaved: boolean) => void;
 }) {
   const [state, formAction, pending] = useActionState(saveListingAction, {});
   const published = listing?.status === "PUBLISHED";
+  const formRef = useRef<HTMLFormElement>(null);
+  useUnsavedChanges(formRef, true, state.ok, onUnsavedChange);
 
   const description = (
     <label className="block">
@@ -56,7 +62,7 @@ export function ListingForm({
   );
 
   return (
-    <form action={formAction} className="space-y-3">
+    <form ref={formRef} action={formAction} className="space-y-3">
       {listing && <input type="hidden" name="listingId" value={listing.id} />}
 
       {published ? (
@@ -82,6 +88,7 @@ export function ListingForm({
             </tbody>
           </table>
           {description}
+          {photos}
         </div>
       ) : (
         <>

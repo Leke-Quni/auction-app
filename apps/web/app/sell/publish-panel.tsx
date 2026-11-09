@@ -6,7 +6,7 @@ import { deleteListingAction, publishListingAction } from "./actions";
 
 const toLocalInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 
-export function PublishPanel({ listingId, photoCount, durationDays }: { listingId: string; photoCount: number; durationDays: number }) {
+export function PublishPanel({ listingId, photoCount, durationDays, unsaved = false }: { listingId: string; photoCount: number; durationDays: number; unsaved?: boolean }) {
   const [when, setWhen] = useState<"now" | "later">("now");
   const [startsAt, setStartsAt] = useState("");
   const [error, setError] = useState("");
@@ -53,12 +53,17 @@ export function PublishPanel({ listingId, photoCount, durationDays }: { listingI
           className="border border-[#888] bg-white p-1.5 text-sm"
         />
       )}
-      {photoCount === 0 && <p className="text-xs text-muted">Add at least one photo to publish.</p>}
+      {unsaved && (
+        <p role="status" className="border border-l-4 border-time-warn border-l-time-warn bg-[#fff7e6] p-2 font-bold">
+          You have unsaved changes, including photos. Press Save above before publishing.
+        </p>
+      )}
+      {photoCount === 0 && !unsaved && <p className="text-xs text-muted">Add at least one photo to publish.</p>}
       {error && <p className="text-urgent">{error}</p>}
       <div className="flex gap-2">
         <button
           onClick={publish}
-          disabled={pending || photoCount === 0}
+          disabled={pending || photoCount === 0 || unsaved}
           className="cursor-pointer bg-brand px-3 py-1 font-bold text-white hover:bg-brand-dark disabled:opacity-60"
         >
           {pending ? "..." : "Publish"}

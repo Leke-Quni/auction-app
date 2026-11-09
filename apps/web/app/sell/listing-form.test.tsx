@@ -89,9 +89,9 @@ describe("ListingForm", () => {
     }
   });
 
-  it("does not render the photo slot inside the locked form of a published listing", () => {
+  it("renders the photo slot inside the form of a published listing, so photos save with the description", () => {
     render(<ListingForm categories={categories} listing={{ ...listing, status: "PUBLISHED" }} photos={<div data-testid="photos">photos</div>} />);
-    expect(screen.queryByTestId("photos")).toBeNull();
+    expect(screen.getByTestId("photos").closest("form")).toBeTruthy();
   });
 
   it("offers the seller's default pickup address on a new listing, with a Save as default box only when there is none", () => {
