@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const { upload } = vi.hoisted(() => ({ upload: vi.fn() }));
 vi.mock("@vercel/blob/client", () => ({ uploadPresigned: upload }));
 vi.mock("./actions", () => ({
-  saveListingAction: vi.fn(async () => ({})),
+  saveListingAction: vi.fn(async () => ({ ok: "Saved." })),
   publishListingAction: vi.fn(async () => ({})),
   updatePickupAddressAction: vi.fn(async () => ({})),
   deleteListingAction: vi.fn(async () => ({})),
@@ -78,5 +78,23 @@ describe("ListingEditor", () => {
     render(<ListingEditor categories={categories} listing={listing} userId="u1" initialPhotos={[url("a")]} />);
     expect(screen.queryByRole("button", { name: "Remove listing" })).toBeNull();
     confirmSpy.mockRestore();
+  });
+
+  it("is clean again after every save, not only the first, even though the message is always 'Saved.'", async () => {
+    render(<ListingEditor categories={categories} listing={listing} userId="u1" initialPhotos={[url("a")]} />);
+    const title = screen.getByDisplayValue("Vintage wristwatch");
+    const form = title.closest("form")!;
+    const note = () => screen.queryByText(/Press Save above before publishing/);
+
+    fireEvent.input(title, { target: { value: "Vintage watch" } });
+    expect(note()).toBeTruthy();
+    fireEvent.submit(form);
+    await waitFor(() => expect(note()).toBeNull());
+
+    fireEvent.input(title, { target: { value: "Vintage watch, boxed" } });
+    expect(note()).toBeTruthy();
+    fireEvent.submit(form);
+    await waitFor(() => expect(note()).toBeNull());
+    expect(publishButton().disabled).toBe(false);
   });
 });

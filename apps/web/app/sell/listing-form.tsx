@@ -1,7 +1,7 @@
 "use client";
 
 import { AUCTION_DURATIONS, CONDITION_LABELS, LISTING_CONDITIONS, SHIPPING_COUNTRIES, formatDuration, formatEur, type ShippingAddress } from "@auction/shared";
-import { useActionState, useRef, type ReactNode } from "react";
+import { useActionState, useEffect, useRef, useState, type ReactNode } from "react";
 import { AddressFields } from "../address-fields";
 import { saveListingAction } from "./actions";
 import { useUnsavedChanges } from "../use-unsaved-changes";
@@ -44,7 +44,12 @@ export function ListingForm({
   const [state, formAction, pending] = useActionState(saveListingAction, {});
   const published = listing?.status === "PUBLISHED";
   const formRef = useRef<HTMLFormElement>(null);
-  useUnsavedChanges(formRef, true, state.ok, onUnsavedChange);
+  // Every successful save counts, even though its message is always the same text: the form is clean again after each one.
+  const [saves, setSaves] = useState(0);
+  useEffect(() => {
+    if (state.ok) setSaves((n) => n + 1);
+  }, [state]);
+  useUnsavedChanges(formRef, true, saves, onUnsavedChange);
 
   const description = (
     <label className="block">
