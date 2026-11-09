@@ -30,7 +30,11 @@ export function describe(item: NotificationItem): { heading: string; text: strin
       ? { heading: "The item is yours to pay for", text: `The first buyer of ${item.title} did not pay, so it is offered to you at ${formatEur(item.data.finalPriceCents)}. Pay now.` }
       : { heading: "You won the auction", text: `${item.title} for ${formatEur(item.data.finalPriceCents)}. Pay now.` };
   }
-  if (item.type === "LISTING_REMOVED") return { heading: "Your listing was removed", text: `A moderator ended ${item.title}: ${item.data.reason}` };
+  if (item.type === "LISTING_REMOVED") {
+    return item.data.bidder
+      ? { heading: "An auction you bid on was ended", text: `A moderator ended ${item.title} with no winner, so your bid does not need to be paid: ${item.data.reason}` }
+      : { heading: "Your listing was removed", text: `A moderator ended ${item.title}: ${item.data.reason}` };
+  }
   if (item.type === "QUESTION_ASKED") return { heading: "New question", text: `${item.data.from} asked on ${item.title}: "${item.data.excerpt}"` };
   if (item.type === "QUESTION_ANSWERED") return { heading: "Your question was answered", text: `${item.data.from} answered on ${item.title}: "${item.data.excerpt}"` };
   return item.data.final

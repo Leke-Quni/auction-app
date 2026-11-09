@@ -11,10 +11,12 @@ interface Person {
 interface Listing {
   id: string;
   title: string;
+  description: string;
   status: "DRAFT" | "PUBLISHED";
   phase: "draft" | "upcoming" | "live" | "ended";
   seller: Person;
   highBidder: Person | null;
+  images: string[];
   bidCount: number;
   currentBidCents: number | null;
   startingPriceCents: number;
@@ -73,6 +75,27 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
           ))}
         </tbody>
       </table>
+      <div className="space-y-2 rounded border border-line bg-panel p-4">
+        <h2 className="font-bold">Description</h2>
+        <p className="whitespace-pre-wrap break-words">{l.description}</p>
+      </div>
+      <div className="space-y-2 rounded border border-line bg-panel p-4">
+        <h2 className="font-bold">Photos ({l.images.length})</h2>
+        {l.images.length === 0 ? (
+          <p className="text-muted">No photos.</p>
+        ) : (
+          <ul className="flex flex-wrap gap-2">
+            {l.images.map((url, i) => (
+              <li key={url}>
+                <a href={url} target="_blank" rel="noreferrer">
+                  <img src={url} alt={`Photo ${i + 1}`} className="h-28 w-28 rounded border border-line bg-page object-cover" />
+                </a>
+                {i === 0 && <span className="text-xs text-muted">Cover</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       <div className="space-y-2 rounded border border-line bg-panel p-4">
         {l.removal ? (
           <>

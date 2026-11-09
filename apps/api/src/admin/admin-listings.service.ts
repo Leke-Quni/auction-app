@@ -61,10 +61,11 @@ export class AdminListingsService {
     const l = await this.prisma.listing.findUnique({
       where: { id },
       select: {
-        id: true, title: true, status: true, startsAt: true, endsAt: true, closedAt: true, outcome: true, bidCount: true, currentBidCents: true, startingPriceCents: true,
+        id: true, title: true, description: true, status: true, startsAt: true, endsAt: true, closedAt: true, outcome: true, bidCount: true, currentBidCents: true, startingPriceCents: true,
         reservePriceCents: true, removedAt: true, removedById: true, removalReason: true,
         seller: { select: { id: true, username: true } },
         highBidder: { select: { id: true, username: true } },
+        images: { select: { url: true }, orderBy: { position: "asc" } },
       },
     });
     if (!l) throw new NotFoundException();
@@ -72,6 +73,7 @@ export class AdminListingsService {
     return {
       id: l.id,
       title: l.title,
+      description: l.description,
       status: l.status,
       phase: listingPhase(l, new Date()),
       seller: l.seller,
@@ -80,6 +82,7 @@ export class AdminListingsService {
       startingPriceCents: l.startingPriceCents,
       reservePriceCents: l.reservePriceCents,
       highBidder: l.highBidder,
+      images: l.images.map((i) => i.url),
       startsAt: l.startsAt?.toISOString() ?? null,
       endsAt: l.endsAt?.toISOString() ?? null,
       closedAt: l.closedAt?.toISOString() ?? null,
@@ -106,7 +109,24 @@ export class AdminListingsService {
       this.log.error(`Search removal failed for listing ${id}: ${error instanceof Error ? error.message : error}`);
     }
     await this.tellSeller(id, reason);
+    await this.tellBidders(id, reason);
     return this.get(id);
+  }
+
+  // A bell entry for everyone who bid on it (their email is queued by the close itself). Best effort: the removal has happened either way.
+  private async tellBidders(listingId: string, reason: string) {
+    try {
+      const listing = await this.prisma.listing.findUnique({ where: { id: listingId }, select: { title: true, sellerId: true } });
+      if (!listing) return;
+      const bids = await this.prisma.bid.findMany({ where: { listingId }, select: { bidderId: true }, distinct: ["bidderId"] });
+      const bidders = bids.map((b) => b.bidderId).filter((id) => id !== listing.sellerId);
+      if (bidders.length === 0) return;
+      const notice: RemovedNotice = { reason, bidder: true };
+      const unread = await this.saved.save(bidders, { type: "LISTING_REMOVED", key: `removed:${listingId}`, listingId, title: listing.title, data: notice });
+      for (const [userId, unreadCount] of unread) this.gateway.emitToUsers([userId], SOCKET_EVENTS.unread, { unreadCount } satisfies UnreadEvent);
+    } catch (error) {
+      this.log.error(`Could not notify the bidders of listing ${listingId}: ${error instanceof Error ? error.message : error}`);
+    }
   }
 
   // A bell entry for the seller (the email is queued by the close itself). Best effort: the removal has happened either way.

@@ -4,6 +4,7 @@ import { PRISMA, type Prisma } from "../db/db.module";
 export interface AuditQuery {
   adminId?: string;
   targetId?: string;
+  q?: string;
   limit: number;
 }
 
@@ -13,9 +14,14 @@ export interface AuditQuery {
 export class AdminAuditService {
   constructor(@Inject(PRISMA) private readonly prisma: Prisma) {}
 
-  async list({ adminId, targetId, limit }: AuditQuery) {
+  // `q` finds entries by the admin who acted: part of their username or email, or their id (which still works once the account is gone).
+  async list({ adminId, targetId, q, limit }: AuditQuery) {
+    const term = q?.trim();
+    const adminIds = term
+      ? [term, ...(await this.prisma.user.findMany({ where: { role: "ADMIN", OR: [{ username: { contains: term, mode: "insensitive" } }, { email: { contains: term, mode: "insensitive" } }, { id: term }] }, select: { id: true }, take: 50 })).map((u) => u.id)]
+      : null;
     const rows = await this.prisma.adminAction.findMany({
-      where: { ...(adminId ? { adminId } : {}), ...(targetId ? { targetId } : {}) },
+      where: { ...(adminId ? { adminId } : {}), ...(targetId ? { targetId } : {}), ...(adminIds ? { adminId: adminId ? { in: adminIds.filter((id) => id === adminId) } : { in: adminIds } } : {}) },
       orderBy: [{ createdAt: "desc" }, { id: "asc" }],
       take: limit,
     });
