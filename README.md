@@ -2,6 +2,14 @@
 
 A multi-seller timed-auction web app. See [docs/DESIGN.md](docs/DESIGN.md) for the design and build order.
 
+## Scope
+
+A portfolio project built to production-quality standards, not a launched service. Left out on purpose:
+
+- Real money and fulfilment: Stripe runs in test mode, and shipping and payouts use fake providers behind interfaces.
+- Legal and compliance: terms, privacy policy, tax/VAT and account deletion.
+- Operations: monitoring, alerting and backup drills. It runs on free tiers.
+
 ## Requirements
 
 - Node 24 and Docker Desktop
