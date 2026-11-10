@@ -5,6 +5,7 @@ import { paymentWindowHours, platformFeeCapCents, platformFeePercent } from "../
 import { PRISMA, type Prisma } from "../db/db.module";
 import { JOB_SCHEDULER, type JobScheduler } from "../jobs/job-scheduler";
 import { PAYMENT_PROVIDER, type PaymentProvider } from "../payments/payment-provider";
+import { queueMail } from "../email/mail-outbox";
 import { OrdersService } from "./orders.service";
 
 const SWEEP_EVERY_MS = 30_000;
@@ -115,11 +116,7 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
 
       // An email of the same kind still waiting from an earlier round is made due again rather than dropped, so this round is told too.
       for (const [userId, kind] of [[order.buyerId, "EXPIRED"], [order.sellerId, "NOT_PAID"]] as const) {
-        await tx.pendingEndEmail.upsert({
-          where: { userId_listingId_kind: { userId, listingId: order.listingId, kind } },
-          create: { userId, listingId: order.listingId, kind },
-          update: { dueAt: now, attempts: 0 },
-        });
+        await queueMail(tx, { userId, listingId: order.listingId, kind, dueAt: now });
       }
 
       if (qualifies) {
@@ -139,11 +136,7 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
         });
         // The listing's result follows the sale: the new buyer and what they pay.
         await tx.listing.update({ where: { id: order.listingId }, data: { winnerId: next.userId, finalPriceCents: next.amountCents } });
-        await tx.pendingEndEmail.upsert({
-          where: { userId_listingId_kind: { userId: next.userId, listingId: order.listingId, kind: "WON" } },
-          create: { userId: next.userId, listingId: order.listingId, kind: "WON" },
-          update: { dueAt: now, attempts: 0 },
-        });
+        await queueMail(tx, { userId: next.userId, listingId: order.listingId, kind: "WON", dueAt: now });
       } else {
         await tx.listing.update({ where: { id: order.listingId }, data: { outcome: "NO_SALE", winnerId: null, finalPriceCents: null } });
       }

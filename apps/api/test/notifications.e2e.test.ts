@@ -11,7 +11,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { AuctionCloseService } from "../src/auctions/auction-close.service";
 import { OrderExpiryService } from "../src/orders/order-expiry.service";
-import { AuctionEndEmailService } from "../src/auctions/auction-end-email.service";
+import { MailOutbox } from "../src/email/mail-outbox.service";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
 import { MAIL_SENDER, type MailSender } from "../src/email/mail-sender";
@@ -367,7 +367,7 @@ describe("bid notifications", () => {
       sent.length = 0;
       await flushEmails();
       await app.get(AuctionCloseService).close(listing.id); // not sweep(): that returns at once if the background sweep is mid-run
-      await app.get(AuctionEndEmailService).sweep();
+      await app.get(MailOutbox).sweep();
       const about = sent.filter((m) => m.text.includes(`/listings/${listing.id}`));
       expect(about).toHaveLength(1); // not one from each
       expect(about[0].to).toBe(anna.email);

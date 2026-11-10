@@ -1,6 +1,7 @@
 import { Prisma as PrismaNamespace } from "@auction/db";
 import { ForbiddenException, HttpException, HttpStatus, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { queueMail } from "../email/mail-outbox";
 import { listingCardInclude, toListingCard } from "../listings/listing-card";
 
 const DAY_MS = 24 * 3600_000;
@@ -30,11 +31,7 @@ export class WatchlistService {
         const added = await tx.watch.createMany({ data: { userId, listingId }, skipDuplicates: true });
         // An auction already inside its last 24 hours owes no email: the reminder would be late by definition.
         if (added.count > 0 && dueAt.getTime() > Date.now()) {
-          await tx.pendingEndEmail.upsert({
-            where: { userId_listingId_kind: { userId, listingId, kind: "ENDING_SOON" } },
-            create: { userId, listingId, kind: "ENDING_SOON", dueAt },
-            update: { dueAt, attempts: 0 },
-          });
+          await queueMail(tx, { userId, listingId, kind: "ENDING_SOON", dueAt });
         }
       });
     } catch (error) {

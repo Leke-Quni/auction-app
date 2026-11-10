@@ -7,7 +7,7 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { AuctionCloseService } from "../src/auctions/auction-close.service";
-import { AuctionEndEmailService } from "../src/auctions/auction-end-email.service";
+import { MailOutbox } from "../src/email/mail-outbox.service";
 import { AuctionEvents, type AuctionEvent } from "../src/bids/auction-events";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
@@ -33,7 +33,7 @@ describe("orders that are not paid in time", () => {
   let prisma: Prisma;
   let closer: AuctionCloseService;
   let expiry: OrderExpiryService;
-  let emails: AuctionEndEmailService;
+  let emails: MailOutbox;
   let provider: FakePaymentProvider;
   let categoryId: string;
   let seller: Person;
@@ -58,7 +58,7 @@ describe("orders that are not paid in time", () => {
     prisma = app.get(PRISMA);
     closer = app.get(AuctionCloseService);
     expiry = app.get(OrderExpiryService);
-    emails = app.get(AuctionEndEmailService);
+    emails = app.get(MailOutbox);
     app.get(AuctionEvents).stream.subscribe((e) => events.push(e));
     categoryId = (await prisma.category.findFirstOrThrow()).id;
     [seller] = await makePeople(1);

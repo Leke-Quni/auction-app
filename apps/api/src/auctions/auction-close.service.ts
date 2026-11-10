@@ -4,6 +4,7 @@ import { AuctionEvents } from "../bids/auction-events";
 import { paymentWindowHours, platformFeeCapCents, platformFeePercent } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { JOB_SCHEDULER, type JobScheduler } from "../jobs/job-scheduler";
+import { queueMail } from "../email/mail-outbox";
 
 const SWEEP_EVERY_MS = 10_000;
 const SWEEP_BATCH = 100;
@@ -94,7 +95,7 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
         SELECT gen_random_uuid()::text, b."bidderId", ${listingId}, 'LOST'::"EndEmailKind" FROM (SELECT DISTINCT "bidderId" FROM "Bid" WHERE "listingId" = ${listingId}) b
         WHERE b."bidderId" IS DISTINCT FROM ${closed.winnerId}
         ON CONFLICT ("userId", "listingId", "kind") DO NOTHING`;
-      if (removal) await tx.pendingEndEmail.create({ data: { userId: closed.sellerId, listingId, kind: "REMOVED" } });
+      if (removal) await queueMail(tx, { userId: closed.sellerId, listingId, kind: "REMOVED" });
       if (closed.outcome === "SOLD" && closed.winnerId && closed.finalPriceCents != null) {
         const listing = await tx.listing.findUnique({ where: { id: listingId }, select: { pickupAddress: true } });
         const feeCents = platformFeeCents(closed.finalPriceCents, platformFeePercent(), platformFeeCapCents());
@@ -110,7 +111,7 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
             payBy: new Date(closed.closedAt.getTime() + paymentWindowHours() * 3600_000),
           },
         });
-        await tx.pendingEndEmail.create({ data: { userId: closed.winnerId, listingId, kind: "WON" } });
+        await queueMail(tx, { userId: closed.winnerId, listingId, kind: "WON" });
       }
       await tx.$executeRaw`DELETE FROM "PendingOutbidEmail" WHERE "listingId" = ${listingId}`;
       await tx.$executeRaw`

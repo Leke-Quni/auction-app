@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { payoutDelayDays } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { queueMail } from "../email/mail-outbox";
 import { PAYMENT_PROVIDER, type PaymentProvider } from "../payments/payment-provider";
 
 const SWEEP_EVERY_MS = 60_000;
@@ -52,11 +53,7 @@ export class PayoutService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.$transaction(async (tx) => {
       const saved = await tx.payout.createMany({ data: { orderId: order.id, sellerId: order.sellerId, amountCents: order.sellerNetCents, reference }, skipDuplicates: true });
       if (saved.count === 0) return false;
-      await tx.pendingEndEmail.upsert({
-        where: { userId_listingId_kind: { userId: order.sellerId, listingId: order.listingId, kind: "PAYOUT" } },
-        create: { userId: order.sellerId, listingId: order.listingId, kind: "PAYOUT" },
-        update: {},
-      });
+      await queueMail(tx, { userId: order.sellerId, listingId: order.listingId, kind: "PAYOUT" });
       return true;
     });
   }

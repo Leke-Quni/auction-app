@@ -197,7 +197,7 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     if (listing.highBidderId === userId) return; // back in front
     if (await this.gateway.isWatching(userId, listingId)) return; // sees it on the page
     // Once the auction has ended, the close sends everyone who did not win an "auction ended" email with the final price
-    // (AuctionEndEmailService), so this one would be a second email about the same thing.
+    // (MailOutbox), so this one would be a second email about the same thing.
     if (listing.endsAt.getTime() <= Date.now()) return;
     // A retry takes the slot again but is not stopped by it: an earlier try may have taken the slot and never sent.
     const quietKey = `rl:outbid-email:${userId}:${listingId}`;
