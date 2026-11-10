@@ -2,6 +2,7 @@ import { formatEur, PAYMENT_REMINDER_HOURS, SOCKET_EVENTS, type WonNotice } from
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { webUrl } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { runEvery } from "../jobs/sweep-support";
 import { timeLeft, utc } from "../email/format";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
 import { notificationKey } from "../notifications/notification-keys";
@@ -31,7 +32,7 @@ interface DueOrder {
 @Injectable()
 export class PaymentReminderService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(PaymentReminderService.name);
-  private timer?: ReturnType<typeof setInterval>;
+  private stop?: () => void;
   private running?: Promise<number>;
 
   constructor(
@@ -42,13 +43,12 @@ export class PaymentReminderService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    this.timer = setInterval(() => void this.sweep(), SWEEP_EVERY_MS);
-    this.timer.unref();
+    this.stop = runEvery(SWEEP_EVERY_MS, () => this.sweep());
     void this.sweep();
   }
 
   onModuleDestroy() {
-    clearInterval(this.timer);
+    this.stop?.();
   }
 
   // A call while a sweep is under way waits for it and then makes a pass of its own, so it never returns before the orders

@@ -6,6 +6,7 @@ import { AuctionEvents } from "../bids/auction-events";
 import type { BidResult } from "../bids/bids.service";
 import { outbidEmailDelaySeconds, outbidEmailQuietSeconds, webUrl } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { runEvery } from "../jobs/sweep-support";
 import { utc } from "../email/format";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
 import { notificationKey } from "../notifications/notification-keys";
@@ -39,11 +40,10 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     private readonly notify: Notify,
   ) {}
 
-  private timer?: ReturnType<typeof setInterval>;
+  private stop?: () => void;
 
   onModuleInit() {
-    this.timer = setInterval(() => void this.sweep(), SWEEP_EVERY_MS);
-    this.timer.unref();
+    this.stop = runEvery(SWEEP_EVERY_MS, () => this.sweep());
     void this.sweep();
     this.subscription = this.events.stream.subscribe((event) => {
       if (event.type === "AuctionClosed") {
@@ -65,7 +65,7 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleDestroy() {
-    clearInterval(this.timer);
+    this.stop?.();
     this.subscription?.unsubscribe();
   }
 

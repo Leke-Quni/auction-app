@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { AuctionEvents } from "../bids/auction-events";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { FailureBackoff, runEvery } from "../jobs/sweep-support";
 import { JOB_SCHEDULER, type JobScheduler } from "../jobs/job-scheduler";
 import { queueMail } from "../email/mail-outbox";
 import { offerItem } from "../orders/offer-item";
@@ -27,9 +28,9 @@ interface ClosedRow {
 @Injectable()
 export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(AuctionCloseService.name);
-  private timer?: ReturnType<typeof setInterval>;
+  private stop?: () => void;
   private sweeping = false;
-  private readonly failedUntil = new Map<string, number>();
+  private readonly failed = new FailureBackoff(RETRY_FAILED_AFTER_MS);
 
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
@@ -38,13 +39,12 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    this.timer = setInterval(() => void this.sweep(), SWEEP_EVERY_MS);
-    this.timer.unref();
+    this.stop = runEvery(SWEEP_EVERY_MS, () => this.sweep());
     void this.sweep();
   }
 
   onModuleDestroy() {
-    clearInterval(this.timer);
+    this.stop?.();
   }
 
   // Returns true when this call closed the auction. In the same transaction, everyone who bid and did not win is owed an
@@ -117,9 +117,7 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
     this.sweeping = true;
     let closed = 0;
     try {
-      const now = Date.now();
-      for (const [id, until] of this.failedUntil) if (until <= now) this.failedUntil.delete(id);
-      const skip = [...this.failedUntil.keys()];
+      const skip = this.failed.skipping();
       const due = await this.prisma.$queryRaw<{ id: string }[]>`
         SELECT "id" FROM "Listing"
         WHERE "status" = 'PUBLISHED' AND "closedAt" IS NULL AND "endsAt" <= clock_timestamp()
@@ -129,7 +127,7 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
         try {
           if (await this.close(id)) closed++;
         } catch (error) {
-          this.failedUntil.set(id, Date.now() + RETRY_FAILED_AFTER_MS);
+          this.failed.fail(id);
           this.log.error(`Could not close listing ${id}: ${(error as Error).message}`);
         }
       }

@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nest
 import type { Subscription } from "rxjs";
 import { AuctionEvents } from "../bids/auction-events";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { runEvery } from "../jobs/sweep-support";
 import { MAIL_SENDER, type MailSender } from "./mail-sender";
 import type { OutboxKind } from "./mail-outbox";
 import { sendOutboxMail } from "./outbox-messages";
@@ -21,7 +22,7 @@ const REMINDER_BATCH = 25;
 @Injectable()
 export class MailOutbox implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(MailOutbox.name);
-  private timer?: ReturnType<typeof setInterval>;
+  private stop?: () => void;
   private subscription?: Subscription;
   private running?: Promise<void>;
   private again = false;
@@ -33,8 +34,7 @@ export class MailOutbox implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    this.timer = setInterval(() => void this.sweep(), SWEEP_EVERY_MS);
-    this.timer.unref();
+    this.stop = runEvery(SWEEP_EVERY_MS, () => this.sweep());
     void this.sweep();
     this.subscription = this.events.stream.subscribe((event) => {
       if (event.type === "AuctionClosed" || event.type === "OrderExpired") void this.sweep();
@@ -42,7 +42,7 @@ export class MailOutbox implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleDestroy() {
-    clearInterval(this.timer);
+    this.stop?.();
     this.subscription?.unsubscribe();
   }
 

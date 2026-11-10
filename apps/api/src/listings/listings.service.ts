@@ -26,6 +26,7 @@ import type { Prisma as PrismaTypes } from "@auction/db";
 import { JOB_SCHEDULER, type JobScheduler } from "../jobs/job-scheduler";
 import { REMOVED_TITLE } from "./listing-card";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { runEvery } from "../jobs/sweep-support";
 import { SEARCH_INDEX, type ListingDocument, type SearchIndex } from "../search/search-index";
 import { isSellerImage } from "./seller-image";
 
@@ -105,7 +106,7 @@ const toDocument = (l: ListingRow, now = new Date()): ListingDocument | null => 
 @Injectable()
 export class ListingsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ListingsService.name);
-  private sweepTimer?: NodeJS.Timeout;
+  private stop?: () => void;
 
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
@@ -115,12 +116,11 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit() {
     await this.sweepSearch();
-    this.sweepTimer = setInterval(() => void this.sweepSearch(), SEARCH_SWEEP_MS);
-    this.sweepTimer.unref();
+    this.stop = runEvery(SEARCH_SWEEP_MS, () => this.sweepSearch());
   }
 
   onModuleDestroy() {
-    clearInterval(this.sweepTimer);
+    this.stop?.();
   }
 
   // Rebuilds the search index from Postgres. Run it to repair the index after downtime or a schema change.

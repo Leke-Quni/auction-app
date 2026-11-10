@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { payoutDelayDays } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { FailureBackoff, runEvery } from "../jobs/sweep-support";
 import { queueMail } from "../email/mail-outbox";
 import { PAYMENT_PROVIDER, type PaymentProvider } from "../payments/payment-provider";
 
@@ -16,9 +17,9 @@ const RETRY_FAILED_AFTER_MS = 10 * 60_000;
 @Injectable()
 export class PayoutService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(PayoutService.name);
-  private timer?: ReturnType<typeof setInterval>;
+  private stop?: () => void;
   private sweeping = false;
-  private readonly failedUntil = new Map<string, number>();
+  private readonly failed = new FailureBackoff(RETRY_FAILED_AFTER_MS);
 
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
@@ -26,13 +27,12 @@ export class PayoutService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    this.timer = setInterval(() => void this.sweep(), SWEEP_EVERY_MS);
-    this.timer.unref();
+    this.stop = runEvery(SWEEP_EVERY_MS, () => this.sweep());
     void this.sweep();
   }
 
   onModuleDestroy() {
-    clearInterval(this.timer);
+    this.stop?.();
   }
 
   // Returns true if this call paid the order, false if it did nothing (not due, no ready account, already paid).
@@ -65,7 +65,6 @@ export class PayoutService implements OnModuleInit, OnModuleDestroy {
     let paid = 0;
     try {
       const now = Date.now();
-      for (const [id, until] of this.failedUntil) if (until <= now) this.failedUntil.delete(id);
       const due = await this.prisma.order.findMany({
         where: {
           status: "PAID",
@@ -73,7 +72,7 @@ export class PayoutService implements OnModuleInit, OnModuleDestroy {
           deliveredAt: { lte: new Date(now - payoutDelayDays() * 86_400_000) },
           payout: null,
           seller: { payoutAccountId: { not: null } },
-          id: { notIn: [...this.failedUntil.keys()] },
+          id: { notIn: this.failed.skipping() },
         },
         orderBy: { deliveredAt: "asc" },
         take: SWEEP_BATCH,
@@ -84,9 +83,9 @@ export class PayoutService implements OnModuleInit, OnModuleDestroy {
           if (await this.release(id)) paid++;
           // Due but not payable yet (the seller has not finished setting up their account): look again later, so a pile of
           // these cannot fill every batch or ask the provider about the same accounts every minute.
-          else this.failedUntil.set(id, Date.now() + RETRY_FAILED_AFTER_MS);
+          else this.failed.fail(id);
         } catch (error) {
-          this.failedUntil.set(id, Date.now() + RETRY_FAILED_AFTER_MS);
+          this.failed.fail(id);
           this.log.error(`Could not pay out order ${id}: ${(error as Error).message}`);
         }
       }
