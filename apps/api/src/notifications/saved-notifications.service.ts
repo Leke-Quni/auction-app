@@ -2,6 +2,7 @@ import { NOTIFICATION_LIST_SIZE, NOTIFICATION_TTL_DAYS, type NotificationItem, t
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { runEvery } from "../jobs/sweep-support";
 
 const DAY_MS = 24 * 3600_000;
 const PURGE_EVERY_MS = 60 * 60_000;
@@ -19,18 +20,17 @@ export interface NewNotification {
 @Injectable()
 export class SavedNotificationsService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(SavedNotificationsService.name);
-  private timer?: ReturnType<typeof setInterval>;
+  private stop?: () => void;
 
   constructor(@Inject(PRISMA) private readonly prisma: Prisma) {}
 
   onModuleInit() {
     void this.purgeExpired();
-    this.timer = setInterval(() => void this.purgeExpired(), PURGE_EVERY_MS);
-    this.timer.unref();
+    this.stop = runEvery(PURGE_EVERY_MS, () => this.purgeExpired());
   }
 
   onModuleDestroy() {
-    clearInterval(this.timer);
+    this.stop?.();
   }
 
   // Saves one notification for each person, as unread and as new as now, replacing any with the same key. Returns how

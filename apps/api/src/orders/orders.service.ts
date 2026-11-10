@@ -6,6 +6,8 @@ import { FakePaymentProvider } from "../payments/fake-payment-provider";
 import { PAYMENT_PROVIDER, type PaymentProvider } from "../payments/payment-provider";
 import { SHIPPING_PROVIDER, type ShippingProvider } from "../shipping/shipping-provider";
 import { deliveryOf, invoiceDataOf, renderInvoice } from "./invoice";
+import { queueMail } from "../email/mail-outbox";
+import { notificationKey } from "../notifications/notification-keys";
 import { payoutViewOf } from "./payout-view";
 
 const STATUS: Record<OrderRefusal, HttpStatus> = {
@@ -179,14 +181,9 @@ export class OrdersService {
         select: { buyerId: true, sellerId: true, listingId: true },
       });
       // The "pay now" notice has done its job.
-      await tx.notification.deleteMany({ where: { userId: order.buyerId, key: `won:${order.listingId}` } });
-      await tx.pendingEndEmail.createMany({
-        data: [
-          { userId: order.buyerId, listingId: order.listingId, kind: "PAID" },
-          { userId: order.sellerId, listingId: order.listingId, kind: "SOLD" },
-        ],
-        skipDuplicates: true,
-      });
+      await tx.notification.deleteMany({ where: { userId: order.buyerId, key: notificationKey.won(order.listingId) } });
+      await queueMail(tx, { userId: order.buyerId, listingId: order.listingId, kind: "PAID" });
+      await queueMail(tx, { userId: order.sellerId, listingId: order.listingId, kind: "SOLD" });
       return true;
     });
   }
@@ -244,11 +241,7 @@ export class OrdersService {
       });
       if (result.count === 0) return false;
       if (order.trackingEmails) {
-        await tx.pendingEndEmail.upsert({
-          where: { userId_listingId_kind: { userId: order.buyerId, listingId: order.listingId, kind: "SHIPPED" } },
-          create: { userId: order.buyerId, listingId: order.listingId, kind: "SHIPPED" },
-          update: {},
-        });
+        await queueMail(tx, { userId: order.buyerId, listingId: order.listingId, kind: "SHIPPED" });
       }
       return true;
     });

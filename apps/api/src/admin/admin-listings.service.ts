@@ -2,9 +2,9 @@ import { ConflictException, Inject, Injectable, Logger, NotFoundException } from
 import { listingPhase } from "@auction/shared";
 import { AuctionCloseService } from "../auctions/auction-close.service";
 import { PRISMA, type Prisma } from "../db/db.module";
-import { SOCKET_EVENTS, type RemovedNotice, type UnreadEvent } from "@auction/shared";
-import { SavedNotificationsService } from "../notifications/saved-notifications.service";
-import { RealtimeGateway } from "../realtime/realtime.gateway";
+import type { RemovedNotice } from "@auction/shared";
+import { notificationKey } from "../notifications/notification-keys";
+import { Notify } from "../realtime/notify.service";
 import { SEARCH_INDEX, type SearchIndex } from "../search/search-index";
 
 // An admin taking a listing down. A removal ends the auction at once with no sale, whatever the bids and the reserve (see
@@ -18,8 +18,7 @@ export class AdminListingsService {
     @Inject(PRISMA) private readonly prisma: Prisma,
     @Inject(SEARCH_INDEX) private readonly search: SearchIndex,
     private readonly closer: AuctionCloseService,
-    private readonly saved: SavedNotificationsService,
-    private readonly gateway: RealtimeGateway,
+    private readonly notify: Notify,
   ) {}
 
   // Published listings, newest first. `q` matches the id, the title or the seller's username.
@@ -122,8 +121,7 @@ export class AdminListingsService {
       const bidders = bids.map((b) => b.bidderId).filter((id) => id !== listing.sellerId);
       if (bidders.length === 0) return;
       const notice: RemovedNotice = { reason, bidder: true };
-      const unread = await this.saved.save(bidders, { type: "LISTING_REMOVED", key: `removed:${listingId}`, listingId, title: listing.title, data: notice });
-      for (const [userId, unreadCount] of unread) this.gateway.emitToUsers([userId], SOCKET_EVENTS.unread, { unreadCount } satisfies UnreadEvent);
+      await this.notify.saveAndAnnounce(bidders, { type: "LISTING_REMOVED", key: notificationKey.removed(listingId), listingId, title: listing.title, data: notice });
     } catch (error) {
       this.log.error(`Could not notify the bidders of listing ${listingId}: ${error instanceof Error ? error.message : error}`);
     }
@@ -135,8 +133,7 @@ export class AdminListingsService {
       const listing = await this.prisma.listing.findUnique({ where: { id: listingId }, select: { title: true, sellerId: true } });
       if (!listing) return;
       const notice: RemovedNotice = { reason };
-      const unread = await this.saved.save([listing.sellerId], { type: "LISTING_REMOVED", key: `removed:${listingId}`, listingId, title: listing.title, data: notice });
-      for (const [userId, unreadCount] of unread) this.gateway.emitToUsers([userId], SOCKET_EVENTS.unread, { unreadCount } satisfies UnreadEvent);
+      await this.notify.saveAndAnnounce([listing.sellerId], { type: "LISTING_REMOVED", key: notificationKey.removed(listingId), listingId, title: listing.title, data: notice });
     } catch (error) {
       this.log.error(`Could not notify the seller of listing ${listingId}: ${error instanceof Error ? error.message : error}`);
     }

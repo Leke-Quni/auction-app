@@ -1,10 +1,12 @@
-import { formatEur, PAYMENT_REMINDER_HOURS, SOCKET_EVENTS, type UnreadEvent, type WonNotice } from "@auction/shared";
+import { formatEur, PAYMENT_REMINDER_HOURS, SOCKET_EVENTS, type WonNotice } from "@auction/shared";
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { webUrl } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { runEvery } from "../jobs/sweep-support";
 import { timeLeft, utc } from "../email/format";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
-import { SavedNotificationsService } from "../notifications/saved-notifications.service";
+import { notificationKey } from "../notifications/notification-keys";
+import { Notify } from "./notify.service";
 import { RealtimeGateway } from "./realtime.gateway";
 
 const SWEEP_EVERY_MS = 60_000;
@@ -30,24 +32,23 @@ interface DueOrder {
 @Injectable()
 export class PaymentReminderService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(PaymentReminderService.name);
-  private timer?: ReturnType<typeof setInterval>;
+  private stop?: () => void;
   private running?: Promise<number>;
 
   constructor(
     private readonly gateway: RealtimeGateway,
-    private readonly saved: SavedNotificationsService,
+    private readonly notify: Notify,
     @Inject(PRISMA) private readonly prisma: Prisma,
     @Inject(MAIL_SENDER) private readonly mail: MailSender,
   ) {}
 
   onModuleInit() {
-    this.timer = setInterval(() => void this.sweep(), SWEEP_EVERY_MS);
-    this.timer.unref();
+    this.stop = runEvery(SWEEP_EVERY_MS, () => this.sweep());
     void this.sweep();
   }
 
   onModuleDestroy() {
-    clearInterval(this.timer);
+    this.stop?.();
   }
 
   // A call while a sweep is under way waits for it and then makes a pass of its own, so it never returns before the orders
@@ -118,13 +119,8 @@ export class PaymentReminderService implements OnModuleInit, OnModuleDestroy {
       );
       await this.markSent(orderId);
       const notice: WonNotice = { listingId: order.listingId, title: listing.title, finalPriceCents: order.amountCents, orderId: order.id, reminder: true };
-      try {
-        const unread = await this.saved.save([order.buyerId], { type: "WON", key: `won:${order.listingId}`, listingId: order.listingId, title: listing.title, data: notice });
-        for (const [userId, unreadCount] of unread) this.gateway.emitToUsers([userId], SOCKET_EVENTS.unread, { unreadCount } satisfies UnreadEvent);
-        this.gateway.emitToUsers([order.buyerId], SOCKET_EVENTS.wonNotice, notice);
-      } catch (error) {
-        this.log.error(`Could not save the payment reminder notice for order ${order.id}: ${(error as Error).message}`);
-      }
+      await this.notify.saveAndAnnounce([order.buyerId], { type: "WON", key: notificationKey.won(order.listingId), listingId: order.listingId, title: listing.title, data: notice });
+      this.gateway.emitToUsers([order.buyerId], SOCKET_EVENTS.wonNotice, notice);
       return true;
     } catch (error) {
       // The email did not go: give the lease back so the next sweep tries again while there is still time to pay.

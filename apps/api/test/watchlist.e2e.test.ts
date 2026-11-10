@@ -5,7 +5,7 @@ import { SignJWT } from "jose";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
-import { AuctionEndEmailService } from "../src/auctions/auction-end-email.service";
+import { MailOutbox } from "../src/email/mail-outbox.service";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
 import { MAIL_SENDER, type MailSender } from "../src/email/mail-sender";
@@ -26,7 +26,7 @@ interface Person {
 describe("watchlist", () => {
   let app: INestApplication;
   let prisma: Prisma;
-  let emails: AuctionEndEmailService;
+  let emails: MailOutbox;
   let categoryId: string;
   const created: string[] = [];
   const sent: { to: string; subject: string; text: string }[] = [];
@@ -46,7 +46,7 @@ describe("watchlist", () => {
     app = moduleRef.createNestApplication();
     await app.init();
     prisma = app.get(PRISMA);
-    emails = app.get(AuctionEndEmailService);
+    emails = app.get(MailOutbox);
     categoryId = (await prisma.category.findFirstOrThrow()).id;
   });
 

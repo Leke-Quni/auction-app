@@ -1,6 +1,7 @@
 import { QUESTION_LOG_RETENTION_DAYS } from "@auction/shared";
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { runEvery } from "../jobs/sweep-support";
 
 const DAY_MS = 24 * 3600_000;
 const PURGE_EVERY_MS = 60 * 60_000;
@@ -12,18 +13,17 @@ const PURGE_EVERY_MS = 60 * 60_000;
 @Injectable()
 export class QuestionRetentionService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(QuestionRetentionService.name);
-  private timer?: ReturnType<typeof setInterval>;
+  private stop?: () => void;
 
   constructor(@Inject(PRISMA) private readonly prisma: Prisma) {}
 
   onModuleInit() {
     void this.purge();
-    this.timer = setInterval(() => void this.purge(), PURGE_EVERY_MS);
-    this.timer.unref();
+    this.stop = runEvery(PURGE_EVERY_MS, () => this.purge());
   }
 
   onModuleDestroy() {
-    clearInterval(this.timer);
+    this.stop?.();
   }
 
   async purge(now = new Date()) {

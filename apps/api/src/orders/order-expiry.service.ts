@@ -1,10 +1,13 @@
-import { MAX_PAYMENT_ROUNDS, MAX_STRIKES, platformFeeCents } from "@auction/shared";
+import { MAX_PAYMENT_ROUNDS, MAX_STRIKES } from "@auction/shared";
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { AuctionEvents } from "../bids/auction-events";
-import { paymentWindowHours, platformFeeCapCents, platformFeePercent } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { FailureBackoff, runEvery } from "../jobs/sweep-support";
 import { JOB_SCHEDULER, type JobScheduler } from "../jobs/job-scheduler";
 import { PAYMENT_PROVIDER, type PaymentProvider } from "../payments/payment-provider";
+import { queueMail } from "../email/mail-outbox";
+import { notificationKey } from "../notifications/notification-keys";
+import { offerItem } from "./offer-item";
 import { OrdersService } from "./orders.service";
 
 const SWEEP_EVERY_MS = 30_000;
@@ -31,9 +34,9 @@ export interface ExpiryResult {
 @Injectable()
 export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(OrderExpiryService.name);
-  private timer?: ReturnType<typeof setInterval>;
+  private stop?: () => void;
   private sweeping = false;
-  private readonly failedUntil = new Map<string, number>();
+  private readonly failed = new FailureBackoff(RETRY_FAILED_AFTER_MS);
 
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
@@ -44,13 +47,12 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    this.timer = setInterval(() => void this.sweep(), SWEEP_EVERY_MS);
-    this.timer.unref();
+    this.stop = runEvery(SWEEP_EVERY_MS, () => this.sweep());
     void this.sweep();
   }
 
   onModuleDestroy() {
-    clearInterval(this.timer);
+    this.stop?.();
   }
 
   // Returns what happened if this call expired the order, or null if it did nothing (not due, not waiting, already
@@ -95,7 +97,7 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
       const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { listingId: true, buyerId: true, sellerId: true, round: true } });
       await tx.strike.create({ data: { userId: order.buyerId, listingId: order.listingId, orderId } });
       // Their "pay now" notice no longer applies.
-      await tx.notification.deleteMany({ where: { userId: order.buyerId, key: `won:${order.listingId}` } });
+      await tx.notification.deleteMany({ where: { userId: order.buyerId, key: notificationKey.won(order.listingId) } });
       const listing = await tx.listing.findUniqueOrThrow({ where: { id: order.listingId }, select: { reservePriceCents: true, pickupAddress: true } });
 
       // The next bidder, by their own highest bid, who has not already been offered this item, is not blocked from bidding and is not banned.
@@ -115,35 +117,13 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
 
       // An email of the same kind still waiting from an earlier round is made due again rather than dropped, so this round is told too.
       for (const [userId, kind] of [[order.buyerId, "EXPIRED"], [order.sellerId, "NOT_PAID"]] as const) {
-        await tx.pendingEndEmail.upsert({
-          where: { userId_listingId_kind: { userId, listingId: order.listingId, kind } },
-          create: { userId, listingId: order.listingId, kind },
-          update: { dueAt: now, attempts: 0 },
-        });
+        await queueMail(tx, { userId, listingId: order.listingId, kind, dueAt: now });
       }
 
       if (qualifies) {
-        const feeCents = platformFeeCents(next.amountCents, platformFeePercent(), platformFeeCapCents());
-        offered = await tx.order.create({
-          data: {
-            listingId: order.listingId,
-            round: order.round + 1,
-            buyerId: next.userId,
-            sellerId: order.sellerId,
-            amountCents: next.amountCents,
-            feeCents,
-            sellerNetCents: next.amountCents - feeCents,
-            ...(listing.pickupAddress ? { pickupAddress: listing.pickupAddress } : {}),
-            payBy: new Date(now.getTime() + paymentWindowHours() * 3600_000),
-          },
-        });
+        offered = await offerItem(tx, { listingId: order.listingId, round: order.round + 1, buyerId: next.userId, sellerId: order.sellerId, amountCents: next.amountCents, pickupAddress: listing.pickupAddress, startedAt: now, mailDueAt: now });
         // The listing's result follows the sale: the new buyer and what they pay.
         await tx.listing.update({ where: { id: order.listingId }, data: { winnerId: next.userId, finalPriceCents: next.amountCents } });
-        await tx.pendingEndEmail.upsert({
-          where: { userId_listingId_kind: { userId: next.userId, listingId: order.listingId, kind: "WON" } },
-          create: { userId: next.userId, listingId: order.listingId, kind: "WON" },
-          update: { dueAt: now, attempts: 0 },
-        });
       } else {
         await tx.listing.update({ where: { id: order.listingId }, data: { outcome: "NO_SALE", winnerId: null, finalPriceCents: null } });
       }
@@ -168,10 +148,8 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
     this.sweeping = true;
     let expired = 0;
     try {
-      const now = Date.now();
-      for (const [id, until] of this.failedUntil) if (until <= now) this.failedUntil.delete(id);
       const due = await this.prisma.order.findMany({
-        where: { status: "AWAITING_PAYMENT", payBy: { lte: new Date() }, id: { notIn: [...this.failedUntil.keys()] } },
+        where: { status: "AWAITING_PAYMENT", payBy: { lte: new Date() }, id: { notIn: this.failed.skipping() } },
         orderBy: { payBy: "asc" },
         take: SWEEP_BATCH,
         select: { id: true },
@@ -180,7 +158,7 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
         try {
           if (await this.expire(id)) expired++;
         } catch (error) {
-          this.failedUntil.set(id, Date.now() + RETRY_FAILED_AFTER_MS);
+          this.failed.fail(id);
           this.log.error(`Could not expire order ${id}: ${(error as Error).message}`);
         }
       }

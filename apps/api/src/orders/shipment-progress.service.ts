@@ -1,5 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { runEvery } from "../jobs/sweep-support";
+import { queueMail } from "../email/mail-outbox";
 import { SHIPPING_PROVIDER, type ShippingProvider } from "../shipping/shipping-provider";
 
 const SWEEP_EVERY_MS = 30_000;
@@ -11,7 +13,7 @@ const SWEEP_BATCH = 100;
 @Injectable()
 export class ShipmentProgressService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(ShipmentProgressService.name);
-  private timer?: ReturnType<typeof setInterval>;
+  private stop?: () => void;
   private sweeping = false;
 
   constructor(
@@ -20,13 +22,12 @@ export class ShipmentProgressService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    this.timer = setInterval(() => void this.sweep(), SWEEP_EVERY_MS);
-    this.timer.unref();
+    this.stop = runEvery(SWEEP_EVERY_MS, () => this.sweep());
     void this.sweep();
   }
 
   onModuleDestroy() {
-    clearInterval(this.timer);
+    this.stop?.();
   }
 
   // Returns the new status if this call moved the order, or null if it did nothing.
@@ -49,11 +50,7 @@ export class ShipmentProgressService implements OnModuleInit, OnModuleDestroy {
       // A parcel that went straight to delivered (the machine was stopped) gets the delivered email only.
       // Only a buyer who asked for tracking emails gets them.
       if (order.trackingEmails) {
-        await tx.pendingEndEmail.upsert({
-          where: { userId_listingId_kind: { userId: order.buyerId, listingId: order.listingId, kind: reported } },
-          create: { userId: order.buyerId, listingId: order.listingId, kind: reported },
-          update: {},
-        });
+        await queueMail(tx, { userId: order.buyerId, listingId: order.listingId, kind: reported });
       }
       return reported;
     });

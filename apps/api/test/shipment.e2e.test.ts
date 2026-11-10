@@ -6,7 +6,7 @@ import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { AuctionCloseService } from "../src/auctions/auction-close.service";
-import { AuctionEndEmailService } from "../src/auctions/auction-end-email.service";
+import { MailOutbox } from "../src/email/mail-outbox.service";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
 import { MAIL_SENDER, type MailSender } from "../src/email/mail-sender";
@@ -29,7 +29,7 @@ describe("shipments", () => {
   let app: INestApplication;
   let prisma: Prisma;
   let closer: AuctionCloseService;
-  let emails: AuctionEndEmailService;
+  let emails: MailOutbox;
   let progress: ShipmentProgressService;
   let categoryId: string;
   const created: string[] = [];
@@ -51,7 +51,7 @@ describe("shipments", () => {
     await app.init();
     prisma = app.get(PRISMA);
     closer = app.get(AuctionCloseService);
-    emails = app.get(AuctionEndEmailService);
+    emails = app.get(MailOutbox);
     progress = app.get(ShipmentProgressService);
     categoryId = (await prisma.category.findFirstOrThrow()).id;
   });

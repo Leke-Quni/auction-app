@@ -5,7 +5,7 @@ import { SignJWT } from "jose";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
-import { AuctionEndEmailService } from "../src/auctions/auction-end-email.service";
+import { MailOutbox } from "../src/email/mail-outbox.service";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
 import { MAIL_SENDER, type MailAttachment } from "../src/email/mail-sender";
@@ -22,7 +22,7 @@ describe("shipping, paid emails and invoice", () => {
   let app: INestApplication;
   let prisma: Prisma;
   let provider: FakePaymentProvider;
-  let emails: AuctionEndEmailService;
+  let emails: MailOutbox;
   let listingId: string;
   let counter = 0;
   const sent: { to: string; subject: string; text: string; attachments: MailAttachment[] }[] = [];
@@ -45,7 +45,7 @@ describe("shipping, paid emails and invoice", () => {
     app = moduleRef.createNestApplication();
     await app.init();
     prisma = app.get(PRISMA);
-    emails = app.get(AuctionEndEmailService);
+    emails = app.get(MailOutbox);
     const entries = Object.entries(ids);
     await prisma.user.createMany({
       data: entries.map(([name, id]) => ({ id, email: `sh-${name}-${stamp}@example.com`, firstName: "S", lastName: "H", username: `sh${name}${stamp}`.slice(0, 20), passwordHash: "!test", emailVerified: new Date() })),

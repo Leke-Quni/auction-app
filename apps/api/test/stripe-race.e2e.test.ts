@@ -6,7 +6,7 @@ import request from "supertest";
 import Stripe from "stripe";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
-import { AuctionEndEmailService } from "../src/auctions/auction-end-email.service";
+import { MailOutbox } from "../src/email/mail-outbox.service";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
 import { MAIL_SENDER } from "../src/email/mail-sender";
@@ -23,7 +23,7 @@ const address = { name: "Ben Buyer", line1: "Rruga Myslym Shyri 7", city: "Tiran
 describe("Stripe: the webhook and the return from checkout racing", () => {
   let app: INestApplication;
   let prisma: Prisma;
-  let emails: AuctionEndEmailService;
+  let emails: MailOutbox;
   let listingId: string;
   let buyerToken: string;
   const sent: { to: string; subject: string }[] = [];
@@ -47,7 +47,7 @@ describe("Stripe: the webhook and the return from checkout racing", () => {
     app = moduleRef.createNestApplication({ rawBody: true });
     await app.init();
     prisma = app.get(PRISMA);
-    emails = app.get(AuctionEndEmailService);
+    emails = app.get(MailOutbox);
     await prisma.user.createMany({
       data: Object.entries(ids).map(([n, id]) => ({ id, email: `sr-${n}-${stamp}@example.com`, firstName: "S", lastName: "R", username: `sr${n}${stamp}`.slice(0, 20), passwordHash: "!test", emailVerified: new Date() })),
     });

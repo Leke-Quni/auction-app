@@ -7,7 +7,7 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { AuctionCloseService } from "../src/auctions/auction-close.service";
-import { AuctionEndEmailService } from "../src/auctions/auction-end-email.service";
+import { MailOutbox } from "../src/email/mail-outbox.service";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
 import { MAIL_SENDER, type MailAttachment } from "../src/email/mail-sender";
@@ -26,7 +26,7 @@ describe("the whole workflow, through the real API", () => {
   let app: INestApplication;
   let prisma: Prisma;
   let closer: AuctionCloseService;
-  let emails: AuctionEndEmailService;
+  let emails: MailOutbox;
   let provider: FakePaymentProvider;
   let categoryId: string;
   let failNextMail = 0;
@@ -61,7 +61,7 @@ describe("the whole workflow, through the real API", () => {
     await app.init();
     prisma = app.get(PRISMA);
     closer = app.get(AuctionCloseService);
-    emails = app.get(AuctionEndEmailService);
+    emails = app.get(MailOutbox);
     categoryId = (await prisma.category.findFirstOrThrow()).id;
     await prisma.user.createMany({
       data: (Object.keys(ids) as Role[]).map((r) => ({ id: ids[r], email: emailOf(r), firstName: "F", lastName: "W", username: `fw${r}${stamp}`.slice(0, 20), passwordHash: "!test", emailVerified: new Date() })),
