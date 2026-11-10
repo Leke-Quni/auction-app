@@ -1,11 +1,12 @@
-import { SOCKET_EVENTS, type QuestionNotice, type UnreadEvent } from "@auction/shared";
+import { SOCKET_EVENTS, type QuestionNotice } from "@auction/shared";
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import type { Subscription } from "rxjs";
 import { webUrl } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
-import { SavedNotificationsService } from "../notifications/saved-notifications.service";
+import { notificationKey } from "../notifications/notification-keys";
 import { QuestionEvents } from "../questions/question-events";
+import { Notify } from "./notify.service";
 import { RealtimeGateway } from "./realtime.gateway";
 
 const EXCERPT_LENGTH = 140;
@@ -22,7 +23,7 @@ export class QuestionNotificationsService implements OnModuleInit, OnModuleDestr
   constructor(
     private readonly events: QuestionEvents,
     private readonly gateway: RealtimeGateway,
-    private readonly saved: SavedNotificationsService,
+    private readonly notifier: Notify,
     @Inject(PRISMA) private readonly prisma: Prisma,
     @Inject(MAIL_SENDER) private readonly mail: MailSender,
   ) {}
@@ -45,7 +46,7 @@ export class QuestionNotificationsService implements OnModuleInit, OnModuleDestr
     ]);
     if (!listing || !asker) return;
     const notice: QuestionNotice = { listingId: event.listingId, questionId: event.questionId, title: listing.title, from: asker.username, excerpt: excerpt(event.body) };
-    await this.notify(listing.sellerId, "QUESTION_ASKED", `question:${event.questionId}`, SOCKET_EVENTS.questionNotice, notice);
+    await this.notify(listing.sellerId, "QUESTION_ASKED", notificationKey.question(event.questionId), SOCKET_EVENTS.questionNotice, notice);
     await this.email(listing.seller.email, `New question on ${listing.title}`, [`${asker.username} asked a question on "${listing.title}":`, "", event.body, "", `Answer it: ${webUrl()}/listings/${event.listingId}`]);
   }
 
@@ -57,19 +58,14 @@ export class QuestionNotificationsService implements OnModuleInit, OnModuleDestr
     ]);
     if (!listing || !seller || !asker) return;
     const notice: QuestionNotice = { listingId: event.listingId, questionId: event.questionId, title: listing.title, from: seller.username, excerpt: excerpt(event.body) };
-    await this.notify(event.askerId, "QUESTION_ANSWERED", `answer:${event.questionId}`, SOCKET_EVENTS.answerNotice, notice);
+    await this.notify(event.askerId, "QUESTION_ANSWERED", notificationKey.answer(event.questionId), SOCKET_EVENTS.answerNotice, notice);
     await this.email(asker.email, `${seller.username} answered your question on ${listing.title}`, [`${seller.username} answered your question on "${listing.title}":`, "", event.body, "", `${webUrl()}/listings/${event.listingId}`]);
   }
 
   // Saves the notification, tells the person's open pages the new unread count, and shows the toast. A failure to save
   // is logged and the toast still goes out.
   private async notify(userId: string, type: "QUESTION_ASKED" | "QUESTION_ANSWERED", key: string, socketEvent: string, notice: QuestionNotice) {
-    try {
-      const unread = await this.saved.save([userId], { type, key, listingId: notice.listingId, title: notice.title, data: notice });
-      this.gateway.emitToUsers([userId], SOCKET_EVENTS.unread, { unreadCount: unread.get(userId) ?? 0 } satisfies UnreadEvent);
-    } catch (error) {
-      this.log.error(`Could not save a notification: ${(error as Error).message}`);
-    }
+    await this.notifier.saveAndAnnounce([userId], { type, key, listingId: notice.listingId, title: notice.title, data: notice });
     this.gateway.emitToUsers([userId], socketEvent, notice);
   }
 

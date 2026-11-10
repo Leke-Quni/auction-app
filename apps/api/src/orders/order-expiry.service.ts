@@ -6,6 +6,7 @@ import { PRISMA, type Prisma } from "../db/db.module";
 import { JOB_SCHEDULER, type JobScheduler } from "../jobs/job-scheduler";
 import { PAYMENT_PROVIDER, type PaymentProvider } from "../payments/payment-provider";
 import { queueMail } from "../email/mail-outbox";
+import { notificationKey } from "../notifications/notification-keys";
 import { OrdersService } from "./orders.service";
 
 const SWEEP_EVERY_MS = 30_000;
@@ -96,7 +97,7 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
       const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { listingId: true, buyerId: true, sellerId: true, round: true } });
       await tx.strike.create({ data: { userId: order.buyerId, listingId: order.listingId, orderId } });
       // Their "pay now" notice no longer applies.
-      await tx.notification.deleteMany({ where: { userId: order.buyerId, key: `won:${order.listingId}` } });
+      await tx.notification.deleteMany({ where: { userId: order.buyerId, key: notificationKey.won(order.listingId) } });
       const listing = await tx.listing.findUniqueOrThrow({ where: { id: order.listingId }, select: { reservePriceCents: true, pickupAddress: true } });
 
       // The next bidder, by their own highest bid, who has not already been offered this item, is not blocked from bidding and is not banned.

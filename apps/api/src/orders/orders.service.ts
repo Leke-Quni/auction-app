@@ -7,6 +7,7 @@ import { PAYMENT_PROVIDER, type PaymentProvider } from "../payments/payment-prov
 import { SHIPPING_PROVIDER, type ShippingProvider } from "../shipping/shipping-provider";
 import { deliveryOf, invoiceDataOf, renderInvoice } from "./invoice";
 import { queueMail } from "../email/mail-outbox";
+import { notificationKey } from "../notifications/notification-keys";
 import { payoutViewOf } from "./payout-view";
 
 const STATUS: Record<OrderRefusal, HttpStatus> = {
@@ -180,7 +181,7 @@ export class OrdersService {
         select: { buyerId: true, sellerId: true, listingId: true },
       });
       // The "pay now" notice has done its job.
-      await tx.notification.deleteMany({ where: { userId: order.buyerId, key: `won:${order.listingId}` } });
+      await tx.notification.deleteMany({ where: { userId: order.buyerId, key: notificationKey.won(order.listingId) } });
       await queueMail(tx, { userId: order.buyerId, listingId: order.listingId, kind: "PAID" });
       await queueMail(tx, { userId: order.sellerId, listingId: order.listingId, kind: "SOLD" });
       return true;
