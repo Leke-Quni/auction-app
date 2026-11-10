@@ -1,10 +1,9 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
-import { platformFeeCents } from "@auction/shared";
 import { AuctionEvents } from "../bids/auction-events";
-import { paymentWindowHours, platformFeeCapCents, platformFeePercent } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { JOB_SCHEDULER, type JobScheduler } from "../jobs/job-scheduler";
 import { queueMail } from "../email/mail-outbox";
+import { offerItem } from "../orders/offer-item";
 
 const SWEEP_EVERY_MS = 10_000;
 const SWEEP_BATCH = 100;
@@ -98,20 +97,7 @@ export class AuctionCloseService implements OnModuleInit, OnModuleDestroy {
       if (removal) await queueMail(tx, { userId: closed.sellerId, listingId, kind: "REMOVED" });
       if (closed.outcome === "SOLD" && closed.winnerId && closed.finalPriceCents != null) {
         const listing = await tx.listing.findUnique({ where: { id: listingId }, select: { pickupAddress: true } });
-        const feeCents = platformFeeCents(closed.finalPriceCents, platformFeePercent(), platformFeeCapCents());
-        order = await tx.order.create({
-          data: {
-            listingId,
-            buyerId: closed.winnerId,
-            sellerId: closed.sellerId,
-            amountCents: closed.finalPriceCents,
-            feeCents,
-            sellerNetCents: closed.finalPriceCents - feeCents,
-            ...(listing?.pickupAddress ? { pickupAddress: listing.pickupAddress } : {}),
-            payBy: new Date(closed.closedAt.getTime() + paymentWindowHours() * 3600_000),
-          },
-        });
-        await queueMail(tx, { userId: closed.winnerId, listingId, kind: "WON" });
+        order = await offerItem(tx, { listingId, buyerId: closed.winnerId, sellerId: closed.sellerId, amountCents: closed.finalPriceCents, pickupAddress: listing?.pickupAddress ?? null, startedAt: closed.closedAt });
       }
       await tx.$executeRaw`DELETE FROM "PendingOutbidEmail" WHERE "listingId" = ${listingId}`;
       await tx.$executeRaw`

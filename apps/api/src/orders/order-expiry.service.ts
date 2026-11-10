@@ -1,12 +1,12 @@
-import { MAX_PAYMENT_ROUNDS, MAX_STRIKES, platformFeeCents } from "@auction/shared";
+import { MAX_PAYMENT_ROUNDS, MAX_STRIKES } from "@auction/shared";
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { AuctionEvents } from "../bids/auction-events";
-import { paymentWindowHours, platformFeeCapCents, platformFeePercent } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { JOB_SCHEDULER, type JobScheduler } from "../jobs/job-scheduler";
 import { PAYMENT_PROVIDER, type PaymentProvider } from "../payments/payment-provider";
 import { queueMail } from "../email/mail-outbox";
 import { notificationKey } from "../notifications/notification-keys";
+import { offerItem } from "./offer-item";
 import { OrdersService } from "./orders.service";
 
 const SWEEP_EVERY_MS = 30_000;
@@ -121,23 +121,9 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (qualifies) {
-        const feeCents = platformFeeCents(next.amountCents, platformFeePercent(), platformFeeCapCents());
-        offered = await tx.order.create({
-          data: {
-            listingId: order.listingId,
-            round: order.round + 1,
-            buyerId: next.userId,
-            sellerId: order.sellerId,
-            amountCents: next.amountCents,
-            feeCents,
-            sellerNetCents: next.amountCents - feeCents,
-            ...(listing.pickupAddress ? { pickupAddress: listing.pickupAddress } : {}),
-            payBy: new Date(now.getTime() + paymentWindowHours() * 3600_000),
-          },
-        });
+        offered = await offerItem(tx, { listingId: order.listingId, round: order.round + 1, buyerId: next.userId, sellerId: order.sellerId, amountCents: next.amountCents, pickupAddress: listing.pickupAddress, startedAt: now, mailDueAt: now });
         // The listing's result follows the sale: the new buyer and what they pay.
         await tx.listing.update({ where: { id: order.listingId }, data: { winnerId: next.userId, finalPriceCents: next.amountCents } });
-        await queueMail(tx, { userId: next.userId, listingId: order.listingId, kind: "WON", dueAt: now });
       } else {
         await tx.listing.update({ where: { id: order.listingId }, data: { outcome: "NO_SALE", winnerId: null, finalPriceCents: null } });
       }
