@@ -2,7 +2,8 @@
 
 import { CONDITION_LABELS, formatDuration, formatEur } from "@auction/shared";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Countdown } from "@/app/countdown";
 import { LocalTime } from "@/app/local-time";
 import { BidHistory } from "./bid-history";
@@ -30,6 +31,8 @@ export interface DetailsListing {
 }
 
 const RESULT_CHECK_MS = 10_000;
+// About five minutes of asking; a close that is still not saved by then will not be fixed by more requests.
+const RESULT_CHECK_LIMIT = 30;
 
 function resultText(listing: DetailsListing, viewerId?: string, topBidCents?: number | null): string {
   if (listing.removed && listing.outcome) return "Ended by a moderator: no sale";
@@ -53,6 +56,7 @@ const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 function usePhase(initial: DetailsListing["phase"], startsAt: string | null, endsAt: string | null, serverTime: string) {
   const router = useRouter();
   const [phase, setPhase] = useState(initial);
+  const phaseRef = useRef(initial);
   useEffect(() => {
     if (initial === "draft" || initial === "ended" || !startsAt || !endsAt) return;
     const offset = Date.parse(serverTime) - Date.now();
@@ -62,10 +66,10 @@ function usePhase(initial: DetailsListing["phase"], startsAt: string | null, end
       const starts = Date.parse(startsAt);
       const ends = Date.parse(endsAt);
       const next = now >= ends ? "ended" : now >= starts ? "live" : "upcoming";
-      setPhase((current) => {
-        if (current === "upcoming" && next === "live") router.refresh();
-        return next;
-      });
+      const previous = phaseRef.current;
+      phaseRef.current = next;
+      setPhase(next);
+      if (previous === "upcoming" && next === "live") router.refresh();
       if (next !== "ended") timer = setTimeout(check, Math.min((next === "live" ? ends : starts) - now + 50, MAX_TIMEOUT_MS));
     };
     check();
@@ -75,7 +79,18 @@ function usePhase(initial: DetailsListing["phase"], startsAt: string | null, end
 }
 
 export function LiveDetails({ listing, openMode, viewerId, order }: { listing: DetailsListing; openMode: BidMode | null; viewerId?: string; order?: BidPanelOrder }) {
-  const live = useLive((s) => s);
+  // Not `bids`: the history is shown by LiveHistory, so a change to it alone does not need this table drawn again.
+  const live = useLive(
+    useShallow((s) => ({
+      currentBidCents: s.currentBidCents,
+      bidCount: s.bidCount,
+      highBidder: s.highBidder,
+      minimumNextBidCents: s.minimumNextBidCents,
+      endsAt: s.endsAt,
+      extensionCount: s.extensionCount,
+      serverTime: s.serverTime,
+    })),
+  );
   const phase = usePhase(listing.phase, listing.startsAt, live.endsAt, live.serverTime);
   const isLive = phase === "live";
   // The result is saved a moment after the end, so ask for the page again until it is there.
@@ -83,7 +98,11 @@ export function LiveDetails({ listing, openMode, viewerId, order }: { listing: D
   const awaitingResult = phase === "ended" && listing.outcome === null;
   useEffect(() => {
     if (!awaitingResult) return;
-    const timer = setInterval(() => router.refresh(), RESULT_CHECK_MS);
+    let checks = 0;
+    const timer = setInterval(() => {
+      router.refresh();
+      if (++checks >= RESULT_CHECK_LIMIT) clearInterval(timer);
+    }, RESULT_CHECK_MS);
     return () => clearInterval(timer);
   }, [awaitingResult, router]);
   // Being the high bidder changes as bids arrive; the rest is settled by the server and the clock.
@@ -138,15 +157,15 @@ export function LiveDetails({ listing, openMode, viewerId, order }: { listing: D
   return (
     <>
       {isLive && live.extensionCount > 0 && live.endsAt && (
-        <p role="status" className="border border-l-4 border-time-warn border-l-time-warn bg-[#fff7e6] p-2 font-bold">
+        <p role="status" className="border border-l-4 border-time-warn border-l-time-warn bg-warn-soft p-2 font-bold">
           The auction was extended by a late bid. It now ends at <LocalTime iso={live.endsAt} timeFirst />.
         </p>
       )}
-      <table className="w-full border-collapse bg-white">
+      <table className="w-full border-collapse bg-surface">
         <tbody>
           {rows.map(([label, value]) => (
             <tr key={label}>
-              <th className="w-36 border border-line bg-[#f0f0f0] p-1.5 text-left font-normal text-muted">{label}</th>
+              <th className="w-36 border border-line bg-head p-1.5 text-left font-normal text-muted">{label}</th>
               <td className="border border-line p-1.5">{value}</td>
             </tr>
           ))}

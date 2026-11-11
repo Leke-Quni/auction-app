@@ -7,10 +7,9 @@ import { ListingForm } from "../listing-form";
 export default async function NewListingPage() {
   const session = await auth();
   if (!session) redirect("/sign-in");
-  const res = await apiFetch("/categories");
+  const [res, defaultRes] = await Promise.all([apiFetch("/categories"), authedApiFetch("/me/pickup-address")]);
   if (!res.ok) throw new Error(`API /categories failed: ${res.status}`);
   const categories = await res.json();
-  const defaultRes = await authedApiFetch("/me/pickup-address");
   const defaultPickup = defaultRes.ok ? (await defaultRes.json()).pickupAddress : null;
   return (
     <div className="mx-auto max-w-xl space-y-2">

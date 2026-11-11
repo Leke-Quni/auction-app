@@ -4,6 +4,7 @@ import { ANSWER_MAX_LENGTH, POLICY_LINKS, QUESTION_MAX_LENGTH, REPORT_REASON_LAB
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { LocalTime } from "@/app/local-time";
+import { useDismiss } from "@/app/use-dismiss";
 import { answerQuestionAction, askQuestionAction, deleteAnswerAction, deleteQuestionAction, editAnswerAction, editQuestionAction, reportAction, voteAction, type QuestionActionResult } from "./question-actions";
 
 function Thumb({ down }: { down?: boolean }) {
@@ -14,11 +15,11 @@ function Thumb({ down }: { down?: boolean }) {
   );
 }
 
-const note = "border border-line bg-white p-2 text-muted";
+const note = "border border-line bg-surface p-2 text-muted";
 const buttonBase = "cursor-pointer rounded px-2 py-0.5 text-xs font-bold disabled:cursor-default disabled:opacity-60";
-const primaryButton = `${buttonBase} bg-brand text-white hover:bg-brand-dark`;
-const plainButton = `${buttonBase} border border-line bg-white hover:bg-[#f0f0f0]`;
-const dangerButton = `${buttonBase} border border-[#f3b9b9] bg-[#fdeaea] text-[#b42318] hover:bg-[#f9d6d6]`;
+const primaryButton = `${buttonBase} bg-brand text-on-brand hover:bg-brand-dark`;
+const plainButton = `${buttonBase} border border-line bg-surface hover:bg-head`;
+const dangerButton = `${buttonBase} border border-danger-line bg-danger-soft text-danger hover:bg-danger-hover`;
 
 function useAction() {
   const [pending, start] = useTransition();
@@ -60,7 +61,7 @@ function TextForm({ label, max, submit, onSubmit, onCancel, initial = "" }: { la
           onChange={(e) => setText(e.target.value)}
           maxLength={max}
           rows={3}
-          className="mt-1 w-full border border-[#888] bg-white p-2 text-base"
+          className="mt-1 w-full border border-field bg-surface p-2 text-base"
         />
       </label>
       <div className="flex items-center justify-between gap-2">
@@ -69,11 +70,11 @@ function TextForm({ label, max, submit, onSubmit, onCancel, initial = "" }: { la
         </span>
         <span className="flex items-center gap-2">
           {onCancel && (
-            <button type="button" disabled={pending} onClick={onCancel} className="cursor-pointer border border-line bg-white px-3 py-1.5 hover:bg-[#f0f0f0] disabled:opacity-60">
+            <button type="button" disabled={pending} onClick={onCancel} className="cursor-pointer border border-line bg-surface px-3 py-1.5 hover:bg-head disabled:opacity-60">
               Cancel
             </button>
           )}
-          <button type="submit" disabled={pending || text.trim() === ""} className="cursor-pointer bg-brand px-3 py-1.5 font-bold text-white hover:bg-brand-dark disabled:opacity-60">
+          <button type="submit" disabled={pending || text.trim() === ""} className="cursor-pointer bg-brand px-3 py-1.5 font-bold text-on-brand hover:bg-brand-dark disabled:opacity-60">
             {pending ? "Sending..." : submit}
           </button>
         </span>
@@ -102,7 +103,7 @@ function Votes({ listingId, questionId, target, votes, canVote, signedIn }: { li
         disabled={!canVote || pending}
         title={!signedIn ? "Sign in to vote" : !canVote ? "You cannot vote on this" : undefined}
         onClick={() => press(value)}
-        className={`flex items-center gap-1 rounded-full px-2 py-0.5 disabled:cursor-default ${canVote ? "cursor-pointer hover:bg-[#e8e8e8]" : ""} ${active ? "bg-[#ccfbf1] font-bold text-brand" : "text-muted"}`}
+        className={`flex items-center gap-1 rounded-full px-2 py-0.5 disabled:cursor-default ${canVote ? "cursor-pointer hover:bg-head-hover" : ""} ${active ? "bg-brand-chip font-bold text-brand" : "text-muted"}`}
       >
         <Thumb down={down} />
         <span>{count}</span>
@@ -141,21 +142,7 @@ function MoreMenu({ label, items, disabled }: { label: string; items: MenuItem[]
     setAsking(null);
   };
   const ref = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) close();
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
+  useDismiss(ref, open, () => close());
   if (items.length === 0) return null;
   return (
     <span ref={ref} className="relative">
@@ -166,7 +153,7 @@ function MoreMenu({ label, items, disabled }: { label: string; items: MenuItem[]
         aria-expanded={open}
         disabled={disabled}
         onClick={() => (open ? close() : setOpen(true))}
-        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-muted hover:bg-[#e8e8e8] disabled:cursor-default disabled:opacity-60"
+        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-muted hover:bg-head-hover disabled:cursor-default disabled:opacity-60"
       >
         <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden="true">
           <circle cx="12" cy="5" r="2" />
@@ -175,7 +162,7 @@ function MoreMenu({ label, items, disabled }: { label: string; items: MenuItem[]
         </svg>
       </button>
       {open && asking?.confirm && (
-        <div role="alertdialog" aria-label={asking.label} className="absolute right-0 z-10 mt-1 w-56 space-y-2 border border-line bg-white p-2 text-xs shadow-md">
+        <div role="alertdialog" aria-label={asking.label} className="absolute right-0 z-10 mt-1 w-56 space-y-2 border border-line bg-surface p-2 text-xs shadow-md">
           <p>{asking.confirm.text}</p>
           <div className="flex gap-1.5">
             <button
@@ -196,10 +183,10 @@ function MoreMenu({ label, items, disabled }: { label: string; items: MenuItem[]
         </div>
       )}
       {open && asking?.report && (
-        <div role="dialog" aria-label={asking.label} className="absolute right-0 z-10 mt-1 w-56 space-y-2 border border-line bg-white p-2 text-xs shadow-md">
+        <div role="dialog" aria-label={asking.label} className="absolute right-0 z-10 mt-1 w-56 space-y-2 border border-line bg-surface p-2 text-xs shadow-md">
           <label className="block space-y-1">
             <span>Why are you reporting this?</span>
-            <select value={reason} onChange={(e) => setReason(e.target.value as ReportReason)} className="block w-full border border-[#888] bg-white p-1">
+            <select value={reason} onChange={(e) => setReason(e.target.value as ReportReason)} className="block w-full border border-field bg-surface p-1">
               {REPORT_REASONS.map((value) => (
                 <option key={value} value={value}>
                   {REPORT_REASON_LABELS[value]}
@@ -227,7 +214,7 @@ function MoreMenu({ label, items, disabled }: { label: string; items: MenuItem[]
         </div>
       )}
       {open && !asking && (
-        <div role="menu" className="absolute right-0 z-10 mt-1 min-w-36 border border-line bg-white py-1 text-xs shadow-md">
+        <div role="menu" className="absolute right-0 z-10 mt-1 min-w-36 border border-line bg-surface py-1 text-xs shadow-md">
           {items.map((item) => (
             <button
               key={item.label}
@@ -240,7 +227,7 @@ function MoreMenu({ label, items, disabled }: { label: string; items: MenuItem[]
                   item.onSelect?.();
                 }
               }}
-              className="block w-full cursor-pointer px-3 py-1.5 text-left hover:bg-[#f0f0f0]"
+              className="block w-full cursor-pointer px-3 py-1.5 text-left hover:bg-head"
             >
               {item.label}
             </button>
@@ -306,7 +293,7 @@ function Row({ question, listingId, viewerId, isSeller, open }: { question: Ques
       <div className="flex items-center justify-between gap-3 pr-2">
         <div className="min-w-0 flex-1 space-y-1.5">
           <p className="text-xs text-muted">
-            {question.asker ? <b className="text-[#222]">{question.asker.username}</b> : <i>&lt;deleted user&gt;</i>}
+            {question.asker ? <b className="text-ink">{question.asker.username}</b> : <i>&lt;deleted user&gt;</i>}
             {mine && " (you)"} · <LocalTime iso={question.createdAt} />
             {question.editedAt && " (edited)"}
           </p>
@@ -339,11 +326,11 @@ function Row({ question, listingId, viewerId, isSeller, open }: { question: Ques
         )}
       </div>
       {question.answer && (
-        <div className="space-y-0.5 border-l-4 border-brand bg-[#f0fdfa] p-2">
+        <div className="space-y-0.5 border-l-4 border-brand bg-brand-soft p-2">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0 flex-1 space-y-0.5">
               <p className="text-xs text-muted">
-                <b className="text-[#222]">Seller&apos;s answer</b> · <LocalTime iso={question.answer.answeredAt} />
+                <b className="text-ink">Seller&apos;s answer</b> · <LocalTime iso={question.answer.answeredAt} />
                 {question.answer.editedAt && " (edited)"}
               </p>
               {question.answer.moderated || question.answer.body === null ? (
@@ -379,7 +366,7 @@ function Row({ question, listingId, viewerId, isSeller, open }: { question: Ques
           <button
             type="button"
             onClick={() => setAnswering(true)}
-            className="flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-1 text-xs font-bold text-brand hover:bg-[#e8e8e8]"
+            className="flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-1 text-xs font-bold text-brand hover:bg-head-hover"
           >
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -454,8 +441,8 @@ export function Questions({
   open: boolean;
 }) {
   return (
-    <section aria-label="Questions" className="border border-line bg-white">
-      <h2 className="border-b border-line bg-[#f0f0f0] px-3 py-1.5 text-sm font-bold">
+    <section aria-label="Questions" className="border border-line bg-surface">
+      <h2 className="border-b border-line bg-head px-3 py-1.5 text-sm font-bold">
         Questions <span className="font-normal text-muted">({total})</span>
       </h2>
       <div className="p-3">

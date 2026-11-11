@@ -8,12 +8,12 @@ export function Gallery({ images, alt }: { images: Image[]; alt: string }) {
   const [selected, setSelected] = useState(0);
   const [open, setOpen] = useState(false);
   if (images.length === 0) {
-    return <div className="flex aspect-square items-center justify-center bg-[#ddd] text-muted">No photos</div>;
+    return <div className="flex aspect-square items-center justify-center bg-sunken text-muted">No photos</div>;
   }
   return (
     <div>
       <button type="button" aria-label="Enlarge photo" onClick={() => setOpen(true)} className="block w-full cursor-zoom-in">
-        <img src={images[selected].url} alt={alt} className="aspect-square w-full bg-[#ddd] object-cover" />
+        <img src={images[selected].url} alt={alt} fetchPriority="high" className="aspect-square w-full rounded-card bg-sunken object-cover" />
       </button>
       {images.length > 1 && (
         <div className="mt-1 grid grid-cols-4 gap-1">
@@ -26,7 +26,7 @@ export function Gallery({ images, alt }: { images: Image[]; alt: string }) {
               onClick={() => setSelected(i)}
               className={`cursor-pointer border-2 ${i === selected ? "border-brand" : "border-transparent"}`}
             >
-              <img src={image.url} alt="" className="aspect-square w-full object-cover" />
+              <img src={image.url} alt="" loading="lazy" className="aspect-square w-full rounded-control object-cover" />
             </button>
           ))}
         </div>

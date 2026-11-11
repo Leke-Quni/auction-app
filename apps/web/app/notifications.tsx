@@ -1,6 +1,7 @@
 "use client";
 
 import { formatEur, SOCKET_EVENTS, type ExtendedNotice, type OutbidNotice, type QuestionNotice, type UnreadEvent, type WonNotice } from "@auction/shared";
+import { MotionConfig, motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -112,18 +113,22 @@ export function Notifications() {
 
   if (toasts.length === 0) return null;
   return (
+    <MotionConfig reducedMotion="user">
     <div className="fixed bottom-4 right-4 z-40 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2">
       {toasts.map((toast) => {
         const tone = toast.kind === "extended" && !toast.notice.final ? "teal" : "amber";
         return (
-          <div
+          <motion.div
             key={toast.id}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
             role={toast.kind === "outbid" ? "alert" : "status"}
-            className="relative overflow-hidden rounded-lg border border-line bg-white shadow-xl"
+            className="relative overflow-hidden rounded-lg border border-line bg-surface shadow-xl"
           >
             <div className="flex gap-3 p-3 pr-8">
               {toast.kind === "extended" && (
-                <span aria-hidden="true" className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white ${tone === "teal" ? "bg-brand" : "bg-time-warn"}`}>
+                <span aria-hidden="true" className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-on-brand ${tone === "teal" ? "bg-brand" : "bg-time-warn"}`}>
                   ⏱
                 </span>
               )}
@@ -131,7 +136,7 @@ export function Notifications() {
                 {toast.kind === "outbid" ? <OutbidBody toast={toast} onAsk={() => ask(toast)} onCancel={() => cancel(toast)} onConfirm={() => bidNow(toast)} /> : toast.kind === "extended" ? <ExtendedBody notice={toast.notice} /> : toast.kind === "won" ? <WonBody notice={toast.notice} /> : <QuestionBody kind={toast.kind} notice={toast.notice} />}
               </div>
             </div>
-            <button type="button" aria-label="Dismiss" onClick={() => dismiss(toast.id)} className="absolute right-2 top-1 cursor-pointer text-muted hover:text-black">
+            <button type="button" aria-label="Dismiss" onClick={() => dismiss(toast.id)} className="absolute right-2 top-1 cursor-pointer text-muted hover:text-ink">
               ✕
             </button>
             {/* Shrinks over the toast's lifetime; stands still while a bid is being confirmed or placed. */}
@@ -140,10 +145,11 @@ export function Notifications() {
               className="absolute bottom-0 left-0 h-1 bg-brand"
               style={{ animation: `toast-timer ${TOAST_MS}ms linear forwards`, animationPlayState: toast.kind === "outbid" && (toast.state === "pending" || toast.state === "confirm") ? "paused" : "running" }}
             />
-          </div>
+          </motion.div>
         );
       })}
     </div>
+    </MotionConfig>
   );
 }
 
@@ -179,7 +185,7 @@ function OutbidBody({ toast, onAsk, onCancel, onConfirm }: { toast: OutbidToast;
       </p>
       {error && <p className="font-bold text-time-warn">{error}</p>}
       {state === "idle" ? (
-        <button type="button" onClick={onAsk} className="w-full cursor-pointer rounded bg-brand px-3 py-1.5 font-bold text-white hover:bg-brand-dark">
+        <button type="button" onClick={onAsk} className="w-full cursor-pointer rounded bg-brand px-3 py-1.5 font-bold text-on-brand hover:bg-brand-dark">
           Bid {formatEur(notice.minimumNextBidCents)}
         </button>
       ) : (
@@ -190,7 +196,7 @@ function OutbidBody({ toast, onAsk, onCancel, onConfirm }: { toast: OutbidToast;
               type="button"
               onClick={onConfirm}
               disabled={state === "pending"}
-              className="flex-1 cursor-pointer rounded bg-brand px-3 py-1.5 font-bold text-white hover:bg-brand-dark disabled:opacity-60"
+              className="flex-1 cursor-pointer rounded bg-brand px-3 py-1.5 font-bold text-on-brand hover:bg-brand-dark disabled:opacity-60"
             >
               {state === "pending" ? "Placing bid..." : "Confirm"}
             </button>
@@ -198,7 +204,7 @@ function OutbidBody({ toast, onAsk, onCancel, onConfirm }: { toast: OutbidToast;
               type="button"
               onClick={onCancel}
               disabled={state === "pending"}
-              className="cursor-pointer rounded border border-line px-3 py-1.5 hover:bg-[#f0f0f0] disabled:opacity-60"
+              className="cursor-pointer rounded border border-line px-3 py-1.5 hover:bg-head disabled:opacity-60"
             >
               Cancel
             </button>
@@ -215,7 +221,7 @@ function WonBody({ notice }: { notice: WonNotice }) {
       <div className="space-y-1.5">
         <p className="font-bold">Less than 24 hours left to pay</p>
         <p className="text-muted">{`Pay for ${notice.title} (${formatEur(notice.finalPriceCents)}) or it will be offered to someone else.`}</p>
-        <Link href={notice.orderId ? `/orders/${notice.orderId}` : `/listings/${notice.listingId}`} className="block w-full rounded bg-brand px-3 py-1.5 text-center font-bold text-white hover:bg-brand-dark">
+        <Link href={notice.orderId ? `/orders/${notice.orderId}` : `/listings/${notice.listingId}`} className="block w-full rounded bg-brand px-3 py-1.5 text-center font-bold text-on-brand hover:bg-brand-dark">
           Pay now
         </Link>
       </div>
@@ -227,7 +233,7 @@ function WonBody({ notice }: { notice: WonNotice }) {
       <p className="text-muted">
         {notice.offered ? `The first buyer of ${notice.title} did not pay, so it is offered to you at ${formatEur(notice.finalPriceCents)}.` : `${notice.title} for ${formatEur(notice.finalPriceCents)}.`}
       </p>
-      <Link href={`/listings/${notice.listingId}`} className="block w-full rounded bg-brand px-3 py-1.5 text-center font-bold text-white hover:bg-brand-dark">
+      <Link href={`/listings/${notice.listingId}`} className="block w-full rounded bg-brand px-3 py-1.5 text-center font-bold text-on-brand hover:bg-brand-dark">
         Go to the auction
       </Link>
     </div>

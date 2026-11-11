@@ -15,14 +15,16 @@ import { authedApiFetch } from "@/lib/api";
 export default async function AccountSettingsPage({ searchParams }: { searchParams: Promise<{ payouts?: string }> }) {
   const { payouts } = await searchParams;
   if (!(await auth())) redirect("/sign-in");
-  const res = await authedApiFetch("/me");
+  // Coming back from the payment provider, the account is asked about live; if it cannot be, the row is left out.
+  const [res, pickupRes, payoutRes] = await Promise.all([
+    authedApiFetch("/me"),
+    authedApiFetch("/me/pickup-address"),
+    authedApiFetch("/me/payout-account").catch(() => null),
+  ]);
   if (res.status === 401) redirect("/sign-in");
   if (!res.ok) throw new Error(`API /me failed: ${res.status}`);
   const me = await res.json();
-  const pickupRes = await authedApiFetch("/me/pickup-address");
   const pickupAddress = pickupRes.ok ? (await pickupRes.json()).pickupAddress : null;
-  // Coming back from the payment provider, the account is asked about live; if it cannot be, the row is left out.
-  const payoutRes = await authedApiFetch("/me/payout-account").catch(() => null);
   const payoutStatus = payoutRes?.ok ? (await payoutRes.json()).status : null;
   return (
     <div className="mx-auto max-w-sm space-y-2">
@@ -32,7 +34,7 @@ export default async function AccountSettingsPage({ searchParams }: { searchPara
           Back to account
         </Link>
       </div>
-      <div className="divide-y divide-line border border-line bg-white">
+      <div className="divide-y divide-line border border-line bg-surface">
         <SettingRow
           label="First name"
           value={me.firstName}

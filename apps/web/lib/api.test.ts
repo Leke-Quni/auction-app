@@ -21,6 +21,14 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("authedApiFetch", () => {
+  it("sends a signed-out caller to sign in, without calling the API", async () => {
+    auth.mockResolvedValue(null);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(authedApiFetch("/me")).rejects.toThrow("REDIRECT /sign-in");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("sends a banned account to the suspended page", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(reply(403, { code: "BANNED", message: "This account has been suspended." })));
     await expect(authedApiFetch("/notifications")).rejects.toThrow("REDIRECT /suspended");

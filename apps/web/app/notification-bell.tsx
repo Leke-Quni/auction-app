@@ -1,10 +1,12 @@
 "use client";
 
+import { Bell } from "lucide-react";
 import { formatEur, type NotificationItem, type NotificationList } from "@auction/shared";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useNotificationStore } from "@/lib/notification-store";
 import { clearNotificationsAction, dismissNotificationAction, loadNotificationsAction, markNotificationReadAction } from "./notification-actions";
+import { useDismiss } from "./use-dismiss";
 
 const MINUTE = 60_000;
 
@@ -55,21 +57,7 @@ export function NotificationBell({ initial }: { initial: NotificationList | null
     return reset;
   }, [initial, seed, reset]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
+  useDismiss(ref, open, () => setOpen(false));
 
   const toggle = async () => {
     const opening = !open;
@@ -110,20 +98,17 @@ export function NotificationBell({ initial }: { initial: NotificationList | null
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={toggle}
-        className="relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-full hover:bg-white/20"
+        className="relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-full hover:bg-chip"
       >
-        <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-          <path d="M6 9a6 6 0 0 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9Z" strokeLinejoin="round" />
-          <path d="M10 19.5a2 2 0 0 0 4 0" strokeLinecap="round" />
-        </svg>
+        <Bell className="size-6" strokeWidth={1.8} aria-hidden="true" />
         {unreadCount > 0 && (
-          <span aria-hidden="true" className="absolute -right-1 -top-1 min-w-4 rounded-full bg-urgent px-1 text-center text-[11px] font-bold leading-4 text-white">
+          <span aria-hidden="true" className="absolute -right-1 -top-1 min-w-4 rounded-full bg-urgent px-1 text-center text-[11px] font-bold leading-4 text-on-brand">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
       </button>
       {open && (
-        <div role="menu" className="absolute right-0 z-10 mt-2 w-80 max-w-[calc(100vw-1rem)] whitespace-normal border border-line bg-white text-[#222] shadow-md">
+        <div role="menu" className="absolute right-0 z-10 mt-2 w-80 max-w-[calc(100vw-1rem)] whitespace-normal border border-line bg-surface text-ink shadow-md">
           <div className="flex items-center justify-between border-b border-line px-3 py-2">
             <p className="font-bold">Notifications</p>
             {items.length > 0 && (
@@ -146,7 +131,7 @@ export function NotificationBell({ initial }: { initial: NotificationList | null
                       role="menuitem"
                       href={notificationHref(item)}
                       onClick={() => void choose(item)}
-                      className={`block py-2 pl-3 pr-9 hover:bg-[#f0f0f0] ${item.readAt === null ? "bg-[#f0fbf9]" : ""}`}
+                      className={`block py-2 pl-3 pr-9 hover:bg-head ${item.readAt === null ? "bg-brand-faint" : ""}`}
                     >
                       <span className="flex items-center gap-1.5">
                         {item.readAt === null && <span aria-label="Unread" className="h-2 w-2 shrink-0 rounded-full bg-brand" />}
