@@ -1,20 +1,28 @@
 "use client";
 
+import { Gavel } from "lucide-react";
 import { useActionState } from "react";
 import type { StrikeRemoveResult } from "./actions";
+import { dangerIconButton } from "./buttons";
+import { Tip } from "./tip";
 
 export function StrikeRemoveForm({ action, id, username, what }: { action: (state: StrikeRemoveResult, formData: FormData) => Promise<StrikeRemoveResult>; id: string; username: string; what: string }) {
   const [state, formAction, pending] = useActionState(action, {});
   return (
     <form
+      className="relative"
       action={formAction}
       onSubmit={(e) => {
         if (!window.confirm(`Give @${username} a strike and remove this ${what}? The reports about it are closed. This cannot be undone.`)) e.preventDefault();
       }}
     >
       <input type="hidden" name="id" value={id} />
-      <button disabled={pending} title={`Strike @${username} and remove this ${what}`} className="cursor-pointer rounded bg-danger px-2 py-0.5 font-semibold text-on-brand disabled:opacity-60">Strike and remove {what}</button>
-      {state.error && <p role="alert" className="mt-1 max-w-xs text-red-700">{state.error}</p>}
+      <Tip label={`Give @${username} a strike and remove this ${what}. Reports about it are closed.`}>
+        <button disabled={pending} aria-label={`Strike and remove ${what}`} className={dangerIconButton}>
+          <Gavel size={13} />
+        </button>
+      </Tip>
+      {state.error && <p role="alert" className="absolute left-0 top-full z-10 mt-1 w-56 whitespace-normal rounded border border-danger bg-panel p-2 text-left text-xs text-danger shadow">{state.error}</p>}
     </form>
   );
 }
