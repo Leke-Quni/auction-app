@@ -1,21 +1,8 @@
 import { z } from "zod";
-import { LISTING_CONDITIONS, MAX_PRICE_CENTS } from "./listings";
+import { LISTING_CONDITIONS, MAX_PRICE_CENTS } from "./listing-values";
+import { SEARCH_SORTS, SUGGESTION_MIN_LENGTH } from "./search-values";
 
-export const SEARCH_SORTS = ["relevance", "endingSoon", "endingLatest", "newest", "mostBids", "fewestBids", "priceAsc", "priceDesc"] as const;
-export type SearchSort = (typeof SEARCH_SORTS)[number];
-
-export const SEARCH_SORT_LABELS: Record<SearchSort, string> = {
-  relevance: "Best match",
-  endingSoon: "Ending soonest",
-  endingLatest: "Ending latest",
-  newest: "Newest",
-  mostBids: "Most bids",
-  fewestBids: "Fewest bids",
-  priceAsc: "Price: low to high",
-  priceDesc: "Price: high to low",
-};
-
-export const ENDING_SOON_HOURS = 24;
+export * from "./search-values";
 
 const cents = z.coerce.number().int().min(0).max(MAX_PRICE_CENTS);
 
@@ -38,14 +25,4 @@ export const searchQuerySchema = z
 
 export type SearchQuery = z.infer<typeof searchQuerySchema>;
 
-// Suggestions while typing: a few listing titles that match the text so far. Shorter text matches too much to help.
-export const SUGGESTION_MIN_LENGTH = 2;
-export const SUGGESTION_COUNT = 5;
 export const suggestQuerySchema = z.object({ q: z.string().trim().min(SUGGESTION_MIN_LENGTH).max(100) });
-
-
-// Best match only means something when there is text to match; without text, newest first.
-export function resolveSearchSort(query: Pick<SearchQuery, "q" | "sort">): SearchSort {
-  if (query.sort && !(query.sort === "relevance" && !query.q)) return query.sort;
-  return query.q ? "relevance" : "newest";
-}
