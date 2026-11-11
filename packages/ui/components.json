@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "base-nova",
+  "rsc": true,
+  "tsx": true,
+  "tailwind": {
+    "config": "",
+    "css": "../../apps/web/app/globals.css",
+    "baseColor": "neutral",
+    "cssVariables": true,
+    "prefix": ""
+  },
+  "iconLibrary": "lucide",
+  "aliases": {
+    "components": "@auction/ui/components",
+    "ui": "@auction/ui/components",
+    "utils": "@auction/ui/cn",
+    "lib": "@auction/ui/lib",
+    "hooks": "@auction/ui/hooks"
+  }
+}

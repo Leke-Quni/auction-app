@@ -6,7 +6,8 @@
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
     "noEmit": true,
-    "declaration": false
+    "declaration": false,
+    "paths": { "@auction/ui/*": ["./src/*"] }
   },
   "include": ["src"]
 }
