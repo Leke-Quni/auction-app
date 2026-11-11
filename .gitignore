@@ -15,3 +15,6 @@ generated
 # Playwright
 apps/e2e/test-results/
 apps/e2e/playwright-report/
+
+# Playwright MCP screenshots
+.playwright-mcp/
