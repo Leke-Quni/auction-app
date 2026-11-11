@@ -21,10 +21,11 @@ import { RateLimitModule } from "./rate-limit/rate-limit.module";
 import { RealtimeModule } from "./realtime/realtime.module";
 import { SearchModule } from "./search/search.module";
 import { SupportModule } from "./support/support.module";
+import { UploadsModule } from "./uploads/uploads.module";
 import { UsersModule } from "./users/users.module";
 
 @Module({
-  imports: [DbModule, JobSchedulerModule, RateLimitModule, EmailModule, SearchModule, AuthModule, UsersModule, ListingsModule, BidsModule, AuctionsModule, PaymentsModule, ShippingModule, OrdersModule, PayoutsModule, WatchlistModule, ProfilesModule, AdminModule, NotificationsModule, QuestionsModule, SupportModule, RealtimeModule, JobsModule],
+  imports: [DbModule, JobSchedulerModule, RateLimitModule, EmailModule, SearchModule, AuthModule, UsersModule, ListingsModule, BidsModule, AuctionsModule, PaymentsModule, ShippingModule, OrdersModule, PayoutsModule, WatchlistModule, ProfilesModule, AdminModule, NotificationsModule, QuestionsModule, SupportModule, UploadsModule, RealtimeModule, JobsModule],
   controllers: [HealthController],
 })
 export class AppModule {}

@@ -3,6 +3,9 @@ import { issueSignedToken } from "@vercel/blob";
 
 const ALLOWED_EXTENSIONS = ["jpg", "jpeg", "png", "webp"];
 
+/** The person has asked for permission to upload too many photos lately. */
+export class UploadLimitError extends Error {}
+
 export type UploadCheck = { ok: true } | { ok: false; reason: string };
 
 /** Decides whether a signed-in user may get an upload token for this path: their own folder, an image extension. */
@@ -20,11 +23,18 @@ const UPLOAD_URL_LIFETIME_MS = 10 * 60 * 1000;
 /**
  * Called by the upload route for each photo a browser wants to upload: checks who is asking and where the file
  * would go, then issues a short-lived token that only allows that one upload (images, up to 5 MB).
- * `issue` is replaceable so the rules can be tested without Blob credentials.
+ * `issue` is replaceable so the rules can be tested without Blob credentials. `reserve` counts the upload against the person's
+ * limit (it throws `UploadLimitError` when they are over), after the path is accepted and before anything is issued.
  */
-export async function getUploadToken(userId: string | undefined, pathname: string, issue: typeof issueSignedToken = issueSignedToken) {
+export async function getUploadToken(
+  userId: string | undefined,
+  pathname: string,
+  issue: typeof issueSignedToken = issueSignedToken,
+  reserve: () => Promise<void> = async () => {},
+) {
   const check = authorizeUpload(userId, pathname);
   if (!check.ok) throw new Error(check.reason);
+  await reserve();
   const validUntil = Date.now() + UPLOAD_URL_LIFETIME_MS;
   return {
     token: await issue({

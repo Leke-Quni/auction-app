@@ -1,36 +1,52 @@
 import "reflect-metadata";
-import { MAX_SEARCH_RESULTS, SEARCH_RATE_LIMIT, SUGGEST_RATE_LIMIT } from "@auction/shared";
+import { MAX_SEARCH_RESULTS, SEARCH_RATE_LIMIT, SUGGEST_RATE_LIMIT, UPLOAD_DAILY_RATE_LIMIT, UPLOAD_HOURLY_RATE_LIMIT } from "@auction/shared";
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
+import { SignJWT } from "jose";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module";
 import { signViewerIp } from "../src/common/client-ip";
-import { RATE_LIMITER, type RateLimiter } from "../src/rate-limit/rate-limiter";
+import { authSecret } from "../src/config";
+import { PRISMA, type Prisma } from "../src/db/db.module";
+import { MemoryRateLimiter, RATE_LIMITER, type RateLimiter } from "../src/rate-limit/rate-limiter";
 import { NoopSearchIndex, SEARCH_INDEX } from "../src/search/search-index";
+import { UploadsController } from "../src/uploads/uploads.controller";
 
 const stamp = Date.now();
-// Counts live in Redis between runs, so every run uses addresses of its own.
+// Counts live in Redis between runs, so every run uses addresses and users of its own.
 const octet = stamp % 250;
 const ipHeaders = (ip: string) => ({ "x-viewer-ip": ip, "x-viewer-ip-signature": signViewerIp(ip) });
 const emptyPage = { documents: [], total: 0 };
 
-describe("limits on search", () => {
+describe("limits on search and uploads", () => {
   let app: INestApplication;
+  let prisma: Prisma;
   const index = new NoopSearchIndex();
   const search = vi.spyOn(index, "search").mockResolvedValue(emptyPage);
   const api = () => request(app.getHttpServer());
+  const ids: string[] = [];
+
+  const tokenFor = (id: string) => new SignJWT({ role: "USER" }).setProtectedHeader({ alg: "HS256" }).setSubject(id).setExpirationTime("10m").sign(authSecret());
+  const makeUser = async (tag: string) => {
+    const id = `lim_${stamp}_${tag}`;
+    await prisma.user.create({ data: { id, email: `lim-${tag}-${stamp}@example.com`, firstName: "L", lastName: "T", username: `lim${tag}${stamp}`.slice(0, 20), passwordHash: "!test", emailVerified: new Date() } });
+    ids.push(id);
+    return { id, headers: { Authorization: `Bearer ${await tokenFor(id)}` } };
+  };
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(SEARCH_INDEX).useValue(index).compile();
     app = moduleRef.createNestApplication();
     await app.init();
+    prisma = app.get(PRISMA);
     // The limiter connects to Redis in the background and lets requests through uncounted until it has (by design), so wait for it.
     await new Promise((resolve) => setTimeout(resolve, 500));
     await request(app.getHttpServer()).get("/search").set(ipHeaders("198.51.100.250")).expect(200);
   });
 
   afterAll(async () => {
+    await prisma.user.deleteMany({ where: { id: { in: ids } } });
     await app.close();
   });
 
@@ -87,4 +103,36 @@ describe("limits on search", () => {
     });
   });
 
+  describe("photo upload permission", () => {
+    it("needs a signed-in person", async () => {
+      await api().post("/uploads/authorize").expect(401);
+    });
+
+    it("allows the hourly number for one person, then 429, without touching anyone else", async () => {
+      const a = await makeUser("a");
+      const b = await makeUser("b");
+      const statuses = await burst(UPLOAD_HOURLY_RATE_LIMIT.limit, () => api().post("/uploads/authorize").set(a.headers));
+      expect(statuses.every((s) => s === 204)).toBe(true);
+      const over = await api().post("/uploads/authorize").set(a.headers).expect(429);
+      expect(over.body.code).toBe("RATE_LIMITED");
+      await api().post("/uploads/authorize").set(b.headers).expect(204);
+    }, 60_000);
+
+    it("also stops at the daily number when the hourly count keeps starting over", async () => {
+      const limiter = new MemoryRateLimiter();
+      const controller = new UploadsController(limiter);
+      const req = { user: { id: "u1", email: "u1@example.com", role: "USER" as const, isSuperAdmin: false } };
+      let allowed = 0;
+      for (let i = 0; i < UPLOAD_DAILY_RATE_LIMIT.limit + 5; i++) {
+        if (i % UPLOAD_HOURLY_RATE_LIMIT.limit === 0) await limiter.reset("rl:upload-hour:u1");
+        try {
+          await controller.authorize(req);
+          allowed++;
+        } catch (error) {
+          expect((error as { getStatus: () => number }).getStatus()).toBe(429);
+        }
+      }
+      expect(allowed).toBe(UPLOAD_DAILY_RATE_LIMIT.limit);
+    });
+  });
 });

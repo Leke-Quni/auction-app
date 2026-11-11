@@ -49,3 +49,8 @@ export function listingPhase(
   if (now < new Date(listing.endsAt)) return "live";
   return "ended";
 }
+
+// Permission to upload a photo is given to a signed-in person this many times an hour and a day. A listing holds 8 photos and an
+// edit may replace them a few times, so real use stays far below; the limit stops a script filling the photo store.
+export const UPLOAD_HOURLY_RATE_LIMIT = { limit: 30, windowSeconds: 3600 } as const;
+export const UPLOAD_DAILY_RATE_LIMIT = { limit: 100, windowSeconds: 86_400 } as const;
