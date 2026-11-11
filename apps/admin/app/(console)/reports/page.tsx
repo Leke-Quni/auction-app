@@ -1,8 +1,11 @@
 import { REPORT_REASON_LABELS, type ReportReason } from "@auction/shared";
+import { Check, ScrollText } from "lucide-react";
 import Link from "next/link";
 import { adminApiFetch } from "@/lib/api";
 import { requireAdmin } from "@/lib/require-admin";
+import { handledButton, iconButton } from "./buttons";
 import { RemovePostForm } from "./remove-post-form";
+import { Tip } from "./tip";
 import { StrikeRemoveForm } from "./strike-remove-form";
 import { handleReportAction, removePostAction, strikeAndRemoveAction } from "./actions";
 
@@ -65,36 +68,26 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
             <tr>
               <th className="p-2">Reason</th>
               <th className="p-2">Words as written</th>
-              <th className="p-2">Written by</th>
-              <th className="p-2">Reported by</th>
+              <th className="p-2">People</th>
               <th className="p-2">Listing</th>
               <th className="p-2">{status === "OPEN" ? "Reported" : "Handled"}</th>
-              <th className="p-2" />
             </tr>
           </thead>
           <tbody>
             {reports.map((r) => (
               <tr key={r.id} className="border-t border-line align-top">
                 <td className="p-2">
-                  <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${r.reason === "CONTACT_DETAILS" ? "bg-warn-soft text-warn" : "bg-info-soft text-info"}`}>{REPORT_REASON_LABELS[r.reason]}</span>
+                  <span className={`inline-block whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-semibold ${r.reason === "CONTACT_DETAILS" ? "bg-warn-soft text-warn" : "bg-info-soft text-info"}`}>{REPORT_REASON_LABELS[r.reason]}</span>
                   <div className="mt-1 text-xs text-muted">{r.target === "QUESTION" ? "Question" : "Answer"}</div>
                 </td>
-                <td className="max-w-md whitespace-pre-wrap break-words p-2">{r.body}</td>
-                <td className="p-2">{who(r.author, "gone")}</td>
-                <td className="p-2">{r.reporter ? who(r.reporter, "") : <span className="text-muted">Flagged by the site</span>}</td>
-                <td className="p-2">{r.listing ? (
-                    <Link href={`/listings/${r.listing.id}`} className="text-accent underline">
-                      {r.listing.title}
-                    </Link>
-                  ) : (
-                    <span className="text-muted">removed</span>
-                  )}</td>
-                <td className="whitespace-nowrap p-2 text-muted">{when(status === "OPEN" ? r.createdAt : (r.handledAt ?? r.createdAt))}</td>
-                <td className="p-2 text-right">
-                  <div className="flex flex-wrap items-start justify-end gap-2">
-                    <Link href={`/question-log?questionId=${r.questionId}`} className="text-accent underline">
-                      Log
-                    </Link>
+                <td className="max-w-sm p-2">
+                  <p className="whitespace-pre-wrap break-words">{r.body}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <Tip label="Open this post's history in the question log">
+                      <Link href={`/question-log?questionId=${r.questionId}`} aria-label="Open in the question log" className={iconButton}>
+                        <ScrollText size={13} />
+                      </Link>
+                    </Tip>
                     {r.status === "OPEN" && r.author?.username && <StrikeRemoveForm action={strikeAndRemoveAction} id={r.id} username={r.author.username} what={r.target === "QUESTION" ? "question" : "answer"} />}
                     {r.status === "OPEN" && (
                       <RemovePostForm action={removePostAction} id={r.id} what={r.target === "QUESTION" ? "question" : "answer"} />
@@ -102,11 +95,30 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
                     {r.status === "OPEN" && (
                       <form action={handleReportAction}>
                         <input type="hidden" name="id" value={r.id} />
-                        <button className="cursor-pointer rounded bg-accent px-2 py-0.5 font-semibold text-on-brand hover:bg-accent-dark">Mark handled</button>
+                        <Tip label="Close this report without removing anything">
+                          <button className={handledButton}>
+                            <Check size={13} />
+                            Mark handled
+                          </button>
+                        </Tip>
                       </form>
                     )}
                   </div>
                 </td>
+                <td className="p-2">
+                  <div className="text-xs text-muted">Written by</div>
+                  <div>{who(r.author, "gone")}</div>
+                  <div className="mt-1 text-xs text-muted">Reported by</div>
+                  <div>{r.reporter ? who(r.reporter, "") : <span className="text-muted">Flagged by the site</span>}</div>
+                </td>
+                <td className="max-w-48 break-words p-2">{r.listing ? (
+                    <Link href={`/listings/${r.listing.id}`} className="text-accent underline">
+                      {r.listing.title}
+                    </Link>
+                  ) : (
+                    <span className="text-muted">removed</span>
+                  )}</td>
+                <td className="p-2 text-muted">{when(status === "OPEN" ? r.createdAt : (r.handledAt ?? r.createdAt))}</td>
               </tr>
             ))}
           </tbody>

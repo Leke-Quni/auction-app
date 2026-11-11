@@ -137,22 +137,22 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
             <LiveDetails listing={details} openMode={openMode} viewerId={viewerId} order={order} />
           </div>
         </div>
+        <div className="border border-line bg-surface p-3">
+          <h2 className="mb-1 text-sm font-bold">Description</h2>
+          {listing.removed && !isOwner ? (
+            <p className="italic text-muted">
+              This listing was removed by moderation.{" "}
+              <Link href={POLICY_LINKS.listings} className="text-brand underline">
+                See what you can and cannot list
+              </Link>
+              .
+            </p>
+          ) : (
+            <p className="whitespace-pre-wrap">{listing.description}</p>
+          )}
+        </div>
         {published && <LiveHistory viewerId={viewerId} />}
       </LiveAuction>
-      <div className="border border-line bg-surface p-3">
-        <h2 className="mb-1 text-sm font-bold">Description</h2>
-        {listing.removed && !isOwner ? (
-          <p className="italic text-muted">
-            This listing was removed by moderation.{" "}
-            <Link href={POLICY_LINKS.listings} className="text-brand underline">
-              See what you can and cannot list
-            </Link>
-            .
-          </p>
-        ) : (
-          <p className="whitespace-pre-wrap">{listing.description}</p>
-        )}
-      </div>
       {published && (
         <Questions
           listingId={listing.id}

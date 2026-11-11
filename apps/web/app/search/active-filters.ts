@@ -1,5 +1,5 @@
-import { CONDITION_LABELS, type ListingCondition } from "@auction/shared";
-import { pageHref, type SearchPageParams } from "./search-params";
+import { CONDITION_LABELS } from "@auction/shared";
+import { conditionList, pageHref, type SearchPageParams } from "./search-params";
 
 export interface FilterChip {
   id: string;
@@ -24,9 +24,11 @@ export function activeFilterChips(params: SearchPageParams, categories: { slug: 
     const name = categories.find((c) => c.slug === params.category)?.name ?? params.category;
     chips.push({ id: "category", label: name, href: without(params, ["category"]) });
   }
-  if (params.condition) {
-    const label = CONDITION_LABELS[params.condition as ListingCondition] ?? params.condition;
-    chips.push({ id: "condition", label, href: without(params, ["condition"]) });
+  // One chip per ticked condition; removing one keeps the others.
+  const conditions = conditionList(params.condition);
+  for (const condition of conditions) {
+    const rest = conditions.filter((c) => c !== condition).join(",");
+    chips.push({ id: `condition-${condition}`, label: CONDITION_LABELS[condition], href: pageHref({ ...params, condition: rest || undefined, page: undefined }, 1) });
   }
   if (params.minPrice || params.maxPrice) {
     const label =

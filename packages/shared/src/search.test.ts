@@ -20,7 +20,7 @@ describe("searchQuerySchema", () => {
     expect(parsed).toMatchObject({
       q: "watch",
       category: "watches-jewelry",
-      condition: "GOOD",
+      condition: ["GOOD"],
       minPriceCents: 1000,
       maxPriceCents: 50000,
       endingSoon: true,
@@ -29,9 +29,19 @@ describe("searchQuerySchema", () => {
     });
   });
 
+  it("reads several conditions from a comma list or a repeated parameter, once each", () => {
+    expect(searchQuerySchema.parse({ condition: "NEW,GOOD" }).condition).toEqual(["NEW", "GOOD"]);
+    expect(searchQuerySchema.parse({ condition: ["NEW", "FAIR"] }).condition).toEqual(["NEW", "FAIR"]);
+    expect(searchQuerySchema.parse({ condition: "NEW, NEW,NEW" }).condition).toEqual(["NEW"]);
+    expect(searchQuerySchema.parse({}).condition).toBeUndefined();
+  });
+
   it("rejects bad values", () => {
     for (const bad of [
       { condition: "BROKEN" },
+      { condition: "NEW,BROKEN" },
+      { condition: "" },
+      { condition: "NEW,," },
       { sort: "random" },
       { category: "Watches & Jewelry" },
       { minPriceCents: "-1" },

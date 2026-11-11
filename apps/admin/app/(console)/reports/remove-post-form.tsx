@@ -1,5 +1,9 @@
 "use client";
 
+import { Trash2 } from "lucide-react";
+import { dangerIconButton } from "./buttons";
+import { Tip } from "./tip";
+
 export function RemovePostForm({ action, id, what }: { action: (formData: FormData) => Promise<void>; id: string; what: "question" | "answer" }) {
   return (
     <form
@@ -9,7 +13,11 @@ export function RemovePostForm({ action, id, what }: { action: (formData: FormDa
       }}
     >
       <input type="hidden" name="id" value={id} />
-      <button className="cursor-pointer rounded bg-danger px-2 py-0.5 font-semibold text-on-brand">Remove {what}</button>
+      <Tip label={`Remove this ${what} with no strike. Reports about it are closed.`}>
+        <button aria-label={`Remove ${what}`} className={dangerIconButton}>
+          <Trash2 size={13} />
+        </button>
+      </Tip>
     </form>
   );
 }

@@ -3,7 +3,7 @@ import Form from "next/form";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { PriceSlider } from "./price-slider";
-import { categoryHref, type SearchPageParams } from "./search-params";
+import { categoryHref, conditionList, type SearchPageParams } from "./search-params";
 import { SortSelect } from "./sort-select";
 
 const input = "mt-0.5 w-full border border-field bg-surface p-1 text-xs";
@@ -33,6 +33,7 @@ export function SearchSidebar({
   sort: SearchSort;
   maxEuros: number;
 }) {
+  const selectedConditions = conditionList(params.condition);
   return (
     <aside
       className="space-y-2 text-xs [@media(min-width:900px)_and_(min-height:760px)]:sticky [@media(min-width:900px)_and_(min-height:760px)]:top-[calc(var(--header-height,4.5rem)_+_0.5rem)]"
@@ -61,17 +62,15 @@ export function SearchSidebar({
         <h2 className="col-span-2 font-bold min-[900px]:col-span-1">Filters</h2>
         {params.category && <input type="hidden" name="category" value={params.category} />}
         {params.q && <input type="hidden" name="q" value={params.q} />}
-        <label className="block">
-          <span className={label}>Condition</span>
-          <select name="condition" defaultValue={params.condition ?? ""} className={input}>
-            <option value="">Any condition</option>
-            {LISTING_CONDITIONS.map((c) => (
-              <option key={c} value={c}>
-                {CONDITION_LABELS[c]}
-              </option>
-            ))}
-          </select>
-        </label>
+        <fieldset className="space-y-0.5">
+          <legend className={label}>Condition</legend>
+          {LISTING_CONDITIONS.map((c) => (
+            <label key={c} className="flex items-center gap-1.5 py-0.5">
+              <input type="checkbox" name="condition" value={c} defaultChecked={selectedConditions.includes(c)} />
+              {CONDITION_LABELS[c]}
+            </label>
+          ))}
+        </fieldset>
         <label className="block">
           <span className={label}>Sort by</span>
           <SortSelect defaultValue={sort} className={input} />

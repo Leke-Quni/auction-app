@@ -39,7 +39,10 @@ export async function banUserAction(_: UserActionState, formData: FormData): Pro
 
 export async function unbanUserAction(_: UserActionState, formData: FormData): Promise<UserActionState> {
   const id = String(formData.get("id") ?? "");
-  return run(id, `/admin/users/${encodeURIComponent(id)}/unban`, { method: "POST" });
+  const reason = String(formData.get("reason") ?? "").trim();
+  if (!reason) return { error: "Give a reason." };
+  if (reason.length > 500) return { error: "The reason is at most 500 characters." };
+  return run(id, `/admin/users/${encodeURIComponent(id)}/unban`, { method: "POST", body: JSON.stringify({ reason }) });
 }
 
 export async function clearStrikeAction(_: UserActionState, formData: FormData): Promise<UserActionState> {

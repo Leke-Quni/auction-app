@@ -30,6 +30,7 @@ const invoiceQuerySchema = z.object({ party: z.enum(["buyer", "seller"]) });
 const roleSchema = z.object({ role: z.enum(["USER", "ADMIN"]) });
 const strikeSchema = z.object({ reason: z.string().trim().min(1).max(500) });
 const banSchema = z.object({ reason: z.string().trim().min(1).max(500) });
+const unbanSchema = z.object({ reason: z.string().trim().min(1).max(500) });
 const removeListingSchema = z.object({ reason: z.string().trim().min(1).max(500) });
 const auditQuerySchema = z.object({ adminId: z.string().min(1).optional(), targetId: z.string().min(1).optional(), q: z.string().trim().max(100).optional(), limit: z.coerce.number().int().min(1).max(200).default(100) });
 const listingsQuerySchema = z.object({
@@ -77,6 +78,13 @@ export class AdminController {
   @Get("support")
   listSupport(@Query(new ZodValidationPipe(supportQuerySchema)) query: z.infer<typeof supportQuerySchema>) {
     return this.support.list(query);
+  }
+
+  // Records that an admin opened a reply to the person, so the Support page can show "Replied".
+  @Post("support/:id/replied")
+  @HttpCode(200)
+  markSupportReplied(@Param("id") id: string) {
+    return this.support.markReplied(id);
   }
 
   @Post("support/:id/handle")
@@ -167,8 +175,8 @@ export class AdminController {
 
   @Post("users/:id/unban")
   @HttpCode(200)
-  unbanUser(@Param("id") id: string, @Req() req: { user: AuthUser }) {
-    return this.users.unban(req.user.id, id);
+  unbanUser(@Param("id") id: string, @Req() req: { user: AuthUser }, @Body(new ZodValidationPipe(unbanSchema)) body: z.infer<typeof unbanSchema>) {
+    return this.users.unban(req.user.id, id, body.reason);
   }
 
   // Gives the account a strike with a reason (two block bidding).

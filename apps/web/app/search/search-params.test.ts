@@ -1,13 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { maxSearchPage } from "@auction/shared";
-import { apiQueryFromParams, categoryHref, pageHref, readSearchParams, SEARCH_PAGE_SIZE } from "./search-params";
+import { apiQueryFromParams, categoryHref, pageHref, readSearchParams, recordFromSearchParams, SEARCH_PAGE_SIZE } from "./search-params";
 
 describe("readSearchParams", () => {
   it("keeps the first value of a list and drops blank form fields", () => {
-    expect(readSearchParams({ q: " watch ", category: "", condition: ["GOOD", "FAIR"], sort: undefined })).toEqual({
-      q: "watch",
-      condition: "GOOD",
-    });
+    expect(readSearchParams({ q: " watch ", category: ["art", "toys"], sort: undefined, page: "" })).toEqual({ q: "watch", category: "art" });
+  });
+
+  it("keeps every ticked condition, once each and in the order of the form, and drops values that are not conditions", () => {
+    expect(readSearchParams({ condition: ["GOOD", "NEW"] })).toEqual({ condition: "NEW,GOOD" });
+    expect(readSearchParams({ condition: "FAIR,NEW,FAIR" })).toEqual({ condition: "NEW,FAIR" });
+    expect(readSearchParams({ condition: ["BROKEN", "GOOD"] })).toEqual({ condition: "GOOD" });
+    expect(readSearchParams({ condition: ["", "  "] })).toEqual({});
+    expect(readSearchParams({ condition: "BROKEN" })).toEqual({});
+  });
+});
+
+describe("recordFromSearchParams", () => {
+  it("keeps every value of a repeated parameter", () => {
+    const record = recordFromSearchParams(new URLSearchParams("q=rolex&condition=GOOD&condition=NEW&page=2"));
+    expect(record).toEqual({ q: "rolex", condition: ["GOOD", "NEW"], page: "2" });
+    expect(readSearchParams(record)).toEqual({ q: "rolex", condition: "NEW,GOOD", page: "2" });
   });
 });
 

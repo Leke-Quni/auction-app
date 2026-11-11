@@ -15,6 +15,12 @@ export class SupportController {
     return this.support.strikes(req.user.id);
   }
 
+  // Whether the caller still has a message waiting for an answer (they cannot send another until it is answered).
+  @Get("waiting")
+  waiting(@Req() req: { user: AuthUser }) {
+    return this.support.waiting(req.user.id);
+  }
+
   @Post()
   create(@Req() req: { user: AuthUser }, @Body(new ZodValidationPipe(supportRequestSchema)) body: SupportRequestInput) {
     return this.support.create(req.user.id, body);

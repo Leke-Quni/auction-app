@@ -65,7 +65,7 @@ describe("admin accounts: ban, unban and strikes", () => {
   });
 
   const ban = (admin: Who, id: string, body: unknown = { reason: "Fraud" }) => request(url).post(`/admin/users/${id}/ban`).set(admin.auth).send(body as object);
-  const unban = (admin: Who, id: string) => request(url).post(`/admin/users/${id}/unban`).set(admin.auth);
+  const unban = (admin: Who, id: string, body: unknown = { reason: "Appeal reviewed" }) => request(url).post(`/admin/users/${id}/unban`).set(admin.auth).send(body as object);
   const strike = (userId: string) => prisma.strike.create({ data: { userId, listingId: `gone_${stamp}_${++counter}`, orderId: `order_${stamp}_${++counter}` } });
 
   it("is for admins only", async () => {
@@ -127,6 +127,11 @@ describe("admin accounts: ban, unban and strikes", () => {
     expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).bannedAt).toBeNull();
     expect((await unban(admin, user.id).expect(409)).body.code).toBe("NOT_BANNED");
     await ban(admin, user.id).expect(200);
+    // An unban needs a reason too, and a refused one changes nothing.
+    await unban(admin, user.id, {}).expect(400);
+    await unban(admin, user.id, { reason: "   " }).expect(400);
+    await unban(admin, user.id, { reason: "x".repeat(501) }).expect(400);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).bannedAt).not.toBeNull();
     expect((await ban(admin, user.id, { reason: "Again" }).expect(409)).body.code).toBe("ALREADY_BANNED");
     expect(sent.filter((m) => m.to === user.email)).toMatchObject([{ subject: "Your account has been suspended", text: expect.stringContaining("Reason: Fraud") }]);
     expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).banReason).toBe("Fraud");
@@ -201,7 +206,7 @@ describe("admin accounts: ban, unban and strikes", () => {
     const log = (await request(url).get(`/admin/audit?targetId=${user.id}`).set(a1.auth).expect(200)).body.entries;
     expect(log.map((e: { action: string }) => e.action).sort()).toEqual(["BAN_USER", "CLEAR_STRIKE", "UNBAN_USER"]);
     expect(log.find((e: { action: string }) => e.action === "BAN_USER")).toMatchObject({ reason: "Fraud", admin: { id: a1.id, username: a1.username } });
-    expect(log.find((e: { action: string }) => e.action === "UNBAN_USER").admin.id).toBe(a2.id);
+    expect(log.find((e: { action: string }) => e.action === "UNBAN_USER")).toMatchObject({ reason: "Appeal reviewed", admin: { id: a2.id } });
     const mine = (await request(url).get(`/admin/audit?adminId=${a1.id}`).set(a1.auth).expect(200)).body.entries;
     expect(mine).toHaveLength(1);
     const byName = (await request(url).get(`/admin/audit?q=${a1.username.slice(0, 8)}`).set(a1.auth).expect(200)).body.entries;

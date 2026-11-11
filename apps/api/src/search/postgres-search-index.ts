@@ -53,7 +53,7 @@ export class PostgresSearchIndex implements SearchIndex {
     const price = Sql.sql`COALESCE(l."currentBidCents", l."startingPriceCents")`;
     const where = [Sql.sql`l."status" = 'PUBLISHED'`, Sql.sql`l."endsAt" > ${params.now}`];
     if (params.category) where.push(Sql.sql`c."slug" = ${params.category}`);
-    if (params.condition) where.push(Sql.sql`l."condition" = ${params.condition}::"ListingCondition"`);
+    if (params.condition) where.push(Sql.sql`l."condition"::text = ANY(${params.condition}::text[])`);
     if (params.minPriceCents !== undefined) where.push(Sql.sql`${price} >= ${params.minPriceCents}`);
     if (params.maxPriceCents !== undefined) where.push(Sql.sql`${price} <= ${params.maxPriceCents}`);
     // "Ending latest" lists only live auctions: an upcoming one has not started, so it has no end worth ranking yet.

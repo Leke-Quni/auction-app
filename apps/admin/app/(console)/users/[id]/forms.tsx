@@ -33,11 +33,21 @@ export function BanForm({ id, username }: { id: string; username: string }) {
   );
 }
 
-export function UnbanForm({ id }: { id: string }) {
+export function UnbanForm({ id, username }: { id: string; username: string }) {
   const [state, action, pending] = useActionState<UserActionState, FormData>(unbanUserAction, {});
   return (
-    <form action={action} className="space-y-2">
+    <form
+      action={action}
+      onSubmit={(e) => {
+        if (!window.confirm(`Restore @${username}? They can sign in and use the site again, and are emailed that their account was restored. Your reason is kept in the audit log.`)) e.preventDefault();
+      }}
+      className="space-y-2"
+    >
       <input type="hidden" name="id" value={id} />
+      <label className="block">
+        <span className="text-muted">Reason for restoring (kept in the audit log)</span>
+        <textarea name="reason" required maxLength={500} rows={2} className="mt-1 w-full rounded border border-line bg-panel p-2" />
+      </label>
       <FormError state={state} />
       <button disabled={pending} className="cursor-pointer rounded bg-accent px-3 py-1 font-semibold text-on-brand hover:bg-accent-dark disabled:opacity-60">
         {pending ? "Restoring..." : "Restore account"}

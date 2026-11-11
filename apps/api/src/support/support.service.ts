@@ -3,6 +3,12 @@ import { ConflictException, HttpException, HttpStatus, Inject, Injectable, NotFo
 import { PRISMA, type Prisma } from "../db/db.module";
 import { RATE_LIMITER, type RateLimiter } from "../rate-limit/rate-limiter";
 
+// One message waiting at a time (2026-11-11, owner's request): until an admin has answered (closed) the last question or strike appeal,
+// the person cannot send another. A ban appeal is not counted: it is written from the suspended page, and an unban would leave it open.
+const WAITING_KINDS: ("GENERAL" | "STRIKE_APPEAL")[] = ["GENERAL", "STRIKE_APPEAL"];
+const WAITING = { status: "OPEN" as const, kind: { in: WAITING_KINDS } };
+const waitingError = () => new ConflictException({ code: "REQUEST_WAITING", message: "You already have a message waiting for an answer. Once we have answered by email, you can write again." });
+
 // What a signed-in person can say to the site's admins: a question, or an appeal against one of their strikes. Admins read these
 // in the admin app and answer by email.
 @Injectable()
@@ -11,6 +17,11 @@ export class SupportService {
     @Inject(PRISMA) private readonly prisma: Prisma,
     @Inject(RATE_LIMITER) private readonly limiter: RateLimiter,
   ) {}
+
+  // Whether the person has a question or appeal that no admin has answered yet, so the form can say so before they write.
+  async waiting(userId: string) {
+    return { waiting: (await this.prisma.supportRequest.count({ where: { userId, ...WAITING } })) > 0 };
+  }
 
   // The person's own strikes, newest first, and whether each already has an appeal waiting.
   async strikes(userId: string): Promise<SupportStrike[]> {
@@ -53,6 +64,7 @@ export class SupportService {
     if (input.kind === "STRIKE_APPEAL" && (await this.prisma.supportRequest.findFirst({ where: { userId, strikeId: input.strikeId, status: "OPEN" }, select: { id: true } }))) {
       throw new ConflictException({ code: "ALREADY_APPEALED", message: "You already appealed this strike. We will answer by email." });
     }
+    if ((await this.prisma.supportRequest.count({ where: { userId, ...WAITING } })) > 0) throw waitingError();
     if (!(await this.limiter.allow(`rl:support:${userId}`, SUPPORT_RATE_LIMIT.limit, SUPPORT_RATE_LIMIT.windowSeconds))) {
       throw new HttpException({ code: "RATE_LIMITED", message: "You have sent several requests today. Wait for our answer, or try again tomorrow." }, HttpStatus.TOO_MANY_REQUESTS);
     }
@@ -62,6 +74,7 @@ export class SupportService {
       if (input.kind === "STRIKE_APPEAL" && (await tx.supportRequest.findFirst({ where: { userId, strikeId: input.strikeId, status: "OPEN" }, select: { id: true } }))) {
         throw new ConflictException({ code: "ALREADY_APPEALED", message: "You already appealed this strike. We will answer by email." });
       }
+      if ((await tx.supportRequest.count({ where: { userId, ...WAITING } })) > 0) throw waitingError();
       const row = await tx.supportRequest.create({
         data: { userId, kind: input.kind, strikeId: input.kind === "STRIKE_APPEAL" ? input.strikeId : null, message: input.message },
         select: { id: true },

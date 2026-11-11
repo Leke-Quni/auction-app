@@ -106,10 +106,11 @@ export class AdminUsersService {
     }
   }
 
-  async unban(adminId: string, id: string) {
+  // The admin's reason for lifting the ban is kept in the audit log, next to who did it.
+  async unban(adminId: string, id: string, reason: string) {
     const done = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.user.updateMany({ where: { id, bannedAt: { not: null } }, data: { bannedAt: null, banReason: null } });
-      if (updated.count > 0) await tx.adminAction.create({ data: { adminId, action: "UNBAN_USER", targetId: id } });
+      if (updated.count > 0) await tx.adminAction.create({ data: { adminId, action: "UNBAN_USER", targetId: id, reason } });
       return updated;
     });
     if (done.count === 0) {

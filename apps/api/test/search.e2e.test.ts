@@ -78,7 +78,7 @@ describe("GET /search", () => {
     expect(lastParams).toMatchObject({
       q: "watch",
       category: "art",
-      condition: "FAIR",
+      condition: ["FAIR"],
       minPriceCents: 100,
       maxPriceCents: 900,
       endingSoon: true,
@@ -92,8 +92,21 @@ describe("GET /search", () => {
     expect(lastParams?.sort).toBe("priceAsc");
   });
 
+  it("takes several conditions, as a comma list or a repeated parameter, once each", async () => {
+    await api().get("/search?condition=GOOD,NEW").expect(200);
+    expect(lastParams?.condition).toEqual(["GOOD", "NEW"]);
+    await api().get("/search?condition=NEW&condition=FAIR").expect(200);
+    expect(lastParams?.condition).toEqual(["NEW", "FAIR"]);
+    await api().get("/search?condition=NEW,NEW,%20NEW").expect(200);
+    expect(lastParams?.condition).toEqual(["NEW"]);
+    await api().get("/search").expect(200);
+    expect(lastParams?.condition).toBeUndefined();
+  });
+
   it("rejects bad input with a 400", async () => {
     await api().get("/search?condition=BROKEN").expect(400);
+    await api().get("/search?condition=NEW,BROKEN").expect(400);
+    await api().get("/search?condition=").expect(400);
     await api().get("/search?sort=random").expect(400);
     await api().get("/search?minPriceCents=5000&maxPriceCents=100").expect(400);
     await api().get("/search?pageSize=500").expect(400);

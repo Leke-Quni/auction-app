@@ -119,7 +119,7 @@ describe("seller payouts", () => {
     expect((await api().get("/me/payout-account").set(as(seller)).expect(200)).body.status).toBe("NOT_STARTED");
     await api().get("/me/payout-account").expect(401);
     const res = await api().post("/me/payout-account/onboarding").set(as(seller)).expect(201);
-    expect(res.body.url).toContain("/account/settings?payouts=1");
+    expect(res.body.url).toContain("/account/settings?payouts=demo");
     expect((await prisma.user.findUniqueOrThrow({ where: { id: seller.id } })).payoutAccountId).toBe(`fake_acct_${seller.id}`);
     expect((await api().get("/me/payout-account").set(as(seller)).expect(200)).body.status).toBe("READY");
     provider.readyAccounts.clear();
