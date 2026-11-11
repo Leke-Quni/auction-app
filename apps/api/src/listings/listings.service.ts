@@ -28,7 +28,7 @@ import { REMOVED_TITLE } from "./listing-card";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { runEvery } from "../jobs/sweep-support";
 import { SEARCH_INDEX, type ListingDocument, type SearchIndex } from "../search/search-index";
-import { isSellerImage } from "./seller-image";
+import { isOwnImageUrl, isSellerImage } from "./seller-image";
 
 const BID_LOCK_MESSAGE = "This listing has bids, so its description and photos can no longer change.";
 
@@ -394,8 +394,10 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
 
   // Photos a relisted draft shares with the listing it came from must stay in Blob when one of them lets go of a photo.
   // Which of these photo URLs no listing holds any more, so the web app may delete them from Blob. Used when a form is abandoned.
-  unusedImageUrls(urls: string[]) {
-    return this.unsharedUrls(urls);
+  // Only photos in the asker's own folder are looked at; any other address is left out of the answer, whether or not a listing uses it,
+  // so this cannot be used to find out what someone else has uploaded.
+  unusedImageUrls(urls: string[], userId: string) {
+    return this.unsharedUrls(urls.filter((url) => isOwnImageUrl(url, userId)));
   }
 
   private async unsharedUrls(urls: string[]) {

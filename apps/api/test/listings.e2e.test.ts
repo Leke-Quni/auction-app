@@ -491,6 +491,26 @@ describe("listings", () => {
     });
   });
 
+  describe("asking about photos that are not yours", () => {
+    it("answers only for the asker's own folder, so another person's photos cannot be probed", async () => {
+      const listing = await createPublished();
+      const sellersUsed = listing.images[0].url as string;
+      const sellersLoose = image(sellerId, 78).url;
+      const othersLoose = image(otherId, 79).url;
+      const ask = (token: string, urls: string[]) => api().post("/listing-images/unused").set(as(token)).send({ urls }).expect(200);
+
+      // The owner hears about their own unused photo, not their used one.
+      expect((await ask(seller, [sellersUsed, sellersLoose])).body).toEqual({ urls: [sellersLoose] });
+      // Anyone else gets the same empty answer for the seller's used photo and for their unused one: nothing to tell them apart.
+      expect((await ask(other, [sellersUsed])).body).toEqual({ urls: [] });
+      expect((await ask(other, [sellersLoose])).body).toEqual({ urls: [] });
+      // Addresses that are not on our store at all are never echoed back as deletable.
+      expect((await ask(seller, ["https://example.com/listings/" + sellerId + "/x.jpg", othersLoose])).body).toEqual({ urls: [] });
+      // The other person can still ask about their own.
+      expect((await ask(other, [othersLoose, sellersLoose])).body).toEqual({ urls: [othersLoose] });
+    });
+  });
+
   describe("photos that are not images", () => {
     it("are refused when saved on a listing, even from a Blob store and the seller's own folder", async () => {
       const draft = await createDraft();

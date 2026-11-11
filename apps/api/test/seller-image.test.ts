@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { isSellerImage } from "../src/listings/seller-image";
+import { isOwnImageUrl, isSellerImage } from "../src/listings/seller-image";
 
 const photo = (path: string, host = "abc123.public.blob.vercel-storage.com") => ({ url: `https://${host}/${path}`, pathname: path });
 const saved = process.env.BLOB_PUBLIC_HOST;
@@ -39,5 +39,23 @@ describe("isSellerImage", () => {
     // Another store on the same service, which anyone can create, is no longer accepted.
     expect(isSellerImage(photo("listings/u1/a.jpg", "theirs456.public.blob.vercel-storage.com"), "u1")).toBe(false);
     expect(isSellerImage(photo("listings/u1/a.jpg", "abc123.public.blob.vercel-storage.com"), "u1")).toBe(false);
+  });
+});
+
+describe("isOwnImageUrl", () => {
+  it("is true only for a photo address in the asker's own folder on our store", () => {
+    expect(isOwnImageUrl(photo("listings/u1/a.jpg").url, "u1")).toBe(true);
+    expect(isOwnImageUrl(photo("listings/u2/a.jpg").url, "u1")).toBe(false);
+    expect(isOwnImageUrl(photo("listings/u10/a.jpg").url, "u1")).toBe(false);
+    expect(isOwnImageUrl(photo("listings/u1/../u2/a.jpg").url, "u1")).toBe(false);
+    expect(isOwnImageUrl(photo("listings/u1/a.jpg", "evil.example.com").url, "u1")).toBe(false);
+    expect(isOwnImageUrl("https://example.com/x", "u1")).toBe(false);
+    expect(isOwnImageUrl("nope", "u1")).toBe(false);
+  });
+
+  it("follows the configured store host", () => {
+    process.env.BLOB_PUBLIC_HOST = "mine123.public.blob.vercel-storage.com";
+    expect(isOwnImageUrl(photo("listings/u1/a.jpg", "mine123.public.blob.vercel-storage.com").url, "u1")).toBe(true);
+    expect(isOwnImageUrl(photo("listings/u1/a.jpg").url, "u1")).toBe(false);
   });
 });

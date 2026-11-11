@@ -29,3 +29,14 @@ export function isSellerImage(image: { url: string; pathname: string }, sellerId
     return false;
   }
 }
+
+/** True for a photo URL on our store in this user's own folder (what the upload route lets them create). */
+export function isOwnImageUrl(url: string, userId: string) {
+  try {
+    const parsed = new URL(url);
+    const path = decodeURIComponent(parsed.pathname);
+    return parsed.protocol === "https:" && isOurBlobHost(parsed.hostname) && path.startsWith(`/listings/${userId}/`) && !path.includes("..");
+  } catch {
+    return false;
+  }
+}

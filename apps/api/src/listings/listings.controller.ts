@@ -74,8 +74,8 @@ export class ListingsController {
   @Post("listing-images/unused")
   @HttpCode(200)
   @UseGuards(JwtAuthGuard)
-  async unusedImages(@Body(new ZodValidationPipe(unusedImagesSchema)) body: z.infer<typeof unusedImagesSchema>) {
-    return { urls: await this.listings.unusedImageUrls(body.urls) };
+  async unusedImages(@Req() req: AuthedRequest, @Body(new ZodValidationPipe(unusedImagesSchema)) body: z.infer<typeof unusedImagesSchema>) {
+    return { urls: await this.listings.unusedImageUrls(body.urls, req.user.id) };
   }
 
   @Put("listings/:id/images")
