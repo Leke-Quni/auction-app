@@ -142,9 +142,10 @@ describe("TypesenseSearchIndex.search", () => {
 
   it("filters by category, condition and price range", async () => {
     expect((await run({ category: "electronics" })).titles).toEqual(["Film camera"]);
-    expect((await run({ condition: "LIKE_NEW" })).titles).toEqual(["Blue ceramic vase"]);
+    expect((await run({ condition: ["LIKE_NEW"] })).titles).toEqual(["Blue ceramic vase"]);
+    expect((await run({ condition: ["LIKE_NEW", "FAIR"] })).titles).toEqual(["Blue ceramic vase", "Film camera"]);
     expect((await run({ minPriceCents: 5000, maxPriceCents: 30000, sort: "priceAsc" })).titles).toEqual(["Film camera", "Vintage wristwatch"]);
-    expect((await run({ category: "electronics", condition: "NEW" })).titles).toEqual([]);
+    expect((await run({ category: "electronics", condition: ["NEW"] })).titles).toEqual([]);
   });
 
   it("'ending soon' means live and ending within 24 hours", async () => {

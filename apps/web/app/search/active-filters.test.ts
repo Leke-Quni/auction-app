@@ -25,6 +25,16 @@ describe("activeFilterChips", () => {
     ]);
   });
 
+  it("has a chip for each ticked condition, and removing one keeps the others", () => {
+    const chips = activeFilterChips({ q: "watch", condition: "NEW,GOOD,FAIR", page: "2" }, categories);
+    expect(chips.map((c) => [c.id, c.label, c.href])).toEqual([
+      ["condition-NEW", "New", "/search?q=watch&condition=GOOD%2CFAIR"],
+      ["condition-GOOD", "Good", "/search?q=watch&condition=NEW%2CFAIR"],
+      ["condition-FAIR", "Fair", "/search?q=watch&condition=NEW%2CGOOD"],
+    ]);
+    expect(activeFilterChips({ condition: "NEW,GOOD" }, categories)[1].href).toBe("/search?condition=NEW");
+  });
+
   it("words a one-sided price range, and falls back to the slug for an unknown category", () => {
     expect(activeFilterChips({ minPrice: "50" }, categories)[0].label).toBe("From €50");
     expect(activeFilterChips({ maxPrice: "80" }, categories)[0].label).toBe("Up to €80");

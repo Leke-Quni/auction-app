@@ -6,11 +6,20 @@ export * from "./search-values";
 
 const cents = z.coerce.number().int().min(0).max(MAX_PRICE_CENTS);
 
+// One or more conditions: `condition=NEW,GOOD`, or the parameter repeated. A listing matches when it has any of them.
+const conditions = z.preprocess(
+  (value) => (Array.isArray(value) ? value.join(",") : value),
+  z
+    .string()
+    .transform((text) => [...new Set(text.split(",").map((part) => part.trim()))])
+    .pipe(z.array(z.enum(LISTING_CONDITIONS)).min(1)),
+);
+
 export const searchQuerySchema = z
   .object({
     q: z.string().trim().max(100).default(""),
     category: z.string().regex(/^[a-z0-9-]+$/).max(50).optional(),
-    condition: z.enum(LISTING_CONDITIONS).optional(),
+    condition: conditions.optional(),
     minPriceCents: cents.optional(),
     maxPriceCents: cents.optional(),
     endingSoon: z.enum(["true", "false"]).transform((v) => v === "true").optional(),

@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SUGGESTION_MIN_LENGTH } from "@auction/shared";
 import { addRecentSearch, clearRecentSearches, readRecentSearches, removeRecentSearch } from "@/lib/recent-searches";
 import { activeFilterChips, carriedFilters } from "./search/active-filters";
-import { readSearchParams } from "./search/search-params";
+import { readSearchParams, recordFromSearchParams } from "./search/search-params";
 import { useDismiss } from "./use-dismiss";
 
 const SUGGEST_DELAY_MS = 200;
@@ -21,7 +21,7 @@ export function SearchBox({ categories }: { categories: { slug: string; name: st
   const router = useRouter();
   const searchParams = useSearchParams();
   // Worked out again only when the address or the categories change, not on every key typed in the box.
-  const params = useMemo(() => (pathname === "/search" ? readSearchParams(Object.fromEntries(searchParams)) : {}), [pathname, searchParams]);
+  const params = useMemo(() => (pathname === "/search" ? readSearchParams(recordFromSearchParams(searchParams)) : {}), [pathname, searchParams]);
   const chips = useMemo(() => activeFilterChips(params, categories), [params, categories]);
 
   // The header grows when the chips wrap onto a second line; the fixed sidebar on the search page reads its height from here.

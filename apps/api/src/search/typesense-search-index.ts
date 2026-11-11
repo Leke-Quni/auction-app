@@ -45,7 +45,7 @@ export function buildFilter(params: Pick<SearchParams, "category" | "condition" 
   const now = seconds(params.now);
   const filters = [`ends_at:>${now}`];
   if (params.category) filters.push(`category_slug:=${params.category}`);
-  if (params.condition) filters.push(`condition:=${params.condition}`);
+  if (params.condition) filters.push(`condition:=[${params.condition.join(",")}]`);
   if (params.minPriceCents !== undefined) filters.push(`price_cents:>=${params.minPriceCents}`);
   if (params.maxPriceCents !== undefined) filters.push(`price_cents:<=${params.maxPriceCents}`);
   // "Ending latest" lists only live auctions: an upcoming one has not started, so it has no end worth ranking yet.
