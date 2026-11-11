@@ -1,7 +1,8 @@
-import { SEARCH_SORTS, resolveSearchSort } from "@auction/shared";
+import { MAX_SEARCH_RESULTS, SEARCH_SORTS, maxSearchPage, resolveSearchSort } from "@auction/shared";
 import { redirect } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { loadCategories } from "@/lib/categories";
+import { viewerIpHeaders } from "@/lib/viewer-ip";
 import { ListingCard, type ListingSummary } from "../listing-card";
 import { Pagination, pageCount } from "../pagination";
 import { sliderMaxEuros } from "./price-scale";
@@ -16,10 +17,11 @@ async function runSearch(params: ReturnType<typeof readSearchParams>): Promise<O
   if ("error" in built) return { message: built.error };
   let res: Response;
   try {
-    res = await apiFetch(`/search?${built.query}`);
+    res = await apiFetch(`/search?${built.query}`, { headers: await viewerIpHeaders() });
   } catch {
     return { message: "Search is unavailable right now. Try again in a moment." };
   }
+  if (res.status === 429) return { message: "You are searching too fast. Wait a moment and try again." };
   if (res.status === 400) return { message: "Those filters do not work together. Check the price range." };
   if (!res.ok) return { message: "Search is unavailable right now. Try again in a moment." };
   return res.json();
@@ -30,8 +32,9 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   const [categories, outcome, topPriceCents] = await Promise.all([loadCategories(), runSearch(params), loadTopPriceCents()]);
   const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
   // A page past the last one (an old link, or a search that now has fewer results) goes to the last page instead.
-  if (!("message" in outcome) && page > pageCount(outcome.total, SEARCH_PAGE_SIZE)) {
-    redirect(pageHref(params, pageCount(outcome.total, SEARCH_PAGE_SIZE)));
+  const pages = "message" in outcome ? 1 : Math.min(pageCount(outcome.total, SEARCH_PAGE_SIZE), maxSearchPage(SEARCH_PAGE_SIZE));
+  if (!("message" in outcome) && page > pages) {
+    redirect(pageHref(params, pages));
   }
   const sort = SEARCH_SORTS.includes(params.sort as (typeof SEARCH_SORTS)[number])
     ? (params.sort as (typeof SEARCH_SORTS)[number])
@@ -54,11 +57,10 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
               <ListingCard key={listing.id} listing={listing} />
             ))}
           </div>
-          <Pagination
-            page={page}
-            pages={pageCount(outcome.total, SEARCH_PAGE_SIZE)}
-            hrefFor={(n) => pageHref(params, n)}
-          />
+          {outcome.total > MAX_SEARCH_RESULTS && (
+            <p className="text-muted">Only the first {MAX_SEARCH_RESULTS.toLocaleString("en")} results can be shown. Use a filter to narrow the search.</p>
+          )}
+          <Pagination page={page} pages={pages} hrefFor={(n) => pageHref(params, n)} />
         </>
       )}
     </SidebarPage>

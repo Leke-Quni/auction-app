@@ -24,3 +24,8 @@ export function resolveSearchSort(query: { q?: string; sort?: SearchSort }): Sea
   if (query.sort && !(query.sort === "relevance" && !query.q)) return query.sort;
   return query.q ? "relevance" : "newest";
 }
+
+// Deep pages cost the most and nobody reads them: a search shows at most this many results (page times page size), and a person
+// who needs more narrows it with a filter.
+export const MAX_SEARCH_RESULTS = 2000;
+export const maxSearchPage = (pageSize: number) => Math.max(1, Math.floor(MAX_SEARCH_RESULTS / pageSize));
