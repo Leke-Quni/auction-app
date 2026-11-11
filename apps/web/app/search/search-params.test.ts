@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { apiQueryFromParams, categoryHref, pageHref, readSearchParams } from "./search-params";
+import { maxSearchPage } from "@auction/shared";
+import { apiQueryFromParams, categoryHref, pageHref, readSearchParams, SEARCH_PAGE_SIZE } from "./search-params";
 
 describe("readSearchParams", () => {
   it("keeps the first value of a list and drops blank form fields", () => {
@@ -66,5 +67,15 @@ describe("categoryHref", () => {
   it("clears the category for 'All categories'", () => {
     expect(categoryHref({ q: "watch", category: "art" })).toBe("/search?q=watch");
     expect(categoryHref({ category: "art" })).toBe("/search");
+  });
+});
+
+describe("page depth", () => {
+  it("never asks the API for a page beyond the cap, so a made-up page number cannot be refused", () => {
+    const last = maxSearchPage(SEARCH_PAGE_SIZE);
+    for (const [page, expected] of [[String(last), last], [String(last + 1), last], ["99999", last], ["0", 1], ["-4", 1], ["abc", 1]] as const) {
+      const result = apiQueryFromParams({ page });
+      expect("query" in result && result.query.get("page")).toBe(String(expected));
+    }
   });
 });

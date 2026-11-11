@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { adminApiFetch } from "@/lib/api";
 import { requireAdmin } from "@/lib/require-admin";
 import { STATUS_LABEL, STATUS_PILL } from "../status";
+import { NoteForm } from "./note-form";
+import { ResendButton } from "./resend-form";
 
 interface Party {
   id: string;
@@ -31,6 +33,8 @@ interface Order {
   shipment: { status: string; trackingCode: string | null; shippedAt: string | null; inTransitAt: string | null; deliveredAt: string | null } | null;
   payout: { status: "NOT_DELIVERED" | "SCHEDULED" | "WAITING_FOR_ACCOUNT" | "PAID"; dueAt: string | null; paidAt: string | null; amountCents: number; reference: string | null } | null;
   rating: { stars: number; comment: string | null; createdAt: string } | null;
+  resendable: { kind: string; to: "buyer" | "seller"; label: string }[];
+  notes: { id: string; body: string; createdAt: string; admin: { id: string; username: string | null } }[];
 }
 
 const when = (iso: string | null) => (iso ? new Date(iso).toISOString().replace("T", " ").slice(0, 16) + " UTC" : "-");
@@ -106,6 +110,32 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
         Order {o.id}
         {o.round > 1 ? `, offer ${o.round}` : ""}. <Link href={`/listings/${o.listing.id}`} className="text-accent underline">Listing</Link>
       </p>
+
+      <Section title={`Notes (${o.notes.length})`}>
+        {o.notes.length === 0 ? (
+          <p className="p-2 text-muted">No notes yet.</p>
+        ) : (
+          <ul>
+            {o.notes.map((n) => (
+              <li key={n.id} className="border-t border-line p-2 first:border-t-0">
+                <p className="text-muted">
+                  {n.admin.username ? `@${n.admin.username}` : "a removed account"}, {when(n.createdAt)}
+                </p>
+                <p className="whitespace-pre-wrap break-words">{n.body}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+        <NoteForm id={o.id} />
+      </Section>
+
+      <Section title="Emails">
+        {o.resendable.length === 0 ? (
+          <p className="p-2 text-muted">No email about this order can be sent again right now.</p>
+        ) : (
+          o.resendable.map((r) => <ResendButton key={r.kind} id={o.id} kind={r.kind} label={r.label} recipient={`@${o[r.to].username}`} />)
+        )}
+      </Section>
 
       <Section title="People">
         <Table rows={[["Buyer", <Person key="b" p={o.buyer} />], ["Seller", <Person key="s" p={o.seller} />]]} />

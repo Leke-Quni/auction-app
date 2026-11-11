@@ -10,7 +10,7 @@ export default async function AccountPage() {
   if (!res.ok) throw new Error(`API /me failed: ${res.status}`);
   const me = await res.json();
   return (
-    <div className="border border-line bg-white p-4">
+    <div className="border border-line bg-surface p-4">
       <h1 className="mb-2 text-lg font-bold">Your account</h1>
       <table className="w-full border-collapse">
         <tbody>
@@ -22,7 +22,7 @@ export default async function AccountPage() {
             ["Email verified", me.emailVerified ? new Date(me.emailVerified).toUTCString() : "No"],
           ].map(([label, value]) => (
             <tr key={label}>
-              <th className="w-40 border border-line bg-[#f0f0f0] p-2 text-left font-normal text-muted">{label}</th>
+              <th className="w-40 border border-line bg-head p-2 text-left font-normal text-muted">{label}</th>
               <td className="border border-line p-2">{value}</td>
             </tr>
           ))}

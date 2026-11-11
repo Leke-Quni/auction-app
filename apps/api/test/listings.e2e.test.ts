@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { randomUUID } from "node:crypto";
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { SignJWT } from "jose";
@@ -119,11 +120,15 @@ describe("listings", () => {
   });
 
   // The tests reuse the same photo URLs; real uploads are unique, and a photo another listing still uses is not reported as removed.
-  beforeEach(async () => {
+  const clearListings = async () => {
+    await prisma.bid.deleteMany({ where: { listing: { sellerId } } });
     await prisma.listing.deleteMany({ where: { sellerId } });
-  });
+  };
+
+  beforeEach(clearListings);
 
   afterAll(async () => {
+    await clearListings();
     await prisma.user.deleteMany({ where: { email: { in: Object.values(emails) } } });
     await app.close();
   });
@@ -341,6 +346,34 @@ describe("listings", () => {
     });
   });
 
+  describe("publishing at the same moment", () => {
+    it("publishes once and schedules one close however many requests arrive together", async () => {
+      const draft = await createDraft();
+      await api().put(`/listings/${draft.id}/images`).set(as(seller)).send({ images: [image(sellerId, 1)] }).expect(200);
+      closesScheduled.length = 0;
+      const results = await Promise.all(Array.from({ length: 6 }, () => api().post(`/listings/${draft.id}/publish`).set(as(seller)).send({})));
+      expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+      expect(results.filter((r) => r.status === 409)).toHaveLength(5);
+      expect(closesScheduled.filter((c) => c.id === draft.id)).toHaveLength(1);
+      const winner = results.find((r) => r.status === 200)!;
+      const row = await prisma.listing.findUniqueOrThrow({ where: { id: draft.id } });
+      expect(row.endsAt?.toISOString()).toBe(winner.body.endsAt);
+    });
+
+    it("never publishes a listing whose last photo is being removed at the same moment", async () => {
+      for (let round = 0; round < 5; round++) {
+        const draft = await createDraft();
+        await api().put(`/listings/${draft.id}/images`).set(as(seller)).send({ images: [image(sellerId, 1)] }).expect(200);
+        await Promise.all([
+          api().post(`/listings/${draft.id}/publish`).set(as(seller)).send({}),
+          api().put(`/listings/${draft.id}/images`).set(as(seller)).send({ images: [] }),
+        ]);
+        const row = await prisma.listing.findUniqueOrThrow({ where: { id: draft.id }, include: { images: true } });
+        if (row.status === "PUBLISHED") expect(row.images.length).toBeGreaterThan(0);
+      }
+    });
+  });
+
   describe("scheduling the close", () => {
     it("asks for the auction to be closed at its end time when it is published, and not for a draft", async () => {
       closesScheduled.length = 0;
@@ -388,6 +421,37 @@ describe("listings", () => {
       expect(res.body.removedImageUrls).toEqual([image(sellerId, 1).url]);
     });
 
+    it("fixes the description and photos once there is a bid, but still lets the seller correct the pickup address", async () => {
+      const listing = await createPublished();
+      const bid = await api().post(`/listings/${listing.id}/bids`).set(as(other)).send({ amountCents: 1000, idempotencyKey: randomUUID() });
+      expect(bid.status).toBe(201);
+
+      const edit = await api().patch(`/listings/${listing.id}`).set(as(seller)).send({ description: "Now something else entirely" }).expect(409);
+      expect(edit.body.message).toMatch(/has bids/);
+      await api().put(`/listings/${listing.id}/images`).set(as(seller)).send({ images: [image(sellerId, 2)] }).expect(409);
+
+      const after = await api().get(`/listings/${listing.id}`).set(as(seller)).expect(200);
+      expect(after.body.description).toBe(listing.description);
+      expect(after.body.images.map((i: { url: string }) => i.url)).toEqual([image(sellerId, 1).url]);
+      await api().put(`/listings/${listing.id}/pickup-address`).set(as(seller)).send({ ...validListing.pickupAddress, line1: "Elsewhere 1" }).expect(200);
+    });
+
+    it("loses the race to a bid: simultaneous edits and bids never leave an edited listing with a bid on it", async () => {
+      const listing = await createPublished();
+      const [edit, images, bid] = await Promise.all([
+        api().patch(`/listings/${listing.id}`).set(as(seller)).send({ description: "Changed at the same moment" }),
+        api().put(`/listings/${listing.id}/images`).set(as(seller)).send({ images: [image(sellerId, 2)] }),
+        api().post(`/listings/${listing.id}/bids`).set(as(other)).send({ amountCents: 1000, idempotencyKey: randomUUID() }),
+      ]);
+      expect(bid.status).toBe(201);
+      const after = await api().get(`/listings/${listing.id}`).set(as(seller)).expect(200);
+      // Whatever went in before the bid may stay, but nothing may have gone in after it: a 200 here means the edit won the race.
+      for (const [res, changed] of [[edit, after.body.description !== listing.description], [images, after.body.images[0].url !== image(sellerId, 1).url]] as const) {
+        expect(res.status === 200).toBe(changed);
+        expect([200, 409]).toContain(res.status);
+      }
+    });
+
     it("can be removed by its seller, who gets the photos back to delete; others get 403 (since it is public)", async () => {
       const listing = await createPublished();
       await api().delete(`/listings/${listing.id}`).set(as(other)).expect(403);
@@ -424,6 +488,35 @@ describe("listings", () => {
       expect(res.body).toEqual({ urls: [loose] });
       await api().post("/listing-images/unused").set(as(seller)).send({ urls: "nope" }).expect(400);
       await api().post("/listing-images/unused").set(as(seller)).send({ urls: Array.from({ length: 9 }, (_, i) => image(sellerId, i).url) }).expect(400);
+    });
+  });
+
+  describe("asking about photos that are not yours", () => {
+    it("answers only for the asker's own folder, so another person's photos cannot be probed", async () => {
+      const listing = await createPublished();
+      const sellersUsed = listing.images[0].url as string;
+      const sellersLoose = image(sellerId, 78).url;
+      const othersLoose = image(otherId, 79).url;
+      const ask = (token: string, urls: string[]) => api().post("/listing-images/unused").set(as(token)).send({ urls }).expect(200);
+
+      // The owner hears about their own unused photo, not their used one.
+      expect((await ask(seller, [sellersUsed, sellersLoose])).body).toEqual({ urls: [sellersLoose] });
+      // Anyone else gets the same empty answer for the seller's used photo and for their unused one: nothing to tell them apart.
+      expect((await ask(other, [sellersUsed])).body).toEqual({ urls: [] });
+      expect((await ask(other, [sellersLoose])).body).toEqual({ urls: [] });
+      // Addresses that are not on our store at all are never echoed back as deletable.
+      expect((await ask(seller, ["https://example.com/listings/" + sellerId + "/x.jpg", othersLoose])).body).toEqual({ urls: [] });
+      // The other person can still ask about their own.
+      expect((await ask(other, [othersLoose, sellersLoose])).body).toEqual({ urls: [othersLoose] });
+    });
+  });
+
+  describe("photos that are not images", () => {
+    it("are refused when saved on a listing, even from a Blob store and the seller's own folder", async () => {
+      const draft = await createDraft();
+      const put = (name: string) => api().put(`/listings/${draft.id}/images`).set(as(seller)).send({ images: [{ url: `https://abc123.public.blob.vercel-storage.com/listings/${sellerId}/${name}`, pathname: `listings/${sellerId}/${name}` }] });
+      for (const name of ["x.svg", "x.html", "x.js", "x"]) await put(name).expect(400);
+      await put("x.webp").expect(200);
     });
   });
 

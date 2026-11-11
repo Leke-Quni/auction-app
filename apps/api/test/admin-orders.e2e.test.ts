@@ -4,12 +4,23 @@ import { Test } from "@nestjs/testing";
 import { SignJWT } from "jose";
 import type { AddressInfo } from "node:net";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ORDER_ATTENTION_KINDS, ORDER_NOTE_MAX, ORDER_RESEND_COOLDOWN_MINUTES, type OrderAttentionKind, type OrderResendKind } from "@auction/shared";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module";
-import { authSecret } from "../src/config";
+import { authSecret, payoutDelayDays } from "../src/config";
+import { attentionOf, attentionWhere } from "../src/admin/admin-order-attention";
 import { PRISMA, type Prisma } from "../src/db/db.module";
+import * as outboxModule from "../src/email/mail-outbox";
+import { sendOutboxMail } from "../src/email/outbox-messages";
 import { MAIL_SENDER } from "../src/email/mail-sender";
 import { NoopSearchIndex, SEARCH_INDEX } from "../src/search/search-index";
+
+// Calls through to the real queueMail and records what was queued. The resend route also starts a mail sweep at once, which sends and
+// deletes the row, so what was queued cannot be read back from the table afterwards.
+vi.mock("../src/email/mail-outbox", async (original) => {
+  const real = await original<typeof import("../src/email/mail-outbox")>();
+  return { ...real, queueMail: vi.fn(real.queueMail) };
+});
 
 const stamp = Date.now();
 const DAY = 86_400_000;
@@ -26,6 +37,8 @@ describe("the admin's view of an order", () => {
   let categoryId: string;
   const userIds: string[] = [];
   const listingIds: string[] = [];
+  const noteOrderIds: string[] = [];
+  const mailSent: { to: string; subject: string }[] = [];
 
   type Who = { id: string; email: string; username: string; auth: Record<string, string> };
   const person = async (role: "USER" | "ADMIN" = "USER", over: Record<string, unknown> = {}): Promise<Who> => {
@@ -42,7 +55,7 @@ describe("the admin's view of an order", () => {
       .overrideProvider(SEARCH_INDEX)
       .useValue(new NoopSearchIndex())
       .overrideProvider(MAIL_SENDER)
-      .useValue({ send: async () => undefined })
+      .useValue({ send: async (to: string, subject: string) => void mailSent.push({ to, subject }) })
       .compile();
     app = moduleRef.createNestApplication();
     await app.listen(0);
@@ -52,6 +65,8 @@ describe("the admin's view of an order", () => {
   });
 
   afterAll(async () => {
+    await prisma.orderNote.deleteMany({ where: { orderId: { in: noteOrderIds } } });
+    await prisma.pendingEndEmail.deleteMany({ where: { listingId: { in: listingIds } } });
     await prisma.adminAction.deleteMany({ where: { adminId: { in: userIds } } });
     await prisma.rating.deleteMany({ where: { order: { listingId: { in: listingIds } } } });
     await prisma.payout.deleteMany({ where: { order: { listingId: { in: listingIds } } } });
@@ -209,5 +224,304 @@ describe("the admin's view of an order", () => {
     expect((await get(admin, `/admin/orders/${o.id}/invoice?party=buyer`).expect(409)).body.code).toBe("NOT_PAID");
     await get(admin, "/admin/orders/nope/invoice?party=buyer").expect(404);
     expect(await prisma.adminAction.count({ where: { targetId: o.id, action: "VIEW_INVOICE" } })).toBe(0);
+  });
+
+  describe("orders that need attention", () => {
+    const HOUR = 3_600_000;
+    const ago = (ms: number) => new Date(Date.now() - ms);
+    const delay = payoutDelayDays();
+    const shipped = { ...paid, shipmentStatus: "IN_TRANSIT", trackingCode: "T", inTransitAt: ago(DAY) };
+    class Rollback extends Error {}
+
+    // [what the order looks like, the one kind it should be flagged as (or null)]
+    const cases: [string, Record<string, unknown>, OrderAttentionKind | null][] = [
+      ["payment due in 10 hours", { payBy: new Date(Date.now() + 10 * HOUR) }, "expiring"],
+      ["payment due in 30 hours", { payBy: new Date(Date.now() + 30 * HOUR) }, null],
+      ["payment deadline a minute ago", { payBy: ago(60_000) }, "overdue"],
+      ["expired order", { status: "EXPIRED", payBy: ago(2 * DAY) }, null],
+      ["paid 4 days ago, not shipped", { ...paid, paidAt: ago(4 * DAY) }, "not-shipped"],
+      ["paid 1 day ago, not shipped", { ...paid, paidAt: ago(DAY) }, null],
+      ["in transit for 8 days", { ...shipped, shippedAt: ago(8 * DAY) }, "not-delivered"],
+      ["in transit for 2 days", { ...shipped, shippedAt: ago(2 * DAY) }, null],
+      ["label created 8 days ago", { ...shipped, shipmentStatus: "LABEL_CREATED", inTransitAt: null, shippedAt: ago(8 * DAY) }, "not-delivered"],
+      [`delivered ${delay + 2} days ago, no payout`, { ...shipped, shipmentStatus: "DELIVERED", shippedAt: ago(9 * DAY), deliveredAt: ago((delay + 2) * DAY) }, "payout-late"],
+      [`delivered ${delay} days ago, no payout yet (inside the grace day)`, { ...shipped, shipmentStatus: "DELIVERED", shippedAt: ago(9 * DAY), deliveredAt: ago(delay * DAY) }, null],
+    ];
+
+    const list = async (admin: Who, query: string) => (await get(admin, `/admin/orders?${query}`).expect(200)).body.orders as { id: string; attention: string | null }[];
+
+    // The test app's own background jobs (started with it, then every 30 seconds) work on the whole database: they expire an unpaid order
+    // past its deadline, move a shipped one along and send emails. So the states they act on are never saved here. This checks the database condition for every
+    // kind against the per-order check inside a transaction that is rolled back, where no other connection can see the rows.
+    it("agrees between the database condition and the per-order check for every state and every kind", async () => {
+      const { listing, buyer, seller } = await order();
+      const now = new Date();
+      const results: { name: string; kind: string; found: boolean; expected: boolean; attention: string | null; wanted: string | null }[] = [];
+      await expect(
+        prisma.$transaction(async (tx) => {
+          let round = 1;
+          for (const [name, over, wanted] of cases) {
+            const o = await tx.order.create({
+              data: { listingId: listing.id, buyerId: buyer.id, sellerId: seller.id, round: ++round, amountCents: 4500, feeCents: 225, sellerNetCents: 4275, payBy: new Date(Date.now() + DAY), pickupAddress, ...over } as never,
+            });
+            for (const kind of [...ORDER_ATTENTION_KINDS, "any"] as const) {
+              const found = (await tx.order.count({ where: { AND: [{ id: o.id }, attentionWhere(kind, now)] } })) === 1;
+              results.push({ name, kind, found, expected: kind === "any" ? wanted !== null : kind === wanted, attention: attentionOf({ ...o, payout: null }, now), wanted });
+            }
+          }
+          throw new Rollback();
+        }),
+      ).rejects.toBeInstanceOf(Rollback);
+      expect(results).toHaveLength(cases.length * (ORDER_ATTENTION_KINDS.length + 1));
+      for (const r of results) {
+        expect(r.found, `${r.name} under ${r.kind}`).toBe(r.expected);
+        expect(r.attention, `${r.name}: per-order check`).toBe(r.wanted);
+      }
+      expect(await prisma.order.count({ where: { listingId: listing.id, round: { gt: 1 } } })).toBe(0);
+    });
+
+    // These states are left alone by the background jobs: a paid order nobody has shipped, an unpaid order whose reminder is already
+    // marked sent (it is not past its deadline), and a delivered order whose seller has no payment account to be paid into.
+    it("lists a stuck order with its reason, and filters by it", async () => {
+      const admin = await person("ADMIN");
+      const quiet = await order({ ...paid, paidAt: ago(4 * DAY) });
+      const soon = await order({ payBy: new Date(Date.now() + 10 * HOUR), payReminderSentAt: new Date() });
+      const late = await order({ ...shipped, shipmentStatus: "DELIVERED", shippedAt: ago(9 * DAY), deliveredAt: ago((delay + 2) * DAY) });
+      const fine = await order({ ...paid, paidAt: ago(DAY) });
+      const rows = new Map((await list(admin, `limit=100`)).map((r) => [r.id, r.attention]));
+      expect(rows.get(quiet.order.id)).toBe("not-shipped");
+      expect(rows.get(soon.order.id)).toBe("expiring");
+      expect(rows.get(late.order.id)).toBe("payout-late");
+      expect(rows.get(fine.order.id)).toBeNull();
+
+      const only = async (kind: string, id: string) => (await list(admin, `q=${id}&attention=${kind}`)).length;
+      expect([await only("not-shipped", quiet.order.id), await only("expiring", quiet.order.id), await only("any", quiet.order.id)]).toEqual([1, 0, 1]);
+      expect([await only("expiring", soon.order.id), await only("payout-late", soon.order.id)]).toEqual([1, 0]);
+      expect([await only("payout-late", late.order.id), await only("any", fine.order.id)]).toEqual([1, 0]);
+    });
+
+    it("does not flag a delivered order whose payout went out", async () => {
+      const admin = await person("ADMIN");
+      const { seller, order: o } = await order({ ...shipped, shipmentStatus: "DELIVERED", shippedAt: ago(10 * DAY), deliveredAt: ago((delay + 3) * DAY) });
+      expect((await list(admin, `q=${o.id}`))[0].attention).toBe("payout-late");
+      await prisma.payout.create({ data: { orderId: o.id, sellerId: seller.id, amountCents: 4275, reference: `tr_att_${stamp}` } });
+      expect((await list(admin, `q=${o.id}`))[0].attention).toBeNull();
+      expect(await list(admin, `q=${o.id}&attention=payout-late`)).toHaveLength(0);
+    });
+
+    it("combines with the status filter and the search text, and refuses an unknown kind", async () => {
+      const admin = await person("ADMIN");
+      const { order: o } = await order({ payBy: new Date(Date.now() + 5 * HOUR), payReminderSentAt: new Date() });
+      expect(await list(admin, `q=${o.id}&attention=expiring&status=AWAITING_PAYMENT`)).toHaveLength(1);
+      expect(await list(admin, `q=${o.id}&attention=any&status=AWAITING_PAYMENT`)).toHaveLength(1);
+      expect(await list(admin, `q=${o.id}&attention=expiring&status=PAID`)).toHaveLength(0);
+      expect(await list(admin, `q=nothing-${stamp}&attention=any`)).toHaveLength(0);
+      await get(admin, "/admin/orders?attention=sleepy").expect(400);
+    });
+
+    it("counts them on the overview", async () => {
+      const admin = await person("ADMIN");
+      const before = (await get(admin, "/admin/overview").expect(200)).body.ordersNeedingAttention as number;
+      await order({ ...paid, paidAt: ago(5 * DAY) });
+      await order({ ...paid, paidAt: ago(6 * DAY) });
+      await order({ ...paid, paidAt: ago(DAY) });
+      const after = (await get(admin, "/admin/overview").expect(200)).body.ordersNeedingAttention as number;
+      // Other test files may add or clear orders at the same moment, so at least the two flagged ones; never the third as well.
+      expect(after - before).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe("notes on an order", () => {
+    const post = (who: Who, orderId: string, body: unknown) => request(url).post(`/admin/orders/${orderId}/notes`).set(who.auth).send(body as object);
+
+    it("is for admins only", async () => {
+      const user = await person();
+      const { order: o } = await order();
+      noteOrderIds.push(o.id);
+      await request(url).post(`/admin/orders/${o.id}/notes`).send({ body: "hi" }).expect(401);
+      await post(user, o.id, { body: "hi" }).expect(403);
+      expect(await prisma.orderNote.count({ where: { orderId: o.id } })).toBe(0);
+    });
+
+    it("saves a note with who wrote it, shows notes oldest first on the order, and writes the audit record", async () => {
+      const first = await person("ADMIN");
+      const second = await person("ADMIN");
+      const { order: o } = await order(paid);
+      noteOrderIds.push(o.id);
+      const saved = (await post(first, o.id, { body: "  Emailed the seller, waiting for a tracking number.\nSecond line.  " }).expect(201)).body;
+      expect(saved).toMatchObject({ body: "Emailed the seller, waiting for a tracking number.\nSecond line." });
+      await post(second, o.id, { body: "Seller replied: label goes out Friday." }).expect(201);
+
+      const view = (await get(first, `/admin/orders/${o.id}`).expect(200)).body;
+      expect(view.notes.map((n: { body: string; admin: { username: string } }) => [n.admin.username, n.body])).toEqual([
+        [first.username, "Emailed the seller, waiting for a tracking number.\nSecond line."],
+        ["" + second.username, "Seller replied: label goes out Friday."],
+      ]);
+      const audit = await prisma.adminAction.findMany({ where: { targetId: o.id, action: "ADD_ORDER_NOTE" }, orderBy: { createdAt: "asc" } });
+      expect(audit.map((a) => a.adminId)).toEqual([first.id, second.id]);
+      expect(audit[0].reason).toBe(saved.id);
+    });
+
+    it("refuses an empty, blank or too long note, and a note on an order that does not exist, saving nothing", async () => {
+      const admin = await person("ADMIN");
+      const { order: o } = await order();
+      noteOrderIds.push(o.id);
+      for (const body of [{}, { body: "" }, { body: "   \n " }, { body: 5 }, { body: "x".repeat(ORDER_NOTE_MAX + 1) }]) await post(admin, o.id, body).expect(400);
+      expect((await post(admin, o.id, { body: "x".repeat(ORDER_NOTE_MAX) })).status).toBe(201);
+      await post(admin, `nope_${stamp}`, { body: "hi" }).expect(404);
+      expect(await prisma.orderNote.count({ where: { orderId: o.id } })).toBe(1);
+      expect(await prisma.orderNote.count({ where: { orderId: `nope_${stamp}` } })).toBe(0);
+      expect(await prisma.adminAction.count({ where: { targetId: `nope_${stamp}` } })).toBe(0);
+    });
+
+    it("never reaches the buyer or the seller, and cannot be edited or deleted", async () => {
+      const admin = await person("ADMIN");
+      const { buyer, seller, order: o } = await order(paid);
+      noteOrderIds.push(o.id);
+      const note = (await post(admin, o.id, { body: "Secret-internal-remark-for-admins" }).expect(201)).body;
+      for (const who of [buyer, seller]) {
+        expect(JSON.stringify((await get(who, `/orders/${o.id}`).expect(200)).body)).not.toContain("Secret-internal-remark");
+        expect(JSON.stringify((await get(who, "/orders").expect(200)).body)).not.toContain("Secret-internal-remark");
+      }
+      await request(url).patch(`/admin/orders/${o.id}/notes/${note.id}`).set(admin.auth).send({ body: "changed" }).expect(404);
+      await request(url).delete(`/admin/orders/${o.id}/notes/${note.id}`).set(admin.auth).expect(404);
+      expect((await prisma.orderNote.findUniqueOrThrow({ where: { id: note.id } })).body).toBe("Secret-internal-remark-for-admins");
+    });
+
+    it("shows how many notes an order has in the list", async () => {
+      const admin = await person("ADMIN");
+      const { order: o } = await order();
+      noteOrderIds.push(o.id);
+      const count = async () => (await get(admin, `/admin/orders?q=${o.id}`).expect(200)).body.orders[0].noteCount;
+      expect(await count()).toBe(0);
+      await post(admin, o.id, { body: "one" }).expect(201);
+      await post(admin, o.id, { body: "two" }).expect(201);
+      expect(await count()).toBe(2);
+    });
+  });
+
+  describe("sending an order's email again", () => {
+    const queued = vi.mocked(outboxModule.queueMail);
+    const resend = (who: Who, orderId: string, kind: unknown) => request(url).post(`/admin/orders/${orderId}/resend`).set(who.auth).send({ kind });
+    const options = async (admin: Who, orderId: string) => ((await get(admin, `/admin/orders/${orderId}`).expect(200)).body.resendable as { kind: string }[]).map((r) => r.kind);
+    const lastQueuedFor = (orderId: string) => queued.mock.calls.filter(([, mail]) => mail.listingId === listingOf.get(orderId)).map(([, mail]) => ({ userId: mail.userId, kind: mail.kind }));
+    const listingOf = new Map<string, string>();
+    // Fixtures the background jobs leave alone: payment due in 3 days, a parcel whose label was only just made (the fake carrier takes
+    // minutes to move it on), and nothing else that moves by itself.
+    const fixture = async (over: Record<string, unknown> = {}, sellerOver: Record<string, unknown> = {}) => {
+      const made = await order({ payBy: new Date(Date.now() + 3 * DAY), ...over }, sellerOver);
+      noteOrderIds.push(made.order.id);
+      listingOf.set(made.order.id, made.listing.id);
+      return made;
+    };
+    const justShipped = () => ({ ...paid, invoiceNumber: `INV-2026-${stamp}-${++counter}`, shipmentStatus: "IN_TRANSIT", trackingCode: `RESEND${counter}`, shippedAt: new Date(), inTransitAt: new Date() });
+
+    it("is for admins only, and refuses an unknown order or kind", async () => {
+      const user = await person();
+      const admin = await person("ADMIN");
+      const { order: o } = await fixture();
+      await request(url).post(`/admin/orders/${o.id}/resend`).send({ kind: "WON" }).expect(401);
+      await resend(user, o.id, "WON").expect(403);
+      await resend(admin, `nope_${stamp}`, "WON").expect(404);
+      for (const kind of ["", "SPAM", undefined, 5]) await resend(admin, o.id, kind).expect(400);
+      expect(await prisma.adminAction.count({ where: { action: "RESEND_ORDER_EMAIL", targetId: o.id } })).toBe(0);
+    });
+
+    it("offers only the emails that fit the order's state", async () => {
+      const admin = await person("ADMIN");
+      const payoutSeller = { payoutAccountId: `acct_rs_${stamp}` };
+      const waiting = await fixture();
+      const expired = await fixture({ status: "EXPIRED", payBy: new Date(Date.now() - 2 * DAY) });
+      const unshipped = await fixture({ ...paid, invoiceNumber: `INV-2026-${stamp}-${++counter}` });
+      const moving = await fixture(justShipped());
+      const silent = await fixture({ ...justShipped(), trackingEmails: false });
+      const delivered = await fixture({ ...justShipped(), shipmentStatus: "DELIVERED", deliveredAt: new Date() }, payoutSeller);
+      await prisma.payout.create({ data: { orderId: delivered.order.id, sellerId: delivered.seller.id, amountCents: 4275, reference: `tr_rs_${stamp}` } });
+
+      expect(await options(admin, waiting.order.id)).toEqual(["WON"]);
+      expect(await options(admin, expired.order.id)).toEqual(["EXPIRED"]);
+      expect(await options(admin, unshipped.order.id)).toEqual(["PAID", "SOLD"]);
+      expect(await options(admin, moving.order.id)).toEqual(["PAID", "SOLD", "IN_TRANSIT"]);
+      expect(await options(admin, silent.order.id)).toEqual(["PAID", "SOLD"]);
+      expect(await options(admin, delivered.order.id)).toEqual(["PAID", "SOLD", "DELIVERED", "PAYOUT"]);
+    });
+
+    // The builders skip quietly when an order is not in the state they expect, so an offered email that built nothing would look sent.
+    // Each offered email is built here directly, with a mailer of its own, so the app's own sweeps cannot take it first.
+    it("offers only emails that really produce a message for the right person", async () => {
+      const admin = await person("ADMIN");
+      const built: { to: string; subject: string }[] = [];
+      const ctx = { prisma, mail: { send: async (to: string, subject: string) => void built.push({ to, subject }) } };
+      const waiting = await fixture();
+      const expired = await fixture({ status: "EXPIRED", payBy: new Date(Date.now() - 2 * DAY) });
+      const delivered = await fixture({ ...justShipped(), shipmentStatus: "DELIVERED", deliveredAt: new Date() });
+      await prisma.payout.create({ data: { orderId: delivered.order.id, sellerId: delivered.seller.id, amountCents: 4275, reference: `tr_rb_${stamp}` } });
+      const moving = await fixture(justShipped());
+
+      let offered = 0;
+      for (const made of [waiting, expired, delivered, moving]) {
+        const view = (await get(admin, `/admin/orders/${made.order.id}`).expect(200)).body as { resendable: { kind: OrderResendKind; to: "buyer" | "seller" }[] };
+        for (const option of view.resendable) {
+          const person = option.to === "buyer" ? made.buyer : made.seller;
+          built.length = 0;
+          await sendOutboxMail(ctx as never, person.id, made.listing.id, option.kind);
+          expect(built.map((m) => m.to), `${option.kind} for the ${option.to} of a ${made.order.status} order`).toEqual([person.email]);
+          offered++;
+        }
+      }
+      expect(offered).toBeGreaterThanOrEqual(8);
+    });
+
+    it("queues the email for the right person, writes the audit record, and the email goes out", async () => {
+      const admin = await person("ADMIN");
+      const { buyer, seller, listing, order: o } = await fixture(justShipped());
+      queued.mockClear();
+      expect((await resend(admin, o.id, "SOLD").expect(200)).body).toEqual({ kind: "SOLD", to: "seller" });
+      expect((await resend(admin, o.id, "IN_TRANSIT").expect(200)).body).toEqual({ kind: "IN_TRANSIT", to: "buyer" });
+      expect(lastQueuedFor(o.id)).toEqual([{ userId: seller.id, kind: "SOLD" }, { userId: buyer.id, kind: "IN_TRANSIT" }]);
+      expect((await prisma.adminAction.findMany({ where: { action: "RESEND_ORDER_EMAIL", targetId: o.id }, orderBy: { createdAt: "asc" } })).map((a) => [a.adminId, a.reason])).toEqual([[admin.id, "SOLD"], [admin.id, "IN_TRANSIT"]]);
+
+      // The route starts a sweep at once, so both emails reach this app's mailer within moments.
+      await vi.waitFor(() => expect(mailSent.filter((m) => m.to === buyer.email || m.to === seller.email)).toHaveLength(2), { timeout: 8000 });
+      expect(mailSent.find((m) => m.to === buyer.email)!.subject).toMatch(/in transit/i);
+      expect(await prisma.pendingEndEmail.count({ where: { listingId: listing.id } })).toBe(0);
+    });
+
+    it("sends each email again only after the wait, and not twice when two admins click together", async () => {
+      const admin = await person("ADMIN");
+      const other = await person("ADMIN");
+      const { order: o } = await fixture();
+      queued.mockClear();
+      const [a, b] = await Promise.all([resend(admin, o.id, "WON"), resend(other, o.id, "WON")]);
+      expect([a.status, b.status].sort()).toEqual([200, 429]);
+      expect([a, b].find((r) => r.status === 429)!.body.code).toBe("RESEND_TOO_SOON");
+      expect(lastQueuedFor(o.id)).toHaveLength(1);
+      expect(await prisma.adminAction.count({ where: { action: "RESEND_ORDER_EMAIL", targetId: o.id } })).toBe(1);
+
+      // The wait is for the same email on the same order; another order is not held up by it.
+      const { order: another } = await fixture();
+      await resend(admin, another.id, "WON").expect(200);
+
+      // Once the wait is over it can be sent again.
+      await prisma.adminAction.updateMany({ where: { action: "RESEND_ORDER_EMAIL", targetId: o.id }, data: { createdAt: new Date(Date.now() - (ORDER_RESEND_COOLDOWN_MINUTES + 1) * 60_000) } });
+      await vi.waitFor(async () => expect(await prisma.pendingEndEmail.count({ where: { listingId: listingOf.get(o.id), kind: "WON" } })).toBe(0), { timeout: 8000 });
+      await resend(admin, o.id, "WON").expect(200);
+      expect(lastQueuedFor(o.id)).toHaveLength(2);
+    });
+
+    it("refuses an email that does not fit the order, or that is still waiting to go out, and writes nothing", async () => {
+      const admin = await person("ADMIN");
+      const { buyer, listing, order: o } = await fixture();
+      queued.mockClear();
+      for (const kind of ["PAID", "SOLD", "SHIPPED", "PAYOUT", "EXPIRED"]) {
+        const res = await resend(admin, o.id, kind).expect(409);
+        expect(res.body.code).toBe("NOT_RESENDABLE");
+      }
+      await prisma.pendingEndEmail.create({ data: { userId: buyer.id, listingId: listing.id, kind: "WON", dueAt: new Date(Date.now() + DAY) } });
+      expect((await resend(admin, o.id, "WON").expect(409)).body.code).toBe("ALREADY_QUEUED");
+      expect(lastQueuedFor(o.id)).toEqual([]);
+      expect(await prisma.adminAction.count({ where: { action: "RESEND_ORDER_EMAIL", targetId: o.id } })).toBe(0);
+      await prisma.pendingEndEmail.deleteMany({ where: { listingId: listing.id } });
+    });
   });
 });

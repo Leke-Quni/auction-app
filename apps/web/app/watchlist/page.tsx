@@ -26,25 +26,25 @@ export default async function WatchlistPage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="space-y-3">
-      <h1 className="border border-line bg-white p-2 text-lg font-bold">Your watchlist</h1>
+      <h1 className="border border-line bg-surface p-2 text-lg font-bold">Your watchlist</h1>
       <nav aria-label="Filter watchlist" className="flex flex-wrap gap-2">
         {FILTERS.map((f) => (
           <Link
             key={f.key}
             href={f.key === "all" ? "/watchlist" : `/watchlist?show=${f.key}`}
             aria-current={filter === f.key ? "page" : undefined}
-            className={`border px-3 py-1 ${filter === f.key ? "border-brand bg-brand text-white" : "border-line bg-white text-brand hover:border-brand"}`}
+            className={`border px-3 py-1 ${filter === f.key ? "border-brand bg-brand text-on-brand" : "border-line bg-surface text-brand hover:border-brand"}`}
           >
             {f.label} ({counts[f.key]})
           </Link>
         ))}
       </nav>
       {items.length === 0 ? (
-        <div className="border border-line bg-white p-4 text-muted">
+        <div className="border border-line bg-surface p-4 text-muted">
           You are not watching any auctions yet. Press <b>Watch</b> on an auction to keep it here; we email you about 24 hours before it ends.
         </div>
       ) : shown.length === 0 ? (
-        <div className="border border-line bg-white p-4 text-muted">None of your watched auctions are {filter}.</div>
+        <div className="border border-line bg-surface p-4 text-muted">None of your watched auctions are {filter}.</div>
       ) : (
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {shown.map((listing) => (

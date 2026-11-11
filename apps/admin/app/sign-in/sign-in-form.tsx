@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { signInAction } from "../actions";
 
-const field = "w-full rounded border border-line bg-white px-3 py-2 outline-none focus:border-accent focus:ring-2 focus:ring-accent/25";
+const field = "w-full rounded border border-line bg-panel px-3 py-2 outline-none focus:border-accent focus:ring-2 focus:ring-accent/25";
 
 export function SignInForm({ denied }: { denied: boolean }) {
   const [state, formAction, pending] = useActionState(signInAction, {});
@@ -27,7 +27,7 @@ export function SignInForm({ denied }: { denied: boolean }) {
           {state.error}
         </p>
       )}
-      <button disabled={pending} className="w-full cursor-pointer rounded bg-accent px-3 py-2 font-semibold text-white hover:bg-accent-dark disabled:opacity-60">
+      <button disabled={pending} className="w-full cursor-pointer rounded bg-accent px-3 py-2 font-semibold text-on-brand hover:bg-accent-dark disabled:opacity-60">
         {pending ? "Please wait..." : "Continue"}
       </button>
     </form>

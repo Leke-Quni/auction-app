@@ -1,6 +1,7 @@
 import { ServiceUnavailableException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { SearchController } from "../src/search/search.controller";
+import { MemoryRateLimiter } from "../src/rate-limit/rate-limiter";
 import type { ListingDocument, SearchIndex } from "../src/search/search-index";
 
 const doc = (title: string): ListingDocument => ({
@@ -17,7 +18,8 @@ const doc = (title: string): ListingDocument => ({
   seller_username: "s",
 });
 
-const controllerFor = (search: SearchIndex["search"]) => new SearchController({ search } as unknown as SearchIndex);
+const controllerFor = (search: SearchIndex["search"]) => new SearchController({ search } as unknown as SearchIndex, new MemoryRateLimiter());
+const req = { headers: {} };
 
 describe("search suggestions", () => {
   it("asks the index for the best matches of the typed text and returns their titles, each once, at most five", async () => {
@@ -25,13 +27,13 @@ describe("search suggestions", () => {
       documents: ["Old watch", "old WATCH", "Watch strap", "Watchmaker tools", "Watch box", "Watch case", "Watch dial", "Watch glass"].map(doc),
       total: 8,
     });
-    const result = await controllerFor(search).suggest({ q: "wat" });
+    const result = await controllerFor(search).suggest(req, { q: "wat" });
     expect(result).toEqual({ suggestions: ["Old watch", "Watch strap", "Watchmaker tools", "Watch box", "Watch case"] });
     expect(search).toHaveBeenCalledWith(expect.objectContaining({ q: "wat", sort: "relevance", endingSoon: false, page: 1 }));
   });
 
   it("answers an empty list when nothing matches, and 503 when the search is down", async () => {
-    expect(await controllerFor(vi.fn().mockResolvedValue({ documents: [], total: 0 })).suggest({ q: "zzz" })).toEqual({ suggestions: [] });
-    await expect(controllerFor(vi.fn().mockRejectedValue(new Error("down"))).suggest({ q: "wat" })).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(await controllerFor(vi.fn().mockResolvedValue({ documents: [], total: 0 })).suggest(req, { q: "zzz" })).toEqual({ suggestions: [] });
+    await expect(controllerFor(vi.fn().mockRejectedValue(new Error("down"))).suggest(req, { q: "wat" })).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 });

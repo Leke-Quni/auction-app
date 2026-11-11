@@ -23,14 +23,14 @@ export function CodeForm({ email }: { email: string }) {
         required
         autoFocus
         aria-label="6-digit code"
-        className="w-full rounded border border-line bg-white p-2 text-center text-xl tracking-[0.5em] outline-none focus:border-accent focus:ring-2 focus:ring-accent/25"
+        className="w-full rounded border border-line bg-panel p-2 text-center text-xl tracking-[0.5em] outline-none focus:border-accent focus:ring-2 focus:ring-accent/25"
       />
       {state.error && (
         <p role="alert" className="text-danger">
           {state.error}
         </p>
       )}
-      <button disabled={pending} className="w-full cursor-pointer rounded bg-accent px-3 py-2 font-semibold text-white hover:bg-accent-dark disabled:opacity-60">
+      <button disabled={pending} className="w-full cursor-pointer rounded bg-accent px-3 py-2 font-semibold text-on-brand hover:bg-accent-dark disabled:opacity-60">
         {pending ? "Please wait..." : "Verify and sign in"}
       </button>
       <ResendCode email={email} />

@@ -1,4 +1,4 @@
-import { eurosToCents } from "@auction/shared";
+import { eurosToCents, maxSearchPage } from "@auction/shared";
 
 export const SEARCH_PAGE_SIZE = 24;
 
@@ -40,7 +40,7 @@ export function apiQueryFromParams(params: SearchPageParams): { query: URLSearch
   if (params.endingSoon === "true") query.set("endingSoon", "true");
   if (params.sort) query.set("sort", params.sort);
   const page = Number.parseInt(params.page ?? "1", 10);
-  query.set("page", String(Math.max(1, Number.isNaN(page) ? 1 : page)));
+  query.set("page", String(Math.min(maxSearchPage(SEARCH_PAGE_SIZE), Math.max(1, Number.isNaN(page) ? 1 : page))));
   query.set("pageSize", String(SEARCH_PAGE_SIZE));
   return { query };
 }

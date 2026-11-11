@@ -1,10 +1,16 @@
-import type {
-  ForgotPasswordInput,
-  LoginCodeInput,
-  ResetPasswordInput,
-  ResendLoginCodeInput,
-  SignInInput,
-  SignUpInput,
+import {
+  FORGOT_PASSWORD_IP_RATE_LIMIT,
+  FORGOT_PASSWORD_RATE_LIMIT,
+  SIGN_IN_IP_RATE_LIMIT,
+  SIGN_IN_RATE_LIMIT,
+  SIGN_UP_IP_RATE_LIMIT,
+  SIGN_UP_RATE_LIMIT,
+  type ForgotPasswordInput,
+  type LoginCodeInput,
+  type ResetPasswordInput,
+  type ResendLoginCodeInput,
+  type SignInInput,
+  type SignUpInput,
 } from "@auction/shared";
 import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import bcrypt from "bcryptjs";
@@ -13,6 +19,7 @@ import { loginCodeCooldownSeconds, webUrl } from "../config";
 import { conflict, isUniqueViolation } from "../common/errors";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
+import { RATE_LIMITER, type RateLimiter } from "../rate-limit/rate-limiter";
 
 import { CODE_TTL_MS, generateCode, hashCode, MAX_CODE_ATTEMPTS, sameHash } from "./codes";
 
@@ -33,10 +40,23 @@ export class AuthService {
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
     @Inject(MAIL_SENDER) private readonly mail: MailSender,
+    @Inject(RATE_LIMITER) private readonly limiter: RateLimiter,
   ) {}
 
-  async signUp(input: SignUpInput) {
+  // Counts one attempt per email and, when the visitor's address is known, per address. Runs before any password hashing or
+  // lookup, so a flood costs almost nothing. Returns false when either limit is passed.
+  private async withinLimits(name: string, email: string, ip: string | null, perEmail: { limit: number; windowSeconds: number }, perIp: { limit: number; windowSeconds: number }) {
+    if (ip && !(await this.limiter.allow(`rl:${name}-ip:${ip}`, perIp.limit, perIp.windowSeconds))) return false;
+    return this.limiter.allow(`rl:${name}:${email}`, perEmail.limit, perEmail.windowSeconds);
+  }
+
+  private tooMany() {
+    return new HttpException({ code: "RATE_LIMITED", message: "Too many attempts. Wait a while and try again." }, HttpStatus.TOO_MANY_REQUESTS);
+  }
+
+  async signUp(input: SignUpInput, ip: string | null = null) {
     const email = input.email.toLowerCase();
+    if (!(await this.withinLimits("signup", email, ip, SIGN_UP_RATE_LIMIT, SIGN_UP_IP_RATE_LIMIT))) throw this.tooMany();
     const passwordHash = await bcrypt.hash(input.password, 12);
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing?.emailVerified) throw conflict("EMAIL_TAKEN", "Email already registered");
@@ -64,8 +84,10 @@ export class AuthService {
   }
 
   // Step 1 of sign-in: check the password, then email a one-time code. Sign-up sends the same code.
-  async startLogin(input: SignInInput) {
-    const user = await this.prisma.user.findUnique({ where: { email: input.email.toLowerCase() } });
+  async startLogin(input: SignInInput, ip: string | null = null) {
+    const email = input.email.toLowerCase();
+    if (!(await this.withinLimits("signin", email, ip, SIGN_IN_RATE_LIMIT, SIGN_IN_IP_RATE_LIMIT))) throw this.tooMany();
+    const user = await this.prisma.user.findUnique({ where: { email } });
     const passwordMatches = await bcrypt.compare(input.password, user?.passwordHash ?? DUMMY_HASH);
     if (!user || !passwordMatches) throw new UnauthorizedException("Invalid email or password");
     // Said only after the right password, so it tells a stranger nothing about who has an account.
@@ -122,12 +144,14 @@ export class AuthService {
     if (!user || user.bannedAt) throw invalid();
 
     const record = await this.prisma.loginCode.findFirst({ where: { userId: user.id }, orderBy: { createdAt: "desc" } });
-    if (!record || record.expiresAt < new Date() || record.attempts >= MAX_CODE_ATTEMPTS) throw invalid();
+    if (!record || record.expiresAt < new Date()) throw invalid();
 
-    if (!sameHash(hashCode(loginScope(user.id), input.code), record.codeHash)) {
-      await this.prisma.loginCode.update({ where: { id: record.id }, data: { attempts: { increment: 1 } } });
-      throw invalid();
-    }
+    // The try is counted before the code is checked, in one guarded step, so simultaneous guesses cannot all slip under the limit.
+    const { count: claimed } = await this.prisma.loginCode.updateMany({
+      where: { id: record.id, attempts: { lt: MAX_CODE_ATTEMPTS } },
+      data: { attempts: { increment: 1 } },
+    });
+    if (claimed === 0 || !sameHash(hashCode(loginScope(user.id), input.code), record.codeHash)) throw invalid();
 
     // Deleting the code is what makes it single-use, even for simultaneous submissions.
     const { count } = await this.prisma.loginCode.deleteMany({ where: { id: record.id } });
@@ -136,12 +160,16 @@ export class AuthService {
     if (!user.emailVerified) {
       await this.prisma.user.update({ where: { id: user.id }, data: { emailVerified: new Date() } });
     }
-    return { id: user.id, email: user.email, name: user.username, role: user.role };
+    return { id: user.id, email: user.email, name: user.username, role: user.role, sessionVersion: user.sessionVersion };
   }
 
-  async forgotPassword(input: ForgotPasswordInput) {
+  async forgotPassword(input: ForgotPasswordInput, ip: string | null = null) {
+    const email = input.email.toLowerCase();
+    // Too many from one address is refused. Too many for one email is answered like success, so it does not show the email has an account.
+    if (ip && !(await this.limiter.allow(`rl:forgot-ip:${ip}`, FORGOT_PASSWORD_IP_RATE_LIMIT.limit, FORGOT_PASSWORD_IP_RATE_LIMIT.windowSeconds))) throw this.tooMany();
+    if (!(await this.limiter.allow(`rl:forgot:${email}`, FORGOT_PASSWORD_RATE_LIMIT.limit, FORGOT_PASSWORD_RATE_LIMIT.windowSeconds))) return;
     // The caller gets the same answer whether or not the email has an account.
-    const user = await this.prisma.user.findUnique({ where: { email: input.email.toLowerCase() } });
+    const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) return;
 
     const token = randomBytes(32).toString("hex");
@@ -177,7 +205,7 @@ export class AuthService {
       // Following the emailed link proves the inbox, so it also verifies the email.
       this.prisma.user.update({
         where: { id: user.id },
-        data: { passwordHash: await bcrypt.hash(input.password, 12), emailVerified: user.emailVerified ?? new Date() },
+        data: { passwordHash: await bcrypt.hash(input.password, 12), emailVerified: user.emailVerified ?? new Date(), sessionVersion: { increment: 1 } },
       }),
       this.prisma.passwordResetToken.deleteMany({ where: { userId: user.id } }),
       this.prisma.loginCode.deleteMany({ where: { userId: user.id } }),

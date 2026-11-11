@@ -9,7 +9,9 @@ const thumb =
   "[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 " +
   "[&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:bg-brand " +
   "[&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:cursor-pointer " +
-  "[&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:bg-brand";
+  "[&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:bg-brand " +
+  "focus-visible:[&::-webkit-slider-thumb]:shadow-[0_0_0_2px_white,0_0_0_4px_var(--color-brand)] " +
+  "focus-visible:[&::-moz-range-thumb]:shadow-[0_0_0_2px_white,0_0_0_4px_var(--color-brand)]";
 
 // Two sliders share one track. A thumb left at its end means "no limit", so only a moved thumb adds a filter.
 type Props = { maxEuros: number; initialMin?: string; initialMax?: string };
@@ -25,7 +27,7 @@ const toEuros = (text: string) => {
 };
 
 const numberBox =
-  "w-full border border-[#888] bg-white p-1 text-xs";
+  "w-full border border-field bg-surface p-1 text-xs";
 
 // The two boxes hold the prices as typed; dragging a handle fills them in, and typing moves the handles.
 // An empty box means no limit, and only a box with something in it is sent with the search.
@@ -49,10 +51,12 @@ function PriceSliderInner({ maxEuros, initialMin, initialMax }: Props) {
   };
 
   return (
-    <div>
-      <span className="text-[11px] text-muted">Price</span>
+    <div role="group" aria-labelledby="price-filter-label">
+      <span id="price-filter-label" className="text-[11px] text-muted">
+        Price
+      </span>
       <div className="relative mt-1 h-5">
-        <div className="absolute inset-x-0 top-2 h-1 bg-[#ddd]" />
+        <div className="absolute inset-x-0 top-2 h-1 bg-sunken" />
         <div className="absolute top-2 h-1 bg-brand" style={{ left: `${low / 10}%`, width: `${(high - low) / 10}%` }} />
         <input
           type="range"
@@ -83,6 +87,7 @@ function PriceSliderInner({ maxEuros, initialMin, initialMax }: Props) {
           aria-label="Minimum price (€)"
           placeholder="Min €"
           inputMode="decimal"
+          autoComplete="off"
           value={minText}
           onChange={(e) => setMinText(e.target.value)}
           onBlur={tidy}
@@ -94,6 +99,7 @@ function PriceSliderInner({ maxEuros, initialMin, initialMax }: Props) {
           aria-label="Maximum price (€)"
           placeholder="Max €"
           inputMode="decimal"
+          autoComplete="off"
           value={maxText}
           onChange={(e) => setMaxText(e.target.value)}
           onBlur={tidy}

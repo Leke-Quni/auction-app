@@ -1,3 +1,4 @@
+import { ORDER_ATTENTION_KINDS, ORDER_NOTE_MAX, ORDER_RESEND_KINDS } from "@auction/shared";
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, Req, StreamableFile, UseGuards } from "@nestjs/common";
 import { z } from "zod";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
@@ -20,8 +21,11 @@ const usersQuerySchema = z.object({
 const ordersQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
   status: z.enum(["AWAITING_PAYMENT", "PAID", "EXPIRED", "CANCELLED"]).optional(),
+  attention: z.enum([...ORDER_ATTENTION_KINDS, "any"]).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
+const orderNoteSchema = z.object({ body: z.string().trim().min(1, "Write a note").max(ORDER_NOTE_MAX) });
+const resendSchema = z.object({ kind: z.enum(ORDER_RESEND_KINDS) });
 const invoiceQuerySchema = z.object({ party: z.enum(["buyer", "seller"]) });
 const roleSchema = z.object({ role: z.enum(["USER", "ADMIN"]) });
 const strikeSchema = z.object({ reason: z.string().trim().min(1).max(500) });
@@ -204,6 +208,19 @@ export class AdminController {
   @Get("orders/:id")
   getOrder(@Param("id") id: string, @Req() req: { user: AuthUser }) {
     return this.orders.get(id, req.user.id);
+  }
+
+  // A private note on an order, for the admins who look at it next. The buyer and the seller never see it.
+  @Post("orders/:id/notes")
+  addOrderNote(@Param("id") id: string, @Req() req: { user: AuthUser }, @Body(new ZodValidationPipe(orderNoteSchema)) body: z.infer<typeof orderNoteSchema>) {
+    return this.orders.addNote(req.user.id, id, body.body);
+  }
+
+  // Sends one of the order's emails again (see `AdminOrdersService.resendEmail` for which, and the 10 minute wait).
+  @Post("orders/:id/resend")
+  @HttpCode(200)
+  resendOrderEmail(@Param("id") id: string, @Req() req: { user: AuthUser }, @Body(new ZodValidationPipe(resendSchema)) body: z.infer<typeof resendSchema>) {
+    return this.orders.resendEmail(req.user.id, id, body.kind);
   }
 
   // The paid order's invoice as its buyer sees it (`party=buyer`) or the sale statement its seller sees (`party=seller`), as a PDF.

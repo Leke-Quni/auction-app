@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { DISCARD_EVENT } from "../use-unsaved-changes";
 
 const EXTENSIONS: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
-const small = "cursor-pointer border border-[#888] bg-white px-1.5 text-xs disabled:opacity-40";
+const small = "cursor-pointer border border-field bg-surface px-1.5 text-xs disabled:opacity-40";
 
 // Photos upload to Blob as they are picked but only travel along in the form, as a hidden JSON field, and are attached
 // when the form is saved. If the visitor leaves without saving, the photos uploaded meanwhile are deleted again.
@@ -97,7 +97,7 @@ export function ImageUploader({ userId, initial }: { userId: string; initial: st
   };
 
   return (
-    <div className="space-y-2 border border-line bg-white p-3">
+    <div className="space-y-2 border border-line bg-surface p-3">
       <div className="flex items-baseline justify-between">
         <h2 className="text-sm font-bold">
           Photos ({urls.length}/{MAX_IMAGES})
@@ -117,8 +117,8 @@ export function ImageUploader({ userId, initial }: { userId: string; initial: st
           {urls.map((url, i) => (
             <li key={url} className="space-y-1">
               <div className="relative">
-                <img src={url} alt={`Photo ${i + 1}`} className="aspect-square w-full bg-[#ddd] object-cover" />
-                {i === 0 && <span className="absolute left-0 top-0 bg-brand px-1 text-xs text-white">Cover</span>}
+                <img src={url} alt={`Photo ${i + 1}`} className="aspect-square w-full bg-sunken object-cover" />
+                {i === 0 && <span className="absolute left-0 top-0 bg-brand px-1 text-xs text-on-brand">Cover</span>}
               </div>
               <div className="flex gap-1">
                 <button type="button" aria-label={`Move photo ${i + 1} earlier`} disabled={busy || i === 0} onClick={() => move(i, i - 1)} className={small}>
@@ -151,7 +151,7 @@ export function ImageUploader({ userId, initial }: { userId: string; initial: st
         type="button"
         disabled={busy || urls.length >= MAX_IMAGES}
         onClick={() => fileInput.current?.click()}
-        className="cursor-pointer bg-brand px-4 py-2 font-bold text-white hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
+        className="cursor-pointer bg-brand px-4 py-2 font-bold text-on-brand hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
       >
         {busy ? "Working…" : urls.length >= MAX_IMAGES ? "Photo limit reached" : "+ Add photos"}
       </button>

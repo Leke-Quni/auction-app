@@ -88,11 +88,11 @@ export function OrderDetails({ order }: { order: OrderView }) {
       : []),
   ];
   return (
-    <table className="w-full border-collapse bg-white">
+    <table className="w-full border-collapse bg-surface">
       <tbody>
         {rows.map(([label, value]) => (
           <tr key={label}>
-            <th className="w-36 border border-line bg-[#f0f0f0] p-1.5 text-left font-normal text-muted">{label}</th>
+            <th className="w-36 border border-line bg-head p-1.5 text-left font-normal text-muted">{label}</th>
             <td className="border border-line p-1.5">{value}</td>
           </tr>
         ))}

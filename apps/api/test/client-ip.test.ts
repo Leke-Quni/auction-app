@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clientIp, signViewerIp } from "../src/common/client-ip";
+import { clientIp, signedClientIp, signViewerIp } from "../src/common/client-ip";
 
 process.env.AUTH_SECRET = "s".repeat(40);
 
@@ -18,5 +18,11 @@ describe("clientIp", () => {
   it("falls back to the connection's own address, or nothing", () => {
     expect(clientIp({ ip: "10.0.0.5", headers: {} })).toBe("10.0.0.5");
     expect(clientIp({ headers: {} })).toBeNull();
+  });
+
+  it("signedClientIp gives only a vouched-for address, never the connection's own", () => {
+    const headers = { "x-viewer-ip": "203.0.113.9", "x-viewer-ip-signature": signViewerIp("203.0.113.9") };
+    expect(signedClientIp({ ip: "10.0.0.5", headers })).toBe("203.0.113.9");
+    expect(signedClientIp({ ip: "10.0.0.5", headers: {} })).toBeNull();
   });
 });

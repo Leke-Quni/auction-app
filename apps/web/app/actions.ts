@@ -21,6 +21,7 @@ import { signIn, signOut, unstable_update } from "@/auth";
 import { apiFetch, authedApiFetch } from "@/lib/api";
 import { readAddress } from "@/lib/address";
 import { apiErrorMessage } from "@/lib/api-error";
+import { viewerIpHeaders } from "@/lib/viewer-ip";
 
 export interface FormState {
   error?: string;
@@ -40,7 +41,7 @@ async function conflictMessage(res: Response) {
 export async function signUpAction(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = signUpSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: firstIssue(parsed.error) };
-  const res = await apiFetch("/auth/signup", { method: "POST", body: JSON.stringify(parsed.data) });
+  const res = await apiFetch("/auth/signup", { method: "POST", body: JSON.stringify(parsed.data), headers: await viewerIpHeaders() });
   if (res.status === 409) return { error: await conflictMessage(res) };
   if (res.status === 422 || res.status === 429) return { error: await apiErrorMessage(res) };
   if (!res.ok) return { error: "Something went wrong. Try again." };
@@ -50,7 +51,7 @@ export async function signUpAction(_: FormState, formData: FormData): Promise<Fo
 export async function signInAction(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = signInSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Enter your email and password." };
-  const res = await apiFetch("/auth/login/start", { method: "POST", body: JSON.stringify(parsed.data) });
+  const res = await apiFetch("/auth/login/start", { method: "POST", body: JSON.stringify(parsed.data), headers: await viewerIpHeaders() });
   if (res.status === 401) return { error: "Invalid email or password." };
   if (res.status === 403) return { error: "This account has been suspended." };
   if (res.status === 422 || res.status === 429) return { error: await apiErrorMessage(res) };
@@ -86,7 +87,8 @@ export async function verifyCodeAction(_: FormState, formData: FormData): Promis
 export async function forgotPasswordAction(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = forgotPasswordSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Enter a valid email." };
-  const res = await apiFetch("/auth/forgot-password", { method: "POST", body: JSON.stringify(parsed.data) });
+  const res = await apiFetch("/auth/forgot-password", { method: "POST", body: JSON.stringify(parsed.data), headers: await viewerIpHeaders() });
+  if (res.status === 429) return { error: await apiErrorMessage(res) };
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
   return { ok: "If that email has an account, we've sent a link to reset the password." };
 }
@@ -137,6 +139,9 @@ export async function changePasswordAction(_: FormState, formData: FormData): Pr
   const res = await authedApiFetch("/me/password", { method: "POST", body: JSON.stringify(parsed.data) });
   if (res.status === 403) return { error: "Your current password is incorrect." };
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
+  // Every other browser is signed out; this one takes the new number and stays signed in.
+  const { sessionVersion } = await res.json();
+  await unstable_update({ user: { sessionVersion } });
   return { ok: "Password changed." };
 }
 
@@ -147,7 +152,7 @@ export async function startEmailChangeAction(_: FormState, formData: FormData): 
   if (res.status === 403) return { error: "Your password is incorrect." };
   if (res.status === 409) return { error: "That email is already registered." };
   if (res.status === 400) return { error: "That is already your email." };
-  if (res.status === 422) return { error: await apiErrorMessage(res) };
+  if (res.status === 422 || res.status === 429) return { error: await apiErrorMessage(res) };
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
   redirect(`/account/email?pending=${encodeURIComponent(parsed.data.newEmail)}`);
 }

@@ -36,9 +36,9 @@ export function FieldsForm({
   return (
     <form
       action={formAction}
-      className={`border border-line bg-white ${compact ? "space-y-2 p-3" : "space-y-3 p-4"} ${narrow ? "mx-auto max-w-sm" : ""}`}
+      className={`border border-line bg-surface ${compact ? "space-y-2 p-3" : "space-y-3 p-4"} ${narrow ? "mx-auto max-w-sm" : ""}`}
     >
-      <h2 className={compact ? "text-sm font-bold" : "text-base font-bold"}>{title}</h2>
+      {compact ? <h2 className="text-sm font-bold">{title}</h2> : <h1 className="text-base font-bold">{title}</h1>}
       {Object.entries(hidden).map(([name, value]) => (
         <input key={name} type="hidden" name={name} value={value} />
       ))}
@@ -49,7 +49,7 @@ export function FieldsForm({
       {state.ok && <p className="text-brand">{state.ok}</p>}
       <button
         disabled={pending}
-        className={`cursor-pointer bg-brand font-bold text-white hover:bg-brand-dark disabled:opacity-60 ${compact ? "px-3 py-1" : "px-4 py-2"}`}
+        className={`cursor-pointer bg-brand font-bold text-on-brand hover:bg-brand-dark disabled:opacity-60 ${compact ? "px-3 py-1" : "px-4 py-2"}`}
       >
         {pending ? "..." : submit}
       </button>
@@ -70,7 +70,7 @@ export function FieldInput({ field: f, compact }: { field: Field; compact?: bool
         defaultValue={f.defaultValue}
         required
         {...f.inputProps}
-        className={`mt-1 w-full border border-[#888] bg-white ${compact ? "p-1.5 text-sm" : "p-2 text-base"}`}
+        className={`mt-1 w-full border border-field bg-surface ${compact ? "p-1.5 text-sm" : "p-2 text-base"}`}
       />
     </label>
   );

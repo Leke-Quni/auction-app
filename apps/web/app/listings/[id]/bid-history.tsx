@@ -10,8 +10,8 @@ export interface BidRow {
 
 export function BidHistory({ bids, total, viewerId }: { bids: BidRow[]; total: number; viewerId?: string }) {
   return (
-    <div className="border border-line bg-white">
-      <h2 className="border-b border-line bg-[#f0f0f0] px-3 py-1.5 text-sm font-bold">
+    <div className="border border-line bg-surface">
+      <h2 className="border-b border-line bg-head px-3 py-1.5 text-sm font-bold">
         Bid history <span className="font-normal text-muted">({total})</span>
       </h2>
       {bids.length === 0 ? (
@@ -27,7 +27,7 @@ export function BidHistory({ bids, total, viewerId }: { bids: BidRow[]; total: n
           </thead>
           <tbody>
             {bids.map((bid, i) => (
-              <tr key={bid.id} className={i === 0 ? "bg-[#f0fdfa] font-bold" : ""}>
+              <tr key={bid.id} className={i === 0 ? "bg-brand-soft font-bold" : ""}>
                 <td className="border-t border-line px-3 py-1">
                   {bid.bidder.username}
                   {bid.bidder.id === viewerId && <span className="font-normal text-muted"> (you)</span>}

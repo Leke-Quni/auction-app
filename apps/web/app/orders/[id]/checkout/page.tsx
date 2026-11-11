@@ -16,7 +16,7 @@ export default async function TestCheckoutPage({ params }: { params: Promise<{ i
   if (order.viewer !== "buyer" || order.status !== "AWAITING_PAYMENT") redirect(`/orders/${id}`);
 
   return (
-    <div className="mx-auto max-w-sm space-y-3 border border-line bg-white p-4">
+    <div className="mx-auto max-w-sm space-y-3 border border-line bg-surface p-4">
       <h1 className="text-lg font-bold">Test checkout</h1>
       <p className="text-muted">This is a test payment page. No real money moves and no card is needed.</p>
       <p>

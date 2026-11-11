@@ -34,16 +34,17 @@ export default async function EditListingPage({
         </Link>
       </div>
       {listing.status === "DRAFT" && (
-        <p role="status" className="border border-l-4 border-time-warn border-l-time-warn bg-[#fff7e6] p-2 font-bold">
+        <p role="status" className="border border-l-4 border-time-warn border-l-time-warn bg-warn-soft p-2 font-bold">
           This is a draft of your listing. Confirm the information you provided is correct, then publish.
         </p>
       )}
       {photosFailed && (
-        <p className="border border-urgent bg-white p-2 text-urgent">
+        <p className="border border-urgent bg-surface p-2 text-urgent">
           Your draft was created, but the photos could not be saved. Add them again below.
         </p>
       )}
       <ListingEditor
+        locked={listing.status === "PUBLISHED" && listing.bidCount > 0}
         categories={categories}
         defaultPickup={defaultPickup}
         userId={session.user.id}

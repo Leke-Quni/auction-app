@@ -9,7 +9,7 @@ export function RemovePostForm({ action, id, what }: { action: (formData: FormDa
       }}
     >
       <input type="hidden" name="id" value={id} />
-      <button className="cursor-pointer rounded bg-danger px-2 py-0.5 font-semibold text-white">Remove {what}</button>
+      <button className="cursor-pointer rounded bg-danger px-2 py-0.5 font-semibold text-on-brand">Remove {what}</button>
     </form>
   );
 }

@@ -3,9 +3,9 @@
 export function Stars({ value }: { value: number }) {
   const filled = Math.max(0, Math.min(5, Math.round(value)));
   return (
-    <span role="img" aria-label={`${value} out of 5 stars`} className="whitespace-nowrap text-[#b45309]">
+    <span role="img" aria-label={`${value} out of 5 stars`} className="whitespace-nowrap text-star">
       {"★".repeat(filled)}
-      <span className="text-[#999]">{"☆".repeat(5 - filled)}</span>
+      <span className="text-faint">{"☆".repeat(5 - filled)}</span>
     </span>
   );
 }

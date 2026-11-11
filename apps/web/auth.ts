@@ -27,16 +27,19 @@ export const { handlers, signIn, signOut, auth, unstable_update } = NextAuth({
       if (user) {
         token.id = user.id!;
         token.role = user.role;
+        token.sv = user.sessionVersion;
       }
       if (trigger === "update" && session?.user) {
         if (session.user.name) token.name = session.user.name;
         if (session.user.email) token.email = session.user.email;
+        if (typeof session.user.sessionVersion === "number") token.sv = session.user.sessionVersion;
       }
       return token;
     },
     session({ session, token }) {
       session.user.id = token.id!;
       session.user.role = token.role!;
+      session.user.sessionVersion = token.sv ?? 0;
       return session;
     },
   },

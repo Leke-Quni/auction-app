@@ -10,6 +10,7 @@ export default async function Overview() {
     { label: "Open support requests", value: o.openSupport, href: "/support", hot: o.openSupport > 0 },
     { label: "Live auctions", value: o.liveListings, href: "/listings?phase=live" },
     { label: "Upcoming auctions", value: o.upcomingListings, href: "/listings?phase=upcoming" },
+    { label: "Orders needing attention", value: o.ordersNeedingAttention, href: "/orders?attention=any", hot: o.ordersNeedingAttention > 0 },
     { label: "Orders awaiting payment", value: o.awaitingPaymentOrders, href: "/orders?status=AWAITING_PAYMENT" },
     { label: "Paid, not yet shipped", value: o.paidOrdersToShip, href: "/orders?status=PAID" },
     { label: "Banned accounts", value: o.bannedUsers, href: "/users?banned=true" },

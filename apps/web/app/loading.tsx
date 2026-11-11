@@ -7,7 +7,7 @@ export default function Loading() {
       <div className={`${block} h-6 w-40`} />
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {Array.from({ length: 8 }, (_, i) => (
-          <div key={i} className="space-y-2 border border-line bg-white p-2">
+          <div key={i} className="space-y-2 border border-line bg-surface p-2">
             <div className={`${block} aspect-square w-full`} />
             <div className={`${block} h-4 w-3/4`} />
             <div className={`${block} h-4 w-1/2`} />

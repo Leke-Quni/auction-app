@@ -1,6 +1,8 @@
-import { listingPhase, searchQuerySchema, resolveSearchSort, SUGGESTION_COUNT, suggestQuerySchema, type SearchQuery } from "@auction/shared";
-import { Controller, Get, Inject, Logger, Query, ServiceUnavailableException } from "@nestjs/common";
+import { listingPhase, searchQuerySchema, resolveSearchSort, SEARCH_RATE_LIMIT, SUGGEST_RATE_LIMIT, SUGGESTION_COUNT, suggestQuerySchema, type SearchQuery } from "@auction/shared";
+import { Controller, Get, HttpException, HttpStatus, Inject, Logger, Query, Req, ServiceUnavailableException } from "@nestjs/common";
+import { clientIp } from "../common/client-ip";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
+import { RATE_LIMITER, type RateLimiter } from "../rate-limit/rate-limiter";
 import { SEARCH_INDEX, type ListingDocument, type SearchIndex } from "./search-index";
 
 // Same shape as an item in GET /listings, so the storefront's listing card can show either.
@@ -26,10 +28,23 @@ const toSummary = (doc: ListingDocument, now: Date) => {
 export class SearchController {
   private readonly logger = new Logger(SearchController.name);
 
-  constructor(@Inject(SEARCH_INDEX) private readonly search: SearchIndex) {}
+  constructor(
+    @Inject(SEARCH_INDEX) private readonly search: SearchIndex,
+    @Inject(RATE_LIMITER) private readonly limiter: RateLimiter,
+  ) {}
+
+  // Search is public, so it is limited per visitor address: the signed address the web server passes on, or the caller's own when
+  // someone calls the API directly. Counted before any work is done.
+  private async limit(req: Parameters<typeof clientIp>[0], name: string, rule: { limit: number; windowSeconds: number }) {
+    const ip = clientIp(req);
+    if (ip && !(await this.limiter.allow(`rl:${name}:${ip}`, rule.limit, rule.windowSeconds))) {
+      throw new HttpException({ code: "RATE_LIMITED", message: "You are searching too fast. Wait a moment and try again." }, HttpStatus.TOO_MANY_REQUESTS);
+    }
+  }
 
   @Get("search")
-  async find(@Query(new ZodValidationPipe(searchQuerySchema)) query: SearchQuery) {
+  async find(@Req() req: Parameters<typeof clientIp>[0], @Query(new ZodValidationPipe(searchQuerySchema)) query: SearchQuery) {
+    await this.limit(req, "search", SEARCH_RATE_LIMIT);
     const now = new Date();
     try {
       const { documents, total } = await this.search.search({
@@ -48,7 +63,8 @@ export class SearchController {
   // Titles of live and upcoming listings that match the text so far, best match first, each title once. It asks the same
   // index as the search page, so Typesense gives typo tolerance and the Postgres fallback gives partial words.
   @Get("search/suggest")
-  async suggest(@Query(new ZodValidationPipe(suggestQuerySchema)) query: { q: string }) {
+  async suggest(@Req() req: Parameters<typeof clientIp>[0], @Query(new ZodValidationPipe(suggestQuerySchema)) query: { q: string }) {
+    await this.limit(req, "suggest", SUGGEST_RATE_LIMIT);
     try {
       const { documents } = await this.search.search({
         q: query.q,

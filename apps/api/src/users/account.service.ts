@@ -1,13 +1,16 @@
-import type {
-  ChangePasswordInput,
-  ConfirmEmailChangeInput,
-  StartEmailChangeInput,
-  UpdateProfileInput,
-  UpdateUsernameInput,
+import {
+  EMAIL_CHANGE_RATE_LIMIT,
+  type ChangePasswordInput,
+  type ConfirmEmailChangeInput,
+  type StartEmailChangeInput,
+  type UpdateProfileInput,
+  type UpdateUsernameInput,
 } from "@auction/shared";
 import {
   BadRequestException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   UnauthorizedException,
@@ -16,7 +19,9 @@ import bcrypt from "bcryptjs";
 import { conflict, isUniqueViolation } from "../common/errors";
 import { CODE_TTL_MS, generateCode, hashCode, MAX_CODE_ATTEMPTS, sameHash } from "../auth/codes";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { loginCodeCooldownSeconds } from "../config";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
+import { RATE_LIMITER, type RateLimiter } from "../rate-limit/rate-limiter";
 
 const emailChangeScope = (userId: string, newEmail: string) => `email-change:${userId}:${newEmail}`;
 
@@ -25,6 +30,7 @@ export class AccountService {
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
     @Inject(MAIL_SENDER) private readonly mail: MailSender,
+    @Inject(RATE_LIMITER) private readonly limiter: RateLimiter,
   ) {}
 
   async updateProfile(userId: string, input: UpdateProfileInput) {
@@ -50,13 +56,16 @@ export class AccountService {
 
   async changePassword(userId: string, input: ChangePasswordInput) {
     await this.requirePassword(userId, input.currentPassword);
-    await this.prisma.$transaction([
+    // Every other session ends. The caller gets the new number so the browser they are using can keep its own.
+    const [user] = await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: userId },
-        data: { passwordHash: await bcrypt.hash(input.newPassword, 12) },
+        data: { passwordHash: await bcrypt.hash(input.newPassword, 12), sessionVersion: { increment: 1 } },
+        select: { sessionVersion: true },
       }),
       this.prisma.passwordResetToken.deleteMany({ where: { userId } }),
     ]);
+    return { sessionVersion: user.sessionVersion };
   }
 
   async startEmailChange(userId: string, input: StartEmailChangeInput) {
@@ -67,12 +76,28 @@ export class AccountService {
       throw conflict("EMAIL_TAKEN", "Email already registered");
     }
 
+    // A code was just sent: wait, as for sign-in codes. Then the hourly cap. Both come after the password and the address are checked,
+    // so only a code that really goes out is counted.
+    const previous = await this.prisma.emailChange.findUnique({ where: { userId }, select: { createdAt: true } });
+    const wait = loginCodeCooldownSeconds();
+    const left = previous ? Math.ceil((previous.createdAt.getTime() + wait * 1000 - Date.now()) / 1000) : 0;
+    if (wait > 0 && left > 0) {
+      throw new HttpException(
+        { code: "CODE_COOLDOWN", message: `A code was just sent. Wait ${left} second${left === 1 ? "" : "s"} before asking for another.`, retryAfterSeconds: left },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    if (!(await this.limiter.allow(`rl:email-change:${userId}`, EMAIL_CHANGE_RATE_LIMIT.limit, EMAIL_CHANGE_RATE_LIMIT.windowSeconds))) {
+      throw new HttpException({ code: "RATE_LIMITED", message: "You have asked for several codes. Wait a while and try again." }, HttpStatus.TOO_MANY_REQUESTS);
+    }
+
     const code = generateCode();
     const data = {
       newEmail,
       codeHash: hashCode(emailChangeScope(userId, newEmail), code),
       expiresAt: new Date(Date.now() + CODE_TTL_MS),
       attempts: 0,
+      createdAt: new Date(),
     };
     await this.prisma.emailChange.upsert({ where: { userId }, create: { userId, ...data }, update: data });
     await this.mail.send(newEmail, "Confirm your new email", `Your confirmation code is ${code}. It expires in 10 minutes.`);
@@ -81,12 +106,14 @@ export class AccountService {
   async confirmEmailChange(userId: string, input: ConfirmEmailChangeInput) {
     const invalid = () => new UnauthorizedException("Invalid or expired code");
     const record = await this.prisma.emailChange.findUnique({ where: { userId } });
-    if (!record || record.expiresAt < new Date() || record.attempts >= MAX_CODE_ATTEMPTS) throw invalid();
+    if (!record || record.expiresAt < new Date()) throw invalid();
 
-    if (!sameHash(hashCode(emailChangeScope(userId, record.newEmail), input.code), record.codeHash)) {
-      await this.prisma.emailChange.update({ where: { userId }, data: { attempts: { increment: 1 } } });
-      throw invalid();
-    }
+    // The try is counted before the code is checked, in one guarded step, so simultaneous guesses cannot all slip under the limit.
+    const { count: claimed } = await this.prisma.emailChange.updateMany({
+      where: { userId, attempts: { lt: MAX_CODE_ATTEMPTS } },
+      data: { attempts: { increment: 1 } },
+    });
+    if (claimed === 0 || !sameHash(hashCode(emailChangeScope(userId, record.newEmail), input.code), record.codeHash)) throw invalid();
 
     const { count } = await this.prisma.emailChange.deleteMany({ where: { userId } });
     if (count === 0) throw invalid();

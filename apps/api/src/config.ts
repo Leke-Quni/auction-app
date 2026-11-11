@@ -14,6 +14,10 @@ export const webUrl = () => process.env.WEB_URL ?? "http://localhost:3000";
 
 export const redisUrl = () => process.env.REDIS_URL || undefined;
 
+// The exact host our public photo store serves from, like abc123.public.blob.vercel-storage.com (copy it from the address of any
+// uploaded photo). When set, only photos on that host are accepted; when not, any Vercel Blob public host is.
+export const blobPublicHost = () => process.env.BLOB_PUBLIC_HOST?.trim().toLowerCase() || undefined;
+
 const intFromEnv = (name: string, fallback: number) => {
   const value = Number.parseInt(process.env[name] ?? "", 10);
   return Number.isFinite(value) && value >= 0 ? value : fallback;

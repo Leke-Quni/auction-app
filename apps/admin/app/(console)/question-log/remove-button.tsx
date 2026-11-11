@@ -12,7 +12,7 @@ export function RemoveButton({ action, id, target, version }: { action: (formDat
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="target" value={target} />
       <input type="hidden" name="version" value={version} />
-      <button className="cursor-pointer rounded bg-danger px-2 py-0.5 text-xs font-semibold text-white">Remove {what}</button>
+      <button className="cursor-pointer rounded bg-danger px-2 py-0.5 text-xs font-semibold text-on-brand">Remove {what}</button>
     </form>
   );
 }

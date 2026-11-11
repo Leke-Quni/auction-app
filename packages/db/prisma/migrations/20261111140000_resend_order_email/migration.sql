@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "AdminActionKind" ADD VALUE 'RESEND_ORDER_EMAIL';

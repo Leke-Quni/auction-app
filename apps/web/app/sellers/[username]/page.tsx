@@ -15,7 +15,7 @@ export default async function SellerPage({ params }: { params: Promise<{ usernam
 
   return (
     <div className="space-y-3">
-      <div className="space-y-1 border border-line bg-white p-3">
+      <div className="space-y-1 border border-line bg-surface p-3">
         <h1 className="text-lg font-bold">{profile.username}</h1>
         <p className="text-muted">
           Member since <LocalTime iso={profile.memberSince} />
@@ -32,9 +32,9 @@ export default async function SellerPage({ params }: { params: Promise<{ usernam
       </div>
 
       <section className="space-y-2">
-        <h2 className="border border-line bg-white p-2 font-bold">For sale now</h2>
+        <h2 className="border border-line bg-surface p-2 font-bold">For sale now</h2>
         {profile.listings.length === 0 ? (
-          <p className="border border-line bg-white p-3 text-muted">{profile.username} has nothing for sale right now.</p>
+          <p className="border border-line bg-surface p-3 text-muted">{profile.username} has nothing for sale right now.</p>
         ) : (
           <ul className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {profile.listings.map((listing) => (
@@ -47,11 +47,11 @@ export default async function SellerPage({ params }: { params: Promise<{ usernam
       </section>
 
       <section className="space-y-2">
-        <h2 className="border border-line bg-white p-2 font-bold">Ratings from buyers</h2>
+        <h2 className="border border-line bg-surface p-2 font-bold">Ratings from buyers</h2>
         {profile.ratings.length === 0 ? (
-          <p className="border border-line bg-white p-3 text-muted">Buyers can rate a seller once their item has been delivered.</p>
+          <p className="border border-line bg-surface p-3 text-muted">Buyers can rate a seller once their item has been delivered.</p>
         ) : (
-          <ul className="divide-y divide-line border border-line bg-white">
+          <ul className="divide-y divide-line border border-line bg-surface">
             {profile.ratings.map((r) => (
               <li key={r.id} className="space-y-0.5 p-3">
                 <p>

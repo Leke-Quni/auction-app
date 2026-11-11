@@ -26,7 +26,7 @@ export function RatingForm({ orderId, sellerName }: { orderId: string; sellerNam
         e.preventDefault();
         submit();
       }}
-      className="space-y-2 border border-line bg-white p-3"
+      className="space-y-2 border border-line bg-surface p-3"
     >
       <fieldset className="space-y-1">
         <legend className="font-bold">How was {sellerName}?</legend>
@@ -55,7 +55,7 @@ export function RatingForm({ orderId, sellerName }: { orderId: string; sellerNam
           {error}
         </p>
       )}
-      <button disabled={pending} className="cursor-pointer bg-brand px-4 py-2 font-bold text-white hover:bg-brand-dark disabled:opacity-60">
+      <button disabled={pending} className="cursor-pointer bg-brand px-4 py-2 font-bold text-on-brand hover:bg-brand-dark disabled:opacity-60">
         {pending ? "Please wait..." : "Submit rating"}
       </button>
     </form>

@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+// One router object, as in the app: a new one on every render would restart the effects that depend on it.
+const { refresh, router } = vi.hoisted(() => {
+  const refresh = vi.fn();
+  return { refresh, router: { refresh } };
+});
+vi.mock("next/navigation", () => ({ useRouter: () => router }));
 vi.mock("./bid-actions", () => ({ placeBidAction: vi.fn() }));
 
 import { LiveAuction, type LiveSnapshot } from "./live-auction";
@@ -107,5 +112,45 @@ describe("the result of an ended auction", () => {
     );
     act(() => void vi.advanceTimersByTime(30_000));
     expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up after 30 requests (about five minutes) when the result is never saved", () => {
+    show(listing());
+    act(() => void vi.advanceTimersByTime(30 * 10_000));
+    expect(refresh).toHaveBeenCalledTimes(30);
+    act(() => void vi.advanceTimersByTime(10 * 60_000));
+    expect(refresh).toHaveBeenCalledTimes(30);
+    expect(screen.getByText("Closing the auction...")).toBeTruthy();
+  });
+});
+
+describe("an upcoming auction reaching its start", () => {
+  const upcoming = { ...snapshot, endsAt: "2026-11-05T10:00:00.000Z" };
+  const startsIn5s = listing({ phase: "upcoming", startsAt: "2026-11-02T10:00:05.000Z" });
+
+  it("asks for the page once when it goes live, also in Strict Mode, and shows it as live", () => {
+    render(
+      <StrictMode>
+        <LiveAuction listingId="L1" snapshot={upcoming} connect={false}>
+          <LiveDetails listing={startsIn5s} openMode="live" />
+        </LiveAuction>
+      </StrictMode>,
+    );
+    expect(screen.getByText("Upcoming")).toBeTruthy();
+    act(() => void vi.advanceTimersByTime(4_000));
+    expect(refresh).not.toHaveBeenCalled();
+    act(() => void vi.advanceTimersByTime(2_000));
+    expect(screen.getByText("Live")).toBeTruthy();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    act(() => void vi.advanceTimersByTime(60_000));
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not ask for the page again when a live auction ends", () => {
+    show(listing({ phase: "live", outcome: null }), undefined, { ...snapshot, endsAt: "2026-11-02T10:00:05.000Z" });
+    expect(screen.getByText("Live")).toBeTruthy();
+    act(() => void vi.advanceTimersByTime(6_000));
+    expect(screen.getByText("Ended")).toBeTruthy();
+    expect(refresh).not.toHaveBeenCalled();
   });
 });

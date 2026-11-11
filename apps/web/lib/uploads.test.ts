@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { authorizeUpload, getUploadToken } from "./uploads";
+import { authorizeUpload, getUploadToken, UploadLimitError } from "./uploads";
 
 describe("authorizeUpload", () => {
   it("allows an image in the user's own folder", () => {
@@ -75,5 +75,23 @@ describe("getUploadToken", () => {
       await expect(getUploadToken(userId, path, issue as never)).rejects.toThrow(new RegExp(reason));
       expect(issue).not.toHaveBeenCalled();
     }
+  });
+
+  it("counts the upload against the person's limit after the path is accepted and before a token is issued", async () => {
+    const order: string[] = [];
+    const issue = vi.fn(async () => (order.push("issue"), { delegationToken: "d", clientSigningToken: "c", validUntil: 1 }));
+    await getUploadToken("u1", "listings/u1/a.jpg", issue as never, async () => void order.push("reserve"));
+    expect(order).toEqual(["reserve", "issue"]);
+  });
+
+  it("issues nothing when the person is over the limit, and counts nothing for a refused path", async () => {
+    const issue = fakeIssue();
+    await expect(getUploadToken("u1", "listings/u1/a.jpg", issue as never, async () => Promise.reject(new UploadLimitError("slow down")))).rejects.toBeInstanceOf(UploadLimitError);
+    expect(issue).not.toHaveBeenCalled();
+
+    const reserve = vi.fn(async () => {});
+    await expect(getUploadToken("u1", "listings/u2/a.jpg", issue as never, reserve)).rejects.toThrow();
+    await expect(getUploadToken(undefined, "listings/u1/a.jpg", issue as never, reserve)).rejects.toThrow();
+    expect(reserve).not.toHaveBeenCalled();
   });
 });

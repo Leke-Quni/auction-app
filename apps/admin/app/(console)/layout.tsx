@@ -10,14 +10,14 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
   return (
     <div className="grid min-h-screen grid-cols-[13rem_1fr]">
       <aside className="flex flex-col bg-side py-4 text-side-ink">
-        <p className="px-4 pb-4 text-sm font-bold tracking-wide text-white">Auctionly Admin</p>
+        <p className="px-4 pb-4 text-sm font-bold tracking-wide text-side-active">Auctionly Admin</p>
         <Nav openReports={openReports} openSupport={openSupport} />
-        <div className="mt-auto space-y-1 border-t border-white/10 px-4 pt-3">
+        <div className="mt-auto space-y-1 border-t border-side-line px-4 pt-3">
           <p className="truncate text-xs" title={admin.email}>
             {admin.email}
           </p>
           <form action={signOutAction}>
-            <button className="cursor-pointer text-xs underline hover:text-white">Sign out</button>
+            <button className="cursor-pointer text-xs underline hover:text-side-active">Sign out</button>
           </form>
         </div>
       </aside>

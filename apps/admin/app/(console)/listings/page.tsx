@@ -41,7 +41,7 @@ export default async function Listings({ searchParams }: { searchParams: Promise
             </option>
           ))}
         </select>
-        <button className="cursor-pointer rounded bg-accent px-3 py-1 font-semibold text-white hover:bg-accent-dark">Search</button>
+        <button className="cursor-pointer rounded bg-accent px-3 py-1 font-semibold text-on-brand hover:bg-accent-dark">Search</button>
       </form>
       {listings.length === 0 ? (
         <p className="rounded border border-line bg-panel p-4 text-muted">No listings match. Drafts are not shown.</p>

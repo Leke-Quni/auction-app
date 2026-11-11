@@ -35,7 +35,7 @@ export default async function Users({ searchParams }: { searchParams: Promise<{ 
         <label className="flex items-center gap-1">
           <input type="checkbox" name="banned" value="true" defaultChecked={banned === "true"} /> Banned only
         </label>
-        <button className="cursor-pointer rounded bg-accent px-3 py-1 font-semibold text-white hover:bg-accent-dark">Search</button>
+        <button className="cursor-pointer rounded bg-accent px-3 py-1 font-semibold text-on-brand hover:bg-accent-dark">Search</button>
       </form>
       {users.length === 0 ? (
         <p className="rounded border border-line bg-panel p-4 text-muted">No accounts match.</p>

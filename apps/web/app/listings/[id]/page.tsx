@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BID_HISTORY_SHOWN, POLICY_LINKS, type OrderView, type QuestionItem } from "@auction/shared";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Gallery } from "@/app/gallery";
 import { auth } from "@/auth";
@@ -7,11 +8,20 @@ import { apiFetch, authedApiFetch } from "@/lib/api";
 import type { BidRow } from "./bid-history";
 import type { BidMode } from "./bid-panel";
 import { LiveAuction, type LiveSnapshot } from "./live-auction";
-import { LiveDetails, LiveHistory } from "./live-details";
+import { LiveDetails, LiveHistory, type DetailsListing } from "./live-details";
 import { Questions } from "./questions";
 import { RelistButton } from "./relist-button";
 import { SellerInfo } from "../../seller-info";
 import { WatchButton } from "../../watch-button";
+
+// The tab's title is the listing's own. The listing is asked for the same way as in the page below, so the two share one request.
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const session = await auth();
+  const res = await (session ? authedApiFetch : apiFetch)(`/listings/${id}`).catch(() => null);
+  const title = res?.ok ? (await res.json()).title : null;
+  return { title: title ? `${title} - Auctionly` : "Auctionly" };
+}
 
 export default async function ListingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -59,14 +69,31 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
     bids: history.items,
   };
 
+  // Only what the live table shows is sent to the browser, not the whole listing.
+  const details: DetailsListing = {
+    id: listing.id,
+    phase: listing.phase,
+    condition: listing.condition,
+    category: { name: listing.category.name },
+    seller: { username: listing.seller.username },
+    startingPriceCents: listing.startingPriceCents,
+    reservePriceCents: listing.reservePriceCents,
+    durationDays: listing.durationDays,
+    startsAt: listing.startsAt,
+    outcome: listing.outcome,
+    removed: listing.removed,
+    winner: listing.winner,
+    finalPriceCents: listing.finalPriceCents,
+  };
+
   return (
     <div className="space-y-3">
       {isOwner && (
-        <p className="border border-brand bg-white p-2">
+        <p className="border border-brand bg-surface p-2">
           {listing.status === "DRAFT" ? "This is a draft. Only you can see it. " : "This is your listing. "}
           {!listing.removed && listing.phase !== "ended" && (
             <Link href={`/sell/${listing.id}/edit`} className="text-brand underline">
-              {listing.status === "DRAFT" ? "Edit and publish" : "Edit description and photos"}
+              {listing.status === "DRAFT" ? "Edit and publish" : listing.bidCount > 0 ? "Edit pickup address" : "Edit description and photos"}
             </Link>
           )}
           {listing.closedAt && !listing.removed && (listing.outcome === "NO_SALE" || listing.outcome === "NO_BIDS") && (
@@ -87,7 +114,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
           .
         </p>
       )}
-      <h1 className="border border-line bg-white p-2 text-lg font-bold">{listing.title}</h1>
+      <h1 className="border border-line bg-surface p-2 text-lg font-bold">{listing.title}</h1>
       <LiveAuction listingId={listing.id} snapshot={snapshot} connect={published && listing.phase !== "ended"}>
         {/* items-start: the photo is a square, and stretching it to the taller details column would widen its column. */}
         <div className="grid items-start gap-3 sm:grid-cols-[1fr_2fr]">
@@ -107,12 +134,12 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
             <SellerInfo username={listing.seller.username} average={listing.sellerRating?.average ?? null} count={listing.sellerRating?.count ?? 0} isOwner={isOwner} />
           </div>
           <div className="min-w-0 space-y-3">
-            <LiveDetails listing={listing} openMode={openMode} viewerId={viewerId} order={order} />
+            <LiveDetails listing={details} openMode={openMode} viewerId={viewerId} order={order} />
           </div>
         </div>
         {published && <LiveHistory viewerId={viewerId} />}
       </LiveAuction>
-      <div className="border border-line bg-white p-3">
+      <div className="border border-line bg-surface p-3">
         <h2 className="mb-1 text-sm font-bold">Description</h2>
         {listing.removed && !isOwner ? (
           <p className="italic text-muted">

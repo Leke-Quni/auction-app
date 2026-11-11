@@ -2,6 +2,8 @@ import Link from "next/link";
 import { forgotPasswordAction } from "../actions";
 import { FieldsForm } from "../fields-form";
 
+export const metadata = { title: "Forgot your password? - Auctionly" };
+
 export default function ForgotPasswordPage() {
   return (
     <div className="space-y-3">

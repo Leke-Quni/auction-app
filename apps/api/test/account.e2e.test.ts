@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { EMAIL_CHANGE_RATE_LIMIT } from "@auction/shared";
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { SignJWT } from "jose";
@@ -8,6 +9,7 @@ import { AppModule } from "../src/app.module";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
 import { MAIL_SENDER, type MailSender } from "../src/email/mail-sender";
+import { waitForLimiter } from "./limiter-ready";
 
 const sent: { to: string; text: string }[] = [];
 const fakeMail: MailSender = {
@@ -26,6 +28,10 @@ const emails = {
   other: `acct-other-${stamp}@example.com`,
   reset: `reset-${stamp}@example.com`,
   fresh: `fresh-${stamp}@example.com`,
+  expired: `expired-${stamp}@example.com`,
+  slow: `slow-${stamp}@example.com`,
+  capped: `capped-${stamp}@example.com`,
+  revoked: `revoked-${stamp}@example.com`,
 };
 const password = "hunter22!";
 
@@ -51,8 +57,8 @@ describe("account and password reset", () => {
     const res = await api().post("/auth/login/verify").send({ email, code: lastCode() }).expect(200);
     return res.body.id as string;
   };
-  const tokenFor = (id: string, email: string) =>
-    new SignJWT({ email, role: "USER" })
+  const tokenFor = (id: string, email: string, sv?: number) =>
+    new SignJWT({ email, role: "USER", ...(sv === undefined ? {} : { sv }) })
       .setProtectedHeader({ alg: "HS256" })
       .setSubject(id)
       .setExpirationTime("5m")
@@ -120,11 +126,30 @@ describe("account and password reset", () => {
     });
 
     it("rejects an expired link", async () => {
-      await api().post("/auth/forgot-password").send({ email: emails.reset }).expect(204);
+      // Its own account: forgot-password sends only 3 emails an hour to one address, and this would be the 4th for emails.reset.
+      await signUpVerified(emails.expired);
+      await api().post("/auth/forgot-password").send({ email: emails.expired }).expect(204);
+      expect(sent.at(-1)?.to).toBe(emails.expired);
       const token = lastResetToken();
-      const user = await prisma.user.findUniqueOrThrow({ where: { email: emails.reset } });
+      const user = await prisma.user.findUniqueOrThrow({ where: { email: emails.expired } });
       await prisma.passwordResetToken.updateMany({ where: { userId: user.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
       await api().post("/auth/reset-password").send({ token, password: "new-pass-789", confirmPassword: "new-pass-789" }).expect(400);
+    });
+
+    it("ends every session made before the reset", async () => {
+      const id = await signUpVerified(emails.revoked);
+      const before = `Bearer ${await tokenFor(id, emails.revoked)}`;
+      await api().get("/me").set("Authorization", before).expect(200);
+
+      await api().post("/auth/forgot-password").send({ email: emails.revoked }).expect(204);
+      await api().post("/auth/reset-password").send({ token: lastResetToken(), password: "new-pass-123", confirmPassword: "new-pass-123" }).expect(204);
+      await api().get("/me").set("Authorization", before).expect(401);
+
+      // A sign-in after the reset carries the new number and works.
+      await api().post("/auth/login/start").send({ email: emails.revoked, password: "new-pass-123" }).expect(204);
+      const verified = await api().post("/auth/login/verify").send({ email: emails.revoked, code: lastCode() }).expect(200);
+      expect(verified.body.sessionVersion).toBe(1);
+      await api().get("/me").set("Authorization", `Bearer ${await tokenFor(id, emails.revoked, verified.body.sessionVersion)}`).expect(200);
     });
 
     it("verifies the email and voids pending sign-in codes", async () => {
@@ -192,7 +217,12 @@ describe("account and password reset", () => {
     it("changes the password only with the current one", async () => {
       await api().post("/me/password").set("Authorization", auth).send({ currentPassword: "wrong", newPassword: "changed-pass1", confirmPassword: "changed-pass1" }).expect(403);
       await api().post("/me/password").set("Authorization", auth).send({ currentPassword: password, newPassword: "short", confirmPassword: "short" }).expect(400);
-      await api().post("/me/password").set("Authorization", auth).send({ currentPassword: password, newPassword: "changed-pass1", confirmPassword: "changed-pass1" }).expect(204);
+      const changed = await api().post("/me/password").set("Authorization", auth).send({ currentPassword: password, newPassword: "changed-pass1", confirmPassword: "changed-pass1" }).expect(200);
+      expect(changed.body).toEqual({ sessionVersion: 1 });
+      // The old session ends; one carrying the new number works.
+      await api().get("/me").set("Authorization", auth).expect(401);
+      auth = `Bearer ${await tokenFor(id, emails.user, changed.body.sessionVersion)}`;
+      await api().get("/me").set("Authorization", auth).expect(200);
       await api().post("/auth/login/start").send({ email: emails.user, password }).expect(401);
       await api().post("/auth/login/start").send({ email: emails.user, password: "changed-pass1" }).expect(204);
     });
@@ -233,9 +263,56 @@ describe("account and password reset", () => {
       await api().post("/me/email/confirm").set("Authorization", auth).send({ code }).expect(401);
 
       await api().post("/me/email/start").set("Authorization", auth).send({ newEmail: emails.user, password: "changed-pass1" }).expect(204);
+      const racing = lastCode();
+      const guesses = Array.from({ length: 20 }, (_, i) => String(i + (racing === "000000" ? 1 : 0)).padStart(6, "0")).filter((g) => g !== racing);
+      await Promise.all(guesses.map((guess) => api().post("/me/email/confirm").set("Authorization", auth).send({ code: guess }).expect(401)));
+      expect((await prisma.emailChange.findUniqueOrThrow({ where: { userId: id } })).attempts).toBe(5);
+      await api().post("/me/email/confirm").set("Authorization", auth).send({ code: racing }).expect(401);
+
+      await api().post("/me/email/start").set("Authorization", auth).send({ newEmail: emails.user, password: "changed-pass1" }).expect(204);
       const fresh = lastCode();
       await prisma.emailChange.update({ where: { userId: id }, data: { expiresAt: new Date(Date.now() - 1000) } });
       await api().post("/me/email/confirm").set("Authorization", auth).send({ code: fresh }).expect(401);
+    });
+  });
+
+  describe("asking for email-change codes", () => {
+    const start = (auth: string, newEmail: string) => api().post("/me/email/start").set("Authorization", auth).send({ newEmail, password });
+    const emailsSent = () => sent.filter((m) => /confirmation code/.test(m.text)).length;
+
+    it("makes a second code wait, and says how long, like sign-in codes do", async () => {
+      const saved = process.env.LOGIN_CODE_COOLDOWN_SECONDS;
+      process.env.LOGIN_CODE_COOLDOWN_SECONDS = "30";
+      try {
+        const id = await signUpVerified(emails.slow);
+        const auth = `Bearer ${await tokenFor(id, emails.slow)}`;
+        const before = emailsSent();
+        await start(auth, `slow-new-${stamp}@example.com`).expect(204);
+        const res = await start(auth, `slow-other-${stamp}@example.com`).expect(429);
+        expect(res.body).toMatchObject({ code: "CODE_COOLDOWN" });
+        expect(res.body.retryAfterSeconds).toBeGreaterThan(0);
+        expect(res.body.retryAfterSeconds).toBeLessThanOrEqual(30);
+        expect(emailsSent() - before).toBe(1);
+        // The wait is over once the code is older than it.
+        await prisma.emailChange.update({ where: { userId: id }, data: { createdAt: new Date(Date.now() - 31_000) } });
+        await start(auth, `slow-other-${stamp}@example.com`).expect(204);
+        expect(emailsSent() - before).toBe(2);
+      } finally {
+        process.env.LOGIN_CODE_COOLDOWN_SECONDS = saved;
+      }
+    });
+
+    it("sends only a few an hour to one account, and a wrong password or a taken address uses none of them", async () => {
+      const id = await signUpVerified(emails.capped);
+      const auth = `Bearer ${await tokenFor(id, emails.capped)}`;
+      await waitForLimiter(app);
+      await api().post("/me/email/start").set("Authorization", auth).send({ newEmail: `capped-x-${stamp}@example.com`, password: "wrong" }).expect(403);
+      await start(auth, emails.other).expect(409);
+      const before = emailsSent();
+      for (let i = 0; i < EMAIL_CHANGE_RATE_LIMIT.limit; i++) await start(auth, `capped-${i}-${stamp}@example.com`).expect(204);
+      const over = await start(auth, `capped-over-${stamp}@example.com`).expect(429);
+      expect(over.body.code).toBe("RATE_LIMITED");
+      expect(emailsSent() - before).toBe(EMAIL_CHANGE_RATE_LIMIT.limit);
     });
   });
 });

@@ -14,7 +14,7 @@ export function SupportForm({ strikes, startWithAppeal, email }: { strikes: Supp
   const [strikeId, setStrikeId] = useState(open[0]?.id ?? "");
   const chosen = strikes.find((s) => s.id === strikeId);
   return (
-    <form action={action} className="space-y-3 border border-line bg-white p-4">
+    <form action={action} className="space-y-3 border border-line bg-surface p-4">
       <fieldset className="space-y-1">
         <legend className="text-xs text-muted">What is it about?</legend>
         <label className="flex items-center gap-2">
@@ -28,7 +28,7 @@ export function SupportForm({ strikes, startWithAppeal, email }: { strikes: Supp
       {kind === "STRIKE_APPEAL" && (
         <label className="block">
           <span className="text-xs text-muted">Which strike?</span>
-          <select name="strikeId" required value={strikeId} onChange={(e) => setStrikeId(e.target.value)} className="mt-1 w-full border border-[#888] bg-white p-1.5 text-sm">
+          <select name="strikeId" required value={strikeId} onChange={(e) => setStrikeId(e.target.value)} className="mt-1 w-full border border-field bg-surface p-1.5 text-sm">
             {strikes.map((s) => (
               <option key={s.id} value={s.id} disabled={s.appealed}>
                 {when(s.createdAt)}: {s.givenByAdmin ? `given by an admin${s.reason ? ` (${s.reason.slice(0, 60)})` : ""}` : `did not pay for ${s.listingTitle ?? "an auction"}`}
@@ -37,7 +37,7 @@ export function SupportForm({ strikes, startWithAppeal, email }: { strikes: Supp
             ))}
           </select>
           {chosen && (
-            <div className="mt-2 space-y-1 border border-line bg-[#f7f7f7] p-2 text-sm" data-testid="strike-details">
+            <div className="mt-2 space-y-1 border border-line bg-soft p-2 text-sm" data-testid="strike-details">
               <p className="font-bold">The strike you are appealing</p>
               <p>Given on {when(chosen.createdAt)}</p>
               {chosen.givenByAdmin ? (
@@ -54,12 +54,12 @@ export function SupportForm({ strikes, startWithAppeal, email }: { strikes: Supp
       )}
       <label className="block">
         <span className="text-xs text-muted">{kind === "STRIKE_APPEAL" ? "Why should it be cleared?" : "Your message"}</span>
-        <textarea name="message" required maxLength={2000} rows={6} className="mt-1 w-full border border-[#888] bg-white p-1.5 text-sm" />
+        <textarea name="message" required maxLength={2000} rows={6} className="mt-1 w-full border border-field bg-surface p-1.5 text-sm" />
       </label>
       {state.error && <p className="text-urgent">{state.error}</p>}
       {state.ok && <p className="text-brand">{state.ok}</p>}
       <p className="text-xs text-muted">We answer by email, to {email}.</p>
-      <button disabled={pending} className="cursor-pointer bg-brand px-4 py-2 font-bold text-white hover:bg-brand-dark disabled:opacity-60">
+      <button disabled={pending} className="cursor-pointer bg-brand px-4 py-2 font-bold text-on-brand hover:bg-brand-dark disabled:opacity-60">
         {pending ? "Sending..." : "Send"}
       </button>
     </form>

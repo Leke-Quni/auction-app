@@ -31,7 +31,7 @@ export function PublishPanel({ listingId, photoCount, durationDays, unsaved = fa
 
   const now = new Date();
   return (
-    <div className="space-y-2 border border-line bg-white p-3">
+    <div className="space-y-2 border border-line bg-surface p-3">
       <h2 className="text-sm font-bold">Publish</h2>
       <p className="text-xs text-muted">
         Publishing starts a {durationDays}-day auction. After that, only the description and photos can change.
@@ -50,11 +50,11 @@ export function PublishPanel({ listingId, photoCount, durationDays, unsaved = fa
           min={toLocalInput(now)}
           max={toLocalInput(new Date(now.getTime() + MAX_SCHEDULE_AHEAD_DAYS * 86_400_000))}
           onChange={(e) => setStartsAt(e.target.value)}
-          className="border border-[#888] bg-white p-1.5 text-sm"
+          className="border border-field bg-surface p-1.5 text-sm"
         />
       )}
       {unsaved && (
-        <p role="status" className="border border-l-4 border-time-warn border-l-time-warn bg-[#fff7e6] p-2 font-bold">
+        <p role="status" className="border border-l-4 border-time-warn border-l-time-warn bg-warn-soft p-2 font-bold">
           You have unsaved changes, including photos. Press Save above before publishing.
         </p>
       )}
@@ -64,11 +64,11 @@ export function PublishPanel({ listingId, photoCount, durationDays, unsaved = fa
         <button
           onClick={publish}
           disabled={pending || photoCount === 0 || unsaved}
-          className="cursor-pointer bg-brand px-3 py-1 font-bold text-white hover:bg-brand-dark disabled:opacity-60"
+          className="cursor-pointer bg-brand px-3 py-1 font-bold text-on-brand hover:bg-brand-dark disabled:opacity-60"
         >
           {pending ? "..." : "Publish"}
         </button>
-        <button onClick={remove} disabled={pending} className="cursor-pointer border border-[#888] bg-white px-3 py-1">
+        <button onClick={remove} disabled={pending} className="cursor-pointer border border-field bg-surface px-3 py-1">
           Delete draft
         </button>
       </div>

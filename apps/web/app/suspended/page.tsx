@@ -7,7 +7,7 @@ export const metadata = { title: "Account suspended - Auctionly" };
 // (the API refuses a banned account), and it ends the session so the person is signed out everywhere on this browser.
 export default function Suspended() {
   return (
-    <div className="mx-auto max-w-md space-y-2 border border-line bg-white p-4">
+    <div className="mx-auto max-w-md space-y-2 border border-line bg-surface p-4">
       <EndSession />
       <h1 className="text-lg font-bold">This account has been suspended</h1>
       <p>You can no longer bid, sell or use this account. If you think this is a mistake, write to support below.</p>

@@ -92,7 +92,11 @@ export function LiveAuction({ listingId, snapshot, connect, children }: { listin
     socket.on(SOCKET_EVENTS.auctionExtended, (event: AuctionExtendedEvent) => {
       if (event.listingId === listingId) store.getState().applyExtended(event);
     });
-    return close;
+    // The connection is shared with the notifications, so the room is left explicitly rather than by hanging up.
+    return () => {
+      socket.emit(SOCKET_EVENTS.unwatch, listingId);
+      close();
+    };
   }, [connect, listingId, router, store]);
 
   return <LiveContext.Provider value={store}>{children}</LiveContext.Provider>;

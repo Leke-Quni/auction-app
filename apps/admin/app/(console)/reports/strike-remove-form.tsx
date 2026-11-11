@@ -13,7 +13,7 @@ export function StrikeRemoveForm({ action, id, username, what }: { action: (stat
       }}
     >
       <input type="hidden" name="id" value={id} />
-      <button disabled={pending} title={`Strike @${username} and remove this ${what}`} className="cursor-pointer rounded bg-danger px-2 py-0.5 font-semibold text-white disabled:opacity-60">Strike and remove {what}</button>
+      <button disabled={pending} title={`Strike @${username} and remove this ${what}`} className="cursor-pointer rounded bg-danger px-2 py-0.5 font-semibold text-on-brand disabled:opacity-60">Strike and remove {what}</button>
       {state.error && <p role="alert" className="mt-1 max-w-xs text-red-700">{state.error}</p>}
     </form>
   );

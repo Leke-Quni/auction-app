@@ -54,7 +54,7 @@ export default async function QuestionLog({ searchParams }: { searchParams: Prom
       <h1 className="text-lg font-bold">Question log</h1>
       <form className="flex flex-wrap items-center gap-2">
         <input name="q" defaultValue={q} placeholder="Username, email, listing title or id" className="w-96 rounded border border-line bg-panel px-2 py-1" />
-        <button className="cursor-pointer rounded bg-accent px-3 py-1 font-semibold text-white hover:bg-accent-dark">Search</button>
+        <button className="cursor-pointer rounded bg-accent px-3 py-1 font-semibold text-on-brand hover:bg-accent-dark">Search</button>
       </form>
       <p className="text-muted">
         {searching

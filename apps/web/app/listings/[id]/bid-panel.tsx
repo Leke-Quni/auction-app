@@ -13,7 +13,7 @@ export type BidMode = "signed-out" | "owner" | "blocked" | "upcoming" | "ended" 
 const FAR_ABOVE_TIMES_MINIMUM = 10;
 
 const toEuros = (cents: number) => (cents / 100).toFixed(2);
-const note = "border border-line bg-white p-2 text-muted";
+const note = "border border-line bg-surface p-2 text-muted";
 
 // The sale this auction ended in, for the winner and the seller, who are pointed to the order.
 export interface BidPanelOrder {
@@ -69,7 +69,7 @@ export function BidPanel({ listingId, mode, minimumNextBidCents, order }: { list
     const lapsed = order.status === "EXPIRED" || order.status === "CANCELLED";
     const toPay = order.viewer === "buyer" && order.status === "AWAITING_PAYMENT";
     return (
-      <p className="border border-brand bg-white p-2">
+      <p className="border border-brand bg-surface p-2">
         This auction has ended.{" "}
         {lapsed
           ? order.viewer === "buyer"
@@ -90,7 +90,7 @@ export function BidPanel({ listingId, mode, minimumNextBidCents, order }: { list
   if (mode === "highest") {
     return (
       <div className="space-y-1">
-        <p className="border border-time-ok bg-white p-2 font-bold text-time-ok">You are the highest bidder.</p>
+        <p className="border border-time-ok bg-surface p-2 font-bold text-time-ok">You are the highest bidder.</p>
         {placed && (
           <p className="text-muted">
             Your bid was placed.
@@ -137,7 +137,7 @@ export function BidPanel({ listingId, mode, minimumNextBidCents, order }: { list
   };
 
   return (
-    <form onSubmit={review} className="space-y-2 border border-line bg-white p-3">
+    <form onSubmit={review} className="space-y-2 border border-line bg-surface p-3">
       <label className="block">
         <span className="text-xs text-muted">Your bid (€)</span>
         <input
@@ -146,7 +146,7 @@ export function BidPanel({ listingId, mode, minimumNextBidCents, order }: { list
           onChange={(e) => setAmount(e.target.value)}
           readOnly={confirming !== null}
           aria-describedby="bid-minimum"
-          className="mt-1 w-full border border-[#888] bg-white p-2 text-base font-bold"
+          className="mt-1 w-full border border-field bg-surface p-2 text-base font-bold"
         />
       </label>
       <p id="bid-minimum" className="text-xs text-muted">
@@ -158,11 +158,11 @@ export function BidPanel({ listingId, mode, minimumNextBidCents, order }: { list
         </p>
       )}
       {confirming === null ? (
-        <button type="submit" className="w-full cursor-pointer bg-brand px-3 py-2 font-bold text-white hover:bg-brand-dark">
+        <button type="submit" className="w-full cursor-pointer bg-brand px-3 py-2 font-bold text-on-brand hover:bg-brand-dark">
           Place bid
         </button>
       ) : (
-        <div className="space-y-2 border border-time-warn bg-[#fff7e6] p-2">
+        <div className="space-y-2 border border-time-warn bg-warn-soft p-2">
           <p>
             You are about to bid <strong>{formatEur(confirming)}</strong>. A bid cannot be withdrawn.
           </p>
@@ -174,7 +174,7 @@ export function BidPanel({ listingId, mode, minimumNextBidCents, order }: { list
               type="button"
               disabled={pending}
               onClick={() => place(confirming)}
-              className="flex-1 cursor-pointer bg-brand px-3 py-2 font-bold text-white hover:bg-brand-dark disabled:opacity-60"
+              className="flex-1 cursor-pointer bg-brand px-3 py-2 font-bold text-on-brand hover:bg-brand-dark disabled:opacity-60"
             >
               {pending ? "Placing bid..." : `Confirm bid of ${formatEur(confirming)}`}
             </button>
@@ -182,7 +182,7 @@ export function BidPanel({ listingId, mode, minimumNextBidCents, order }: { list
               type="button"
               disabled={pending}
               onClick={() => setConfirming(null)}
-              className="cursor-pointer border border-[#888] bg-white px-3 py-2 hover:bg-[#f0f0f0] disabled:opacity-60"
+              className="cursor-pointer border border-field bg-surface px-3 py-2 hover:bg-head disabled:opacity-60"
             >
               Change
             </button>

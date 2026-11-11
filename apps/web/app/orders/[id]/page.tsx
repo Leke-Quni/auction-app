@@ -28,14 +28,14 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
 
   return (
     <div className="mx-auto max-w-xl space-y-3">
-      <h1 className="border border-line bg-white p-2 text-lg font-bold">{order.viewer === "buyer" ? "Your purchase" : "Your sale"}</h1>
+      <h1 className="border border-line bg-surface p-2 text-lg font-bold">{order.viewer === "buyer" ? "Your purchase" : "Your sale"}</h1>
       {confirmFailed && (
-        <p role="alert" className="border border-line bg-white p-2 font-bold">
+        <p role="alert" className="border border-line bg-surface p-2 font-bold">
           We could not check your payment just now. Reload this page in a moment; if you paid, the order will show as paid.
         </p>
       )}
       {order.status === "PAID" && (
-        <p role="status" className="border border-time-ok bg-white p-2 font-bold text-time-ok">
+        <p role="status" className="border border-time-ok bg-surface p-2 font-bold text-time-ok">
           {order.viewer === "buyer" ? "Payment received. Thank you!" : "The buyer has paid."}
         </p>
       )}
@@ -51,7 +51,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
         <PickupAddressEditor listingId={order.listingId} address={(order.pickupAddress as ShippingAddress | undefined) ?? null} />
       )}
       {order.status === "PAID" && order.viewer === "seller" && !order.shipment && (
-        <div className="space-y-2 border border-line bg-white p-3">
+        <div className="space-y-2 border border-line bg-surface p-3">
           <p>When the item is packed and ready for the carrier, mark it as shipped. The buyer is told, and the parcel is tracked from there.</p>
           <PayButton action={markShippedAction} label="Mark as shipped" orderId={order.id} />
         </div>
@@ -60,7 +60,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
         <RatingForm orderId={order.id} sellerName={order.seller.username} />
       )}
       {order.viewer === "seller" && order.payout?.status === "WAITING_FOR_ACCOUNT" && (
-        <div className="space-y-2 border border-line bg-white p-3">
+        <div className="space-y-2 border border-line bg-surface p-3">
           <p>Set up where to receive your money. Your share is paid once you have done this.</p>
           <PayButton action={startPayoutOnboardingAction} label="Set up payouts" orderId={order.id} />
         </div>
@@ -68,7 +68,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
       {order.status === "AWAITING_PAYMENT" &&
         (order.viewer === "buyer" ? (
           order.shipping && order.totalCents !== null ? (
-            <div className="space-y-2 border border-line bg-white p-3">
+            <div className="space-y-2 border border-line bg-surface p-3">
               <p>
                 You won this auction. Pay {formatEur(order.totalCents)} (price and delivery) by card before the time above, or the item may be offered to the next bidder.
               </p>
@@ -78,15 +78,15 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
               </Link>
             </div>
           ) : (
-            <div className="space-y-2 border border-line bg-white p-3">
+            <div className="space-y-2 border border-line bg-surface p-3">
               <p>You won this auction. Choose where to deliver it, then pay by the time above, or the item may be offered to the next bidder.</p>
-              <Link href={`/orders/${order.id}/shipping`} className="inline-block bg-brand px-4 py-2 font-bold text-white hover:bg-brand-dark">
+              <Link href={`/orders/${order.id}/shipping`} className="inline-block bg-brand px-4 py-2 font-bold text-on-brand hover:bg-brand-dark">
                 Pay now: delivery and payment
               </Link>
             </div>
           )
         ) : (
-          <p className="border border-line bg-white p-3">Waiting for the buyer to pay.</p>
+          <p className="border border-line bg-surface p-3">Waiting for the buyer to pay.</p>
         ))}
     </div>
   );

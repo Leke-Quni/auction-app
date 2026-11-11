@@ -263,6 +263,30 @@ describe("orders", () => {
       expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).paymentRefs).toHaveLength(1);
     });
 
+    it("closes the page it opened when saving it on the order fails, and the buyer can start again", async () => {
+      const [buyer] = await makePeople(1);
+      const { order } = await sale(buyer);
+      // A real database failure, for this one order only: saving the session id on it is refused.
+      const trigger = `refuse_save_${order.id.replace(/[^a-z0-9]/gi, "_")}`;
+      await prisma.$executeRawUnsafe(`CREATE FUNCTION ${trigger}() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'database went away'; END $$ LANGUAGE plpgsql`);
+      await prisma.$executeRawUnsafe(`CREATE TRIGGER ${trigger} BEFORE UPDATE ON "Order" FOR EACH ROW WHEN (NEW."id" = '${order.id}') EXECUTE FUNCTION ${trigger}()`);
+      const sessionsBefore = provider.sessions.size;
+      try {
+        await api().post(`/orders/${order.id}/checkout`).set(as(buyer)).expect(500);
+      } finally {
+        await prisma.$executeRawUnsafe(`DROP TRIGGER ${trigger} ON "Order"`);
+        await prisma.$executeRawUnsafe(`DROP FUNCTION ${trigger}()`);
+      }
+
+      const unsaved = [...provider.sessions.values()].slice(sessionsBefore);
+      expect(unsaved).toHaveLength(1);
+      expect(unsaved[0].expired).toBe(true);
+      expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).paymentRefs).toEqual([]);
+
+      await api().post(`/orders/${order.id}/checkout`).set(as(buyer)).expect(201);
+      expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).paymentRefs).toHaveLength(1);
+    });
+
     it("opens a fresh session once the open one has expired or been closed", async () => {
       const [buyer] = await makePeople(1);
       const { order } = await sale(buyer);

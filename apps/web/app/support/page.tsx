@@ -17,7 +17,7 @@ export default async function SupportPage({ searchParams }: { searchParams: Prom
   const strikes: SupportStrike[] = await res.json();
   return (
     <div className="mx-auto max-w-xl space-y-3">
-      <h1 className="border border-line bg-white p-2 text-lg font-bold">Contact support</h1>
+      <h1 className="border border-line bg-surface p-2 text-lg font-bold">Contact support</h1>
       <SupportForm strikes={strikes} startWithAppeal={appeal !== undefined} email={session.user.email ?? "your account email"} />
     </div>
   );

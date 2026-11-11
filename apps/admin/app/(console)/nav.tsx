@@ -22,10 +22,10 @@ export function Nav({ openReports, openSupport }: { openReports: number; openSup
       {ITEMS.map((item) => {
         const on = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
         return (
-          <Link key={item.href} href={item.href} aria-current={on ? "page" : undefined} className={`px-4 py-2 hover:bg-side-on ${on ? "bg-side-on font-semibold text-white" : ""}`}>
+          <Link key={item.href} href={item.href} aria-current={on ? "page" : undefined} className={`px-4 py-2 hover:bg-side-on ${on ? "bg-side-on font-semibold text-side-active" : ""}`}>
             {item.label}
-            {item.href === "/support" && openSupport > 0 && <span className="ml-2 rounded-full bg-danger px-1.5 py-0.5 text-xs font-semibold text-white">{openSupport}</span>}
-            {item.href === "/reports" && openReports > 0 && <span className="ml-2 rounded-full bg-danger px-1.5 py-0.5 text-xs font-semibold text-white">{openReports}</span>}
+            {item.href === "/support" && openSupport > 0 && <span className="ml-2 rounded-full bg-danger px-1.5 py-0.5 text-xs font-semibold text-on-brand">{openSupport}</span>}
+            {item.href === "/reports" && openReports > 0 && <span className="ml-2 rounded-full bg-danger px-1.5 py-0.5 text-xs font-semibold text-on-brand">{openReports}</span>}
           </Link>
         );
       })}
