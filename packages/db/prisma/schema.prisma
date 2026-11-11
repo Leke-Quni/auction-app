@@ -572,6 +572,18 @@ model AdminAction {
   @@index([createdAt])
 }
 
+// A private comment an admin leaves on an order, for the admins who look at it next. Never shown to the buyer or the seller, and
+// never changed or deleted, so the history stays as it was. No foreign keys, like AdminAction: it outlives the account of its writer.
+model OrderNote {
+  id        String   @id @default(cuid())
+  orderId   String
+  adminId   String
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([orderId, createdAt])
+}
+
 enum AdminActionKind {
   BAN_USER
   UNBAN_USER
@@ -583,6 +595,7 @@ enum AdminActionKind {
   STRIKE_USER
   VIEW_INVOICE
   HANDLE_SUPPORT
+  ADD_ORDER_NOTE
 }
 
 enum SupportKind {

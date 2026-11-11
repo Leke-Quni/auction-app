@@ -4,7 +4,7 @@ import { Test } from "@nestjs/testing";
 import { SignJWT } from "jose";
 import type { AddressInfo } from "node:net";
 import request from "supertest";
-import { ORDER_ATTENTION_KINDS, type OrderAttentionKind } from "@auction/shared";
+import { ORDER_ATTENTION_KINDS, ORDER_NOTE_MAX, type OrderAttentionKind } from "@auction/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { authSecret, payoutDelayDays } from "../src/config";
@@ -28,6 +28,7 @@ describe("the admin's view of an order", () => {
   let categoryId: string;
   const userIds: string[] = [];
   const listingIds: string[] = [];
+  const noteOrderIds: string[] = [];
 
   type Who = { id: string; email: string; username: string; auth: Record<string, string> };
   const person = async (role: "USER" | "ADMIN" = "USER", over: Record<string, unknown> = {}): Promise<Who> => {
@@ -54,6 +55,7 @@ describe("the admin's view of an order", () => {
   });
 
   afterAll(async () => {
+    await prisma.orderNote.deleteMany({ where: { orderId: { in: noteOrderIds } } });
     await prisma.adminAction.deleteMany({ where: { adminId: { in: userIds } } });
     await prisma.rating.deleteMany({ where: { order: { listingId: { in: listingIds } } } });
     await prisma.payout.deleteMany({ where: { order: { listingId: { in: listingIds } } } });
@@ -315,6 +317,75 @@ describe("the admin's view of an order", () => {
       const after = (await get(admin, "/admin/overview").expect(200)).body.ordersNeedingAttention as number;
       // Other test files may add or clear orders at the same moment, so at least the two flagged ones; never the third as well.
       expect(after - before).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe("notes on an order", () => {
+    const post = (who: Who, orderId: string, body: unknown) => request(url).post(`/admin/orders/${orderId}/notes`).set(who.auth).send(body as object);
+
+    it("is for admins only", async () => {
+      const user = await person();
+      const { order: o } = await order();
+      noteOrderIds.push(o.id);
+      await request(url).post(`/admin/orders/${o.id}/notes`).send({ body: "hi" }).expect(401);
+      await post(user, o.id, { body: "hi" }).expect(403);
+      expect(await prisma.orderNote.count({ where: { orderId: o.id } })).toBe(0);
+    });
+
+    it("saves a note with who wrote it, shows notes oldest first on the order, and writes the audit record", async () => {
+      const first = await person("ADMIN");
+      const second = await person("ADMIN");
+      const { order: o } = await order(paid);
+      noteOrderIds.push(o.id);
+      const saved = (await post(first, o.id, { body: "  Emailed the seller, waiting for a tracking number.\nSecond line.  " }).expect(201)).body;
+      expect(saved).toMatchObject({ body: "Emailed the seller, waiting for a tracking number.\nSecond line." });
+      await post(second, o.id, { body: "Seller replied: label goes out Friday." }).expect(201);
+
+      const view = (await get(first, `/admin/orders/${o.id}`).expect(200)).body;
+      expect(view.notes.map((n: { body: string; admin: { username: string } }) => [n.admin.username, n.body])).toEqual([
+        [first.username, "Emailed the seller, waiting for a tracking number.\nSecond line."],
+        ["" + second.username, "Seller replied: label goes out Friday."],
+      ]);
+      const audit = await prisma.adminAction.findMany({ where: { targetId: o.id, action: "ADD_ORDER_NOTE" }, orderBy: { createdAt: "asc" } });
+      expect(audit.map((a) => a.adminId)).toEqual([first.id, second.id]);
+      expect(audit[0].reason).toBe(saved.id);
+    });
+
+    it("refuses an empty, blank or too long note, and a note on an order that does not exist, saving nothing", async () => {
+      const admin = await person("ADMIN");
+      const { order: o } = await order();
+      noteOrderIds.push(o.id);
+      for (const body of [{}, { body: "" }, { body: "   \n " }, { body: 5 }, { body: "x".repeat(ORDER_NOTE_MAX + 1) }]) await post(admin, o.id, body).expect(400);
+      expect((await post(admin, o.id, { body: "x".repeat(ORDER_NOTE_MAX) })).status).toBe(201);
+      await post(admin, `nope_${stamp}`, { body: "hi" }).expect(404);
+      expect(await prisma.orderNote.count({ where: { orderId: o.id } })).toBe(1);
+      expect(await prisma.orderNote.count({ where: { orderId: `nope_${stamp}` } })).toBe(0);
+      expect(await prisma.adminAction.count({ where: { targetId: `nope_${stamp}` } })).toBe(0);
+    });
+
+    it("never reaches the buyer or the seller, and cannot be edited or deleted", async () => {
+      const admin = await person("ADMIN");
+      const { buyer, seller, order: o } = await order(paid);
+      noteOrderIds.push(o.id);
+      const note = (await post(admin, o.id, { body: "Secret-internal-remark-for-admins" }).expect(201)).body;
+      for (const who of [buyer, seller]) {
+        expect(JSON.stringify((await get(who, `/orders/${o.id}`).expect(200)).body)).not.toContain("Secret-internal-remark");
+        expect(JSON.stringify((await get(who, "/orders").expect(200)).body)).not.toContain("Secret-internal-remark");
+      }
+      await request(url).patch(`/admin/orders/${o.id}/notes/${note.id}`).set(admin.auth).send({ body: "changed" }).expect(404);
+      await request(url).delete(`/admin/orders/${o.id}/notes/${note.id}`).set(admin.auth).expect(404);
+      expect((await prisma.orderNote.findUniqueOrThrow({ where: { id: note.id } })).body).toBe("Secret-internal-remark-for-admins");
+    });
+
+    it("shows how many notes an order has in the list", async () => {
+      const admin = await person("ADMIN");
+      const { order: o } = await order();
+      noteOrderIds.push(o.id);
+      const count = async () => (await get(admin, `/admin/orders?q=${o.id}`).expect(200)).body.orders[0].noteCount;
+      expect(await count()).toBe(0);
+      await post(admin, o.id, { body: "one" }).expect(201);
+      await post(admin, o.id, { body: "two" }).expect(201);
+      expect(await count()).toBe(2);
     });
   });
 

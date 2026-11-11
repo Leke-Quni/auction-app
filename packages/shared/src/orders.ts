@@ -121,3 +121,6 @@ export const ORDER_ATTENTION_LABELS: Record<OrderAttentionKind, string> = {
   "payout-late": "Payout late",
 };
 export const ORDER_ATTENTION = { expiringHours: 24, notShippedDays: 3, notDeliveredDays: 7, payoutGraceDays: 1 } as const;
+
+// An admin's private note on an order (see the admin app's order page).
+export const ORDER_NOTE_MAX = 1000;

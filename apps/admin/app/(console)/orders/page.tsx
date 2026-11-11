@@ -17,6 +17,7 @@ interface Row {
   shipmentStatus: "LABEL_CREATED" | "IN_TRANSIT" | "DELIVERED" | null;
   createdAt: string;
   attention: OrderAttentionKind | null;
+  noteCount: number;
 }
 
 const SHIPMENT_LABEL = { LABEL_CREATED: "Label created", IN_TRANSIT: "In transit", DELIVERED: "Delivered" } as const;
@@ -79,6 +80,11 @@ export default async function Orders({ searchParams }: { searchParams: Promise<{
                     {o.listing.title}
                   </Link>
                   {o.round > 1 && <span className="ml-1 text-xs text-muted">(offer {o.round})</span>}
+                  {o.noteCount > 0 && (
+                    <span className="ml-2 rounded bg-page px-1.5 py-0.5 text-xs text-muted" title="Admin notes on this order">
+                      {o.noteCount} note{o.noteCount === 1 ? "" : "s"}
+                    </span>
+                  )}
                   {o.attention && <span className="ml-2 rounded bg-warn-soft px-1.5 py-0.5 text-xs font-semibold text-warn">{ORDER_ATTENTION_LABELS[o.attention]}</span>}
                 </td>
                 <td className="p-2">@{o.buyer.username}</td>
