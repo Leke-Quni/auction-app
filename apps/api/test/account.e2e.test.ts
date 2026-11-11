@@ -9,6 +9,7 @@ import { AppModule } from "../src/app.module";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
 import { MAIL_SENDER, type MailSender } from "../src/email/mail-sender";
+import { waitForLimiter } from "./limiter-ready";
 
 const sent: { to: string; text: string }[] = [];
 const fakeMail: MailSender = {
@@ -304,8 +305,7 @@ describe("account and password reset", () => {
     it("sends only a few an hour to one account, and a wrong password or a taken address uses none of them", async () => {
       const id = await signUpVerified(emails.capped);
       const auth = `Bearer ${await tokenFor(id, emails.capped)}`;
-      // The limiter connects to Redis in the background and lets requests through uncounted until it has, so wait for it.
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await waitForLimiter(app);
       await api().post("/me/email/start").set("Authorization", auth).send({ newEmail: `capped-x-${stamp}@example.com`, password: "wrong" }).expect(403);
       await start(auth, emails.other).expect(409);
       const before = emailsSent();

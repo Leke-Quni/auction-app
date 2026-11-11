@@ -8,6 +8,7 @@ import { AppModule } from "../src/app.module";
 import { signViewerIp } from "../src/common/client-ip";
 import { PRISMA, type Prisma } from "../src/db/db.module";
 import { MAIL_SENDER, type MailSender } from "../src/email/mail-sender";
+import { waitForLimiter } from "./limiter-ready";
 
 const sent: { to: string }[] = [];
 const fakeMail: MailSender = {
@@ -38,6 +39,7 @@ describe("limits on sign-in, sign-up and forgot-password", () => {
     app = moduleRef.createNestApplication();
     await app.init();
     prisma = app.get(PRISMA);
+    await waitForLimiter(app);
   });
 
   afterAll(async () => {

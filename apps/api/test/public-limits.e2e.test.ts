@@ -11,6 +11,7 @@ import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
 import { MemoryRateLimiter, RATE_LIMITER, type RateLimiter } from "../src/rate-limit/rate-limiter";
 import { NoopSearchIndex, SEARCH_INDEX } from "../src/search/search-index";
+import { waitForLimiter } from "./limiter-ready";
 import { UploadsController } from "../src/uploads/uploads.controller";
 
 const stamp = Date.now();
@@ -40,8 +41,7 @@ describe("limits on search and uploads", () => {
     app = moduleRef.createNestApplication();
     await app.init();
     prisma = app.get(PRISMA);
-    // The limiter connects to Redis in the background and lets requests through uncounted until it has (by design), so wait for it.
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await waitForLimiter(app);
     await request(app.getHttpServer()).get("/search").set(ipHeaders("198.51.100.250")).expect(200);
   });
 
