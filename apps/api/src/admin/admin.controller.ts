@@ -1,3 +1,4 @@
+import { ORDER_ATTENTION_KINDS } from "@auction/shared";
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, Req, StreamableFile, UseGuards } from "@nestjs/common";
 import { z } from "zod";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
@@ -20,6 +21,7 @@ const usersQuerySchema = z.object({
 const ordersQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
   status: z.enum(["AWAITING_PAYMENT", "PAID", "EXPIRED", "CANCELLED"]).optional(),
+  attention: z.enum([...ORDER_ATTENTION_KINDS, "any"]).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 const invoiceQuerySchema = z.object({ party: z.enum(["buyer", "seller"]) });

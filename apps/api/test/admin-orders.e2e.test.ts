@@ -4,9 +4,11 @@ import { Test } from "@nestjs/testing";
 import { SignJWT } from "jose";
 import type { AddressInfo } from "node:net";
 import request from "supertest";
+import { ORDER_ATTENTION_KINDS, type OrderAttentionKind } from "@auction/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
-import { authSecret } from "../src/config";
+import { authSecret, payoutDelayDays } from "../src/config";
+import { attentionOf, attentionWhere } from "../src/admin/admin-order-attention";
 import { PRISMA, type Prisma } from "../src/db/db.module";
 import { MAIL_SENDER } from "../src/email/mail-sender";
 import { NoopSearchIndex, SEARCH_INDEX } from "../src/search/search-index";
@@ -210,4 +212,111 @@ describe("the admin's view of an order", () => {
     await get(admin, "/admin/orders/nope/invoice?party=buyer").expect(404);
     expect(await prisma.adminAction.count({ where: { targetId: o.id, action: "VIEW_INVOICE" } })).toBe(0);
   });
+
+  describe("orders that need attention", () => {
+    const HOUR = 3_600_000;
+    const ago = (ms: number) => new Date(Date.now() - ms);
+    const delay = payoutDelayDays();
+    const shipped = { ...paid, shipmentStatus: "IN_TRANSIT", trackingCode: "T", inTransitAt: ago(DAY) };
+    class Rollback extends Error {}
+
+    // [what the order looks like, the one kind it should be flagged as (or null)]
+    const cases: [string, Record<string, unknown>, OrderAttentionKind | null][] = [
+      ["payment due in 10 hours", { payBy: new Date(Date.now() + 10 * HOUR) }, "expiring"],
+      ["payment due in 30 hours", { payBy: new Date(Date.now() + 30 * HOUR) }, null],
+      ["payment deadline a minute ago", { payBy: ago(60_000) }, "overdue"],
+      ["expired order", { status: "EXPIRED", payBy: ago(2 * DAY) }, null],
+      ["paid 4 days ago, not shipped", { ...paid, paidAt: ago(4 * DAY) }, "not-shipped"],
+      ["paid 1 day ago, not shipped", { ...paid, paidAt: ago(DAY) }, null],
+      ["in transit for 8 days", { ...shipped, shippedAt: ago(8 * DAY) }, "not-delivered"],
+      ["in transit for 2 days", { ...shipped, shippedAt: ago(2 * DAY) }, null],
+      ["label created 8 days ago", { ...shipped, shipmentStatus: "LABEL_CREATED", inTransitAt: null, shippedAt: ago(8 * DAY) }, "not-delivered"],
+      [`delivered ${delay + 2} days ago, no payout`, { ...shipped, shipmentStatus: "DELIVERED", shippedAt: ago(9 * DAY), deliveredAt: ago((delay + 2) * DAY) }, "payout-late"],
+      [`delivered ${delay} days ago, no payout yet (inside the grace day)`, { ...shipped, shipmentStatus: "DELIVERED", shippedAt: ago(9 * DAY), deliveredAt: ago(delay * DAY) }, null],
+    ];
+
+    const list = async (admin: Who, query: string) => (await get(admin, `/admin/orders?${query}`).expect(200)).body.orders as { id: string; attention: string | null }[];
+
+    // The test app's own background jobs (started with it, then every 30 seconds) work on the whole database: they expire an unpaid order
+    // past its deadline, move a shipped one along and send emails. So the states they act on are never saved here. This checks the database condition for every
+    // kind against the per-order check inside a transaction that is rolled back, where no other connection can see the rows.
+    it("agrees between the database condition and the per-order check for every state and every kind", async () => {
+      const { listing, buyer, seller } = await order();
+      const now = new Date();
+      const results: { name: string; kind: string; found: boolean; expected: boolean; attention: string | null; wanted: string | null }[] = [];
+      await expect(
+        prisma.$transaction(async (tx) => {
+          let round = 1;
+          for (const [name, over, wanted] of cases) {
+            const o = await tx.order.create({
+              data: { listingId: listing.id, buyerId: buyer.id, sellerId: seller.id, round: ++round, amountCents: 4500, feeCents: 225, sellerNetCents: 4275, payBy: new Date(Date.now() + DAY), pickupAddress, ...over } as never,
+            });
+            for (const kind of [...ORDER_ATTENTION_KINDS, "any"] as const) {
+              const found = (await tx.order.count({ where: { AND: [{ id: o.id }, attentionWhere(kind, now)] } })) === 1;
+              results.push({ name, kind, found, expected: kind === "any" ? wanted !== null : kind === wanted, attention: attentionOf({ ...o, payout: null }, now), wanted });
+            }
+          }
+          throw new Rollback();
+        }),
+      ).rejects.toBeInstanceOf(Rollback);
+      expect(results).toHaveLength(cases.length * (ORDER_ATTENTION_KINDS.length + 1));
+      for (const r of results) {
+        expect(r.found, `${r.name} under ${r.kind}`).toBe(r.expected);
+        expect(r.attention, `${r.name}: per-order check`).toBe(r.wanted);
+      }
+      expect(await prisma.order.count({ where: { listingId: listing.id, round: { gt: 1 } } })).toBe(0);
+    });
+
+    // These states are left alone by the background jobs: a paid order nobody has shipped, an unpaid order whose reminder is already
+    // marked sent (it is not past its deadline), and a delivered order whose seller has no payment account to be paid into.
+    it("lists a stuck order with its reason, and filters by it", async () => {
+      const admin = await person("ADMIN");
+      const quiet = await order({ ...paid, paidAt: ago(4 * DAY) });
+      const soon = await order({ payBy: new Date(Date.now() + 10 * HOUR), payReminderSentAt: new Date() });
+      const late = await order({ ...shipped, shipmentStatus: "DELIVERED", shippedAt: ago(9 * DAY), deliveredAt: ago((delay + 2) * DAY) });
+      const fine = await order({ ...paid, paidAt: ago(DAY) });
+      const rows = new Map((await list(admin, `limit=100`)).map((r) => [r.id, r.attention]));
+      expect(rows.get(quiet.order.id)).toBe("not-shipped");
+      expect(rows.get(soon.order.id)).toBe("expiring");
+      expect(rows.get(late.order.id)).toBe("payout-late");
+      expect(rows.get(fine.order.id)).toBeNull();
+
+      const only = async (kind: string, id: string) => (await list(admin, `q=${id}&attention=${kind}`)).length;
+      expect([await only("not-shipped", quiet.order.id), await only("expiring", quiet.order.id), await only("any", quiet.order.id)]).toEqual([1, 0, 1]);
+      expect([await only("expiring", soon.order.id), await only("payout-late", soon.order.id)]).toEqual([1, 0]);
+      expect([await only("payout-late", late.order.id), await only("any", fine.order.id)]).toEqual([1, 0]);
+    });
+
+    it("does not flag a delivered order whose payout went out", async () => {
+      const admin = await person("ADMIN");
+      const { seller, order: o } = await order({ ...shipped, shipmentStatus: "DELIVERED", shippedAt: ago(10 * DAY), deliveredAt: ago((delay + 3) * DAY) });
+      expect((await list(admin, `q=${o.id}`))[0].attention).toBe("payout-late");
+      await prisma.payout.create({ data: { orderId: o.id, sellerId: seller.id, amountCents: 4275, reference: `tr_att_${stamp}` } });
+      expect((await list(admin, `q=${o.id}`))[0].attention).toBeNull();
+      expect(await list(admin, `q=${o.id}&attention=payout-late`)).toHaveLength(0);
+    });
+
+    it("combines with the status filter and the search text, and refuses an unknown kind", async () => {
+      const admin = await person("ADMIN");
+      const { order: o } = await order({ payBy: new Date(Date.now() + 5 * HOUR), payReminderSentAt: new Date() });
+      expect(await list(admin, `q=${o.id}&attention=expiring&status=AWAITING_PAYMENT`)).toHaveLength(1);
+      expect(await list(admin, `q=${o.id}&attention=any&status=AWAITING_PAYMENT`)).toHaveLength(1);
+      expect(await list(admin, `q=${o.id}&attention=expiring&status=PAID`)).toHaveLength(0);
+      expect(await list(admin, `q=nothing-${stamp}&attention=any`)).toHaveLength(0);
+      await get(admin, "/admin/orders?attention=sleepy").expect(400);
+    });
+
+    it("counts them on the overview", async () => {
+      const admin = await person("ADMIN");
+      const before = (await get(admin, "/admin/overview").expect(200)).body.ordersNeedingAttention as number;
+      await order({ ...paid, paidAt: ago(5 * DAY) });
+      await order({ ...paid, paidAt: ago(6 * DAY) });
+      await order({ ...paid, paidAt: ago(DAY) });
+      const after = (await get(admin, "/admin/overview").expect(200)).body.ordersNeedingAttention as number;
+      // Other test files may add or clear orders at the same moment, so at least the two flagged ones; never the third as well.
+      expect(after - before).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+
 });

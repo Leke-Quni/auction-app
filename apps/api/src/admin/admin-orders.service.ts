@@ -1,12 +1,15 @@
-import type { ShippingAddress } from "@auction/shared";
+import type { OrderAttentionKind, ShippingAddress } from "@auction/shared";
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { deliveryOf, invoiceDataOf, renderInvoice } from "../orders/invoice";
 import { payoutViewOf } from "../orders/payout-view";
+import { attentionOf, attentionWhere } from "./admin-order-attention";
 
 export interface OrderListQuery {
   q?: string;
   status?: "AWAITING_PAYMENT" | "PAID" | "EXPIRED" | "CANCELLED";
+  // Only orders that are stuck in one way (see `attentionWhere`), or in any way.
+  attention?: OrderAttentionKind | "any";
   limit: number;
 }
 
@@ -18,19 +21,24 @@ const person = { select: { id: true, username: true, email: true, firstName: tru
 export class AdminOrdersService {
   constructor(@Inject(PRISMA) private readonly prisma: Prisma) {}
 
-  async list({ q, status, limit }: OrderListQuery) {
+  async list({ q, status, attention, limit }: OrderListQuery) {
+    const now = new Date();
     const term = q?.trim();
     const like = { contains: term ?? "", mode: "insensitive" } as const;
     const orders = await this.prisma.order.findMany({
+      // Each condition is its own entry, because the search text and the "any kind" filter are both an OR and must not replace each other.
       where: {
-        ...(status ? { status } : {}),
-        ...(term
-          ? { OR: [{ id: term }, { listingId: term }, { invoiceNumber: like }, { listing: { title: like } }, { buyer: { OR: [{ username: like }, { email: like }] } }, { seller: { OR: [{ username: like }, { email: like }] } }] }
-          : {}),
+        AND: [
+          ...(status ? [{ status }] : []),
+          ...(attention ? [attentionWhere(attention, now)] : []),
+          ...(term
+            ? [{ OR: [{ id: term }, { listingId: term }, { invoiceNumber: like }, { listing: { title: like } }, { buyer: { OR: [{ username: like }, { email: like }] } }, { seller: { OR: [{ username: like }, { email: like }] } }] }]
+            : []),
+        ],
       },
       orderBy: [{ createdAt: "desc" }, { id: "asc" }],
       take: limit,
-      include: { listing: { select: { id: true, title: true } }, buyer: { select: { id: true, username: true } }, seller: { select: { id: true, username: true } } },
+      include: { listing: { select: { id: true, title: true } }, buyer: { select: { id: true, username: true } }, seller: { select: { id: true, username: true } }, payout: { select: { id: true } } },
     });
     return {
       orders: orders.map((o) => ({
@@ -47,6 +55,7 @@ export class AdminOrdersService {
         createdAt: o.createdAt.toISOString(),
         payBy: o.payBy.toISOString(),
         paidAt: o.paidAt?.toISOString() ?? null,
+        attention: attentionOf(o, now),
       })),
     };
   }

@@ -10,6 +10,7 @@ export interface Overview {
   paidOrdersToShip: number;
   bannedUsers: number;
   users: number;
+  ordersNeedingAttention: number;
 }
 
 // Shared by the layout (sidebar badge) and the Overview page of one request.

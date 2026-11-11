@@ -1,4 +1,4 @@
-import { formatEur } from "@auction/shared";
+import { formatEur, ORDER_ATTENTION_KINDS, ORDER_ATTENTION_LABELS, type OrderAttentionKind } from "@auction/shared";
 import Link from "next/link";
 import { adminApiFetch } from "@/lib/api";
 import { requireAdmin } from "@/lib/require-admin";
@@ -16,16 +16,18 @@ interface Row {
   invoiceNumber: string | null;
   shipmentStatus: "LABEL_CREATED" | "IN_TRANSIT" | "DELIVERED" | null;
   createdAt: string;
+  attention: OrderAttentionKind | null;
 }
 
 const SHIPMENT_LABEL = { LABEL_CREATED: "Label created", IN_TRANSIT: "In transit", DELIVERED: "Delivered" } as const;
 
-export default async function Orders({ searchParams }: { searchParams: Promise<{ q?: string; status?: string }> }) {
+export default async function Orders({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; attention?: string }> }) {
   await requireAdmin();
-  const { q = "", status = "" } = await searchParams;
+  const { q = "", status = "", attention = "" } = await searchParams;
   const query = new URLSearchParams();
   if (q.trim()) query.set("q", q.trim());
   if (status in STATUS_LABEL) query.set("status", status);
+  if (attention === "any" || (ORDER_ATTENTION_KINDS as readonly string[]).includes(attention)) query.set("attention", attention);
   const res = await adminApiFetch(`/admin/orders?${query}`);
   if (!res.ok) throw new Error(`API /admin/orders failed: ${res.status}`);
   const { orders } = (await res.json()) as { orders: Row[] };
@@ -39,6 +41,15 @@ export default async function Orders({ searchParams }: { searchParams: Promise<{
           {(Object.keys(STATUS_LABEL) as Status[]).map((s) => (
             <option key={s} value={s}>
               {STATUS_LABEL[s]}
+            </option>
+          ))}
+        </select>
+        <select name="attention" defaultValue={attention} className="rounded border border-line bg-panel px-2 py-1">
+          <option value="">Any order</option>
+          <option value="any">Needs attention (any)</option>
+          {ORDER_ATTENTION_KINDS.map((k) => (
+            <option key={k} value={k}>
+              {ORDER_ATTENTION_LABELS[k]}
             </option>
           ))}
         </select>
@@ -68,6 +79,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<{
                     {o.listing.title}
                   </Link>
                   {o.round > 1 && <span className="ml-1 text-xs text-muted">(offer {o.round})</span>}
+                  {o.attention && <span className="ml-2 rounded bg-warn-soft px-1.5 py-0.5 text-xs font-semibold text-warn">{ORDER_ATTENTION_LABELS[o.attention]}</span>}
                 </td>
                 <td className="p-2">@{o.buyer.username}</td>
                 <td className="p-2">@{o.seller.username}</td>

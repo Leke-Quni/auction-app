@@ -107,3 +107,17 @@ export interface OrderShipment {
   inTransitAt: string | null;
   deliveredAt: string | null;
 }
+
+// Orders an admin should look at (the Orders page filter and the Overview count). Each is a state that normally clears by itself,
+// so one that lasts this long means something is stuck: a buyer about to be struck, a seller not shipping, a parcel that never arrives,
+// a payout that did not go out.
+export const ORDER_ATTENTION_KINDS = ["expiring", "overdue", "not-shipped", "not-delivered", "payout-late"] as const;
+export type OrderAttentionKind = (typeof ORDER_ATTENTION_KINDS)[number];
+export const ORDER_ATTENTION_LABELS: Record<OrderAttentionKind, string> = {
+  expiring: "Payment due within 24 hours",
+  overdue: "Past its payment deadline",
+  "not-shipped": "Paid, not shipped for 3 days",
+  "not-delivered": "Shipped, not delivered for 7 days",
+  "payout-late": "Payout late",
+};
+export const ORDER_ATTENTION = { expiringHours: 24, notShippedDays: 3, notDeliveredDays: 7, payoutGraceDays: 1 } as const;
