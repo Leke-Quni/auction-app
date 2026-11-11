@@ -346,6 +346,34 @@ describe("listings", () => {
     });
   });
 
+  describe("publishing at the same moment", () => {
+    it("publishes once and schedules one close however many requests arrive together", async () => {
+      const draft = await createDraft();
+      await api().put(`/listings/${draft.id}/images`).set(as(seller)).send({ images: [image(sellerId, 1)] }).expect(200);
+      closesScheduled.length = 0;
+      const results = await Promise.all(Array.from({ length: 6 }, () => api().post(`/listings/${draft.id}/publish`).set(as(seller)).send({})));
+      expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+      expect(results.filter((r) => r.status === 409)).toHaveLength(5);
+      expect(closesScheduled.filter((c) => c.id === draft.id)).toHaveLength(1);
+      const winner = results.find((r) => r.status === 200)!;
+      const row = await prisma.listing.findUniqueOrThrow({ where: { id: draft.id } });
+      expect(row.endsAt?.toISOString()).toBe(winner.body.endsAt);
+    });
+
+    it("never publishes a listing whose last photo is being removed at the same moment", async () => {
+      for (let round = 0; round < 5; round++) {
+        const draft = await createDraft();
+        await api().put(`/listings/${draft.id}/images`).set(as(seller)).send({ images: [image(sellerId, 1)] }).expect(200);
+        await Promise.all([
+          api().post(`/listings/${draft.id}/publish`).set(as(seller)).send({}),
+          api().put(`/listings/${draft.id}/images`).set(as(seller)).send({ images: [] }),
+        ]);
+        const row = await prisma.listing.findUniqueOrThrow({ where: { id: draft.id }, include: { images: true } });
+        if (row.status === "PUBLISHED") expect(row.images.length).toBeGreaterThan(0);
+      }
+    });
+  });
+
   describe("scheduling the close", () => {
     it("asks for the auction to be closed at its end time when it is published, and not for a draft", async () => {
       closesScheduled.length = 0;

@@ -294,8 +294,10 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
 
     await this.prisma.$transaction(async (tx) => {
       // Touching the row first takes its lock (a bid takes the same one) and proves there is still no bid on a published listing.
-      const held = await tx.listing.updateMany({ where: listing.status === "PUBLISHED" ? { id, bidCount: 0 } : { id }, data: { updatedAt: new Date() } });
-      if (held.count === 0) throw new ConflictException(BID_LOCK_MESSAGE);
+      const held = await tx.listing.updateMany({ where: listing.status === "PUBLISHED" ? { id, bidCount: 0 } : { id, status: "DRAFT" }, data: { updatedAt: new Date() } });
+      if (held.count === 0) {
+        throw new ConflictException(listing.status === "PUBLISHED" ? BID_LOCK_MESSAGE : "This listing was just published, so its photos can only be changed from the edit page again.");
+      }
       await tx.listingImage.deleteMany({ where: { listingId: id } });
       await tx.listingImage.createMany({
         data: images.map((image, position) => ({ listingId: id, url: image.url, pathname: image.pathname, position })),
@@ -311,17 +313,25 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async publish(sellerId: string, id: string, input: PublishListingInput) {
-    const listing = await this.getOwned(sellerId, id);
-    if (listing.status === "PUBLISHED") throw new ConflictException("This listing is already published");
-    if (listing.images.length === 0) throw new BadRequestException("Add at least one photo before publishing");
-    if (!listing.pickupAddress) throw new BadRequestException("Add a pickup address before publishing, so the carrier knows where to collect the item");
+    await this.getOwned(sellerId, id);
 
-    const startsAt = input.startsAt ? new Date(input.startsAt) : new Date();
-    const endsAt = new Date(startsAt.getTime() + listing.durationDays * 86_400_000);
-    const published = await this.prisma.listing.update({
-      where: { id },
-      data: { status: "PUBLISHED", publishedAt: new Date(), startsAt, endsAt },
-      include: listingInclude,
+    // The listing is read again under its row lock, so two publishes at the same moment cannot both pass (the second sees it
+    // published and answers 409, and only one close is scheduled), and a photo change cannot slip in between the check and the write.
+    const { published, endsAt } = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Listing" WHERE "id" = ${id} FOR UPDATE`;
+      const listing = await tx.listing.findUniqueOrThrow({ where: { id }, include: listingInclude });
+      if (listing.status === "PUBLISHED") throw new ConflictException("This listing is already published");
+      if (listing.images.length === 0) throw new BadRequestException("Add at least one photo before publishing");
+      if (!listing.pickupAddress) throw new BadRequestException("Add a pickup address before publishing, so the carrier knows where to collect the item");
+
+      const startsAt = input.startsAt ? new Date(input.startsAt) : new Date();
+      const endsAt = new Date(startsAt.getTime() + listing.durationDays * 86_400_000);
+      const published = await tx.listing.update({
+        where: { id },
+        data: { status: "PUBLISHED", publishedAt: new Date(), startsAt, endsAt },
+        include: listingInclude,
+      });
+      return { published, endsAt };
     });
     await this.syncSearch(published);
     await this.scheduler.scheduleClose(published.id, endsAt);
