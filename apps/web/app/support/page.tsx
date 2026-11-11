@@ -11,14 +11,16 @@ export default async function SupportPage({ searchParams }: { searchParams: Prom
   const session = await auth();
   if (!session) redirect("/sign-in");
   const { appeal } = await searchParams;
-  const res = await authedApiFetch("/support/strikes");
+  const [res, waitingRes] = await Promise.all([authedApiFetch("/support/strikes"), authedApiFetch("/support/waiting").catch(() => null)]);
   if (res.status === 401) redirect("/sign-in");
   if (!res.ok) throw new Error(`API /support/strikes failed: ${res.status}`);
   const strikes: SupportStrike[] = await res.json();
+  // Without an answer to this (an older API) the form simply lets the person try; the API still refuses a second message.
+  const waiting = waitingRes?.ok ? ((await waitingRes.json()) as { waiting: boolean }).waiting : false;
   return (
     <div className="mx-auto max-w-xl space-y-3">
       <h1 className="border border-line bg-surface p-2 text-lg font-bold">Contact support</h1>
-      <SupportForm strikes={strikes} startWithAppeal={appeal !== undefined} email={session.user.email ?? "your account email"} />
+      <SupportForm strikes={strikes} startWithAppeal={appeal !== undefined} waiting={waiting} email={session.user.email ?? "your account email"} />
     </div>
   );
 }

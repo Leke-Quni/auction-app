@@ -95,10 +95,49 @@ describe("support requests and strike appeals", () => {
     expect((await api().get("/support/strikes").set(other.auth).expect(200)).body).toMatchObject([{ id: theirs.id, appealed: false }]);
   });
 
-  it("allows five requests a day and then asks the person to wait", async () => {
+  it("allows five requests a day and then asks the person to wait, even when each earlier one was answered", async () => {
     const user = await person();
-    for (let i = 0; i < 5; i++) await send(user, { kind: "GENERAL", message: `Question ${i}` }).expect(201);
+    for (let i = 0; i < 5; i++) {
+      const id = (await send(user, { kind: "GENERAL", message: `Question ${i}` }).expect(201)).body.id;
+      await prisma.supportRequest.update({ where: { id }, data: { status: "HANDLED", handledAt: new Date() } });
+    }
     expect((await send(user, { kind: "GENERAL", message: "One more" }).expect(429)).body.code).toBe("RATE_LIMITED");
+  });
+
+  it("lets a person have one message waiting at a time, and write again once an admin has answered it", async () => {
+    const [admin, user, other] = [await person("ADMIN"), await person(), await person()];
+    const mine = await strikeFor(user.id);
+    expect((await api().get("/support/waiting").set(user.auth).expect(200)).body).toEqual({ waiting: false });
+    const first = (await send(user, { kind: "GENERAL", message: "My first question" }).expect(201)).body.id;
+    expect((await api().get("/support/waiting").set(user.auth).expect(200)).body).toEqual({ waiting: true });
+
+    // Neither another question nor an appeal for a different strike goes through while the first is waiting, and nothing is saved.
+    expect((await send(user, { kind: "GENERAL", message: "Hello?" }).expect(409)).body.code).toBe("REQUEST_WAITING");
+    expect((await send(user, { kind: "STRIKE_APPEAL", strikeId: mine.id, message: "Please" }).expect(409)).body.code).toBe("REQUEST_WAITING");
+    expect(await prisma.supportRequest.count({ where: { userId: user.id } })).toBe(1);
+    // It is per person.
+    await send(other, { kind: "GENERAL", message: "Someone else" }).expect(201);
+    expect((await api().get("/support/waiting").set(admin.auth).expect(200)).body).toEqual({ waiting: false });
+
+    await api().post(`/admin/support/${first}/handle`).set(admin.auth).expect(200);
+    expect((await api().get("/support/waiting").set(user.auth).expect(200)).body).toEqual({ waiting: false });
+    await send(user, { kind: "STRIKE_APPEAL", strikeId: mine.id, message: "Now my appeal" }).expect(201);
+    expect((await api().get("/support/waiting").set(user.auth).expect(200)).body).toEqual({ waiting: true });
+    await api().get("/support/waiting").expect(401);
+  });
+
+  it("saves only one message when a person sends two different ones at the same moment", async () => {
+    const user = await person();
+    const codes = (await Promise.all([send(user, { kind: "GENERAL", message: "One" }), send(user, { kind: "GENERAL", message: "Two" })])).map((r) => r.status).sort();
+    expect(codes).toEqual([201, 409]);
+    expect(await prisma.supportRequest.count({ where: { userId: user.id } })).toBe(1);
+  });
+
+  it("does not count a ban appeal as a message waiting", async () => {
+    const user = await person();
+    await prisma.supportRequest.create({ data: { userId: user.id, kind: "BAN_APPEAL", message: "Please restore me" } });
+    expect((await api().get("/support/waiting").set(user.auth).expect(200)).body).toEqual({ waiting: false });
+    await send(user, { kind: "GENERAL", message: "A question after the unban" }).expect(201);
   });
 
   it("shows admins the queue, oldest first, closes a request once, and counts the open ones on the overview", async () => {
@@ -106,7 +145,7 @@ describe("support requests and strike appeals", () => {
     const user = await person();
     const strike = await strikeFor(user.id, { reason: "Spam" });
     const appeal = (await send(user, { kind: "STRIKE_APPEAL", strikeId: strike.id, message: "Please clear it" }).expect(201)).body.id;
-    const question = (await send(user, { kind: "GENERAL", message: "A question" }).expect(201)).body.id;
+    const question = (await send(await person(), { kind: "GENERAL", message: "A question" }).expect(201)).body.id;
 
     await api().get("/admin/support").set(user.auth).expect(403);
     await api().post(`/admin/support/${appeal}/handle`).set(user.auth).expect(403);
@@ -143,7 +182,7 @@ describe("support requests and strike appeals", () => {
     const admin = await person("ADMIN");
     const other = await person("ADMIN");
     const user = await person();
-    const general = (await send(user, { kind: "GENERAL", message: "Hello" }).expect(201)).body.id;
+    const general = (await send(await person(), { kind: "GENERAL", message: "Hello" }).expect(201)).body.id;
     const strike = await strikeFor(user.id);
     const id = (await send(user, { kind: "STRIKE_APPEAL", strikeId: strike.id, message: "Please" }).expect(201)).body.id;
     await api().post(`/admin/support/${id}/grant`).set(user.auth).expect(403);
