@@ -237,6 +237,13 @@ describe("account and password reset", () => {
       await api().post("/me/email/confirm").set("Authorization", auth).send({ code }).expect(401);
 
       await api().post("/me/email/start").set("Authorization", auth).send({ newEmail: emails.user, password: "changed-pass1" }).expect(204);
+      const racing = lastCode();
+      const guesses = Array.from({ length: 20 }, (_, i) => String(i + (racing === "000000" ? 1 : 0)).padStart(6, "0")).filter((g) => g !== racing);
+      await Promise.all(guesses.map((guess) => api().post("/me/email/confirm").set("Authorization", auth).send({ code: guess }).expect(401)));
+      expect((await prisma.emailChange.findUniqueOrThrow({ where: { userId: id } })).attempts).toBe(5);
+      await api().post("/me/email/confirm").set("Authorization", auth).send({ code: racing }).expect(401);
+
+      await api().post("/me/email/start").set("Authorization", auth).send({ newEmail: emails.user, password: "changed-pass1" }).expect(204);
       const fresh = lastCode();
       await prisma.emailChange.update({ where: { userId: id }, data: { expiresAt: new Date(Date.now() - 1000) } });
       await api().post("/me/email/confirm").set("Authorization", auth).send({ code: fresh }).expect(401);

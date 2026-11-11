@@ -144,12 +144,14 @@ export class AuthService {
     if (!user || user.bannedAt) throw invalid();
 
     const record = await this.prisma.loginCode.findFirst({ where: { userId: user.id }, orderBy: { createdAt: "desc" } });
-    if (!record || record.expiresAt < new Date() || record.attempts >= MAX_CODE_ATTEMPTS) throw invalid();
+    if (!record || record.expiresAt < new Date()) throw invalid();
 
-    if (!sameHash(hashCode(loginScope(user.id), input.code), record.codeHash)) {
-      await this.prisma.loginCode.update({ where: { id: record.id }, data: { attempts: { increment: 1 } } });
-      throw invalid();
-    }
+    // The try is counted before the code is checked, in one guarded step, so simultaneous guesses cannot all slip under the limit.
+    const { count: claimed } = await this.prisma.loginCode.updateMany({
+      where: { id: record.id, attempts: { lt: MAX_CODE_ATTEMPTS } },
+      data: { attempts: { increment: 1 } },
+    });
+    if (claimed === 0 || !sameHash(hashCode(loginScope(user.id), input.code), record.codeHash)) throw invalid();
 
     // Deleting the code is what makes it single-use, even for simultaneous submissions.
     const { count } = await this.prisma.loginCode.deleteMany({ where: { id: record.id } });

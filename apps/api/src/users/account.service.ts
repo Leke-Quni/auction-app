@@ -81,12 +81,14 @@ export class AccountService {
   async confirmEmailChange(userId: string, input: ConfirmEmailChangeInput) {
     const invalid = () => new UnauthorizedException("Invalid or expired code");
     const record = await this.prisma.emailChange.findUnique({ where: { userId } });
-    if (!record || record.expiresAt < new Date() || record.attempts >= MAX_CODE_ATTEMPTS) throw invalid();
+    if (!record || record.expiresAt < new Date()) throw invalid();
 
-    if (!sameHash(hashCode(emailChangeScope(userId, record.newEmail), input.code), record.codeHash)) {
-      await this.prisma.emailChange.update({ where: { userId }, data: { attempts: { increment: 1 } } });
-      throw invalid();
-    }
+    // The try is counted before the code is checked, in one guarded step, so simultaneous guesses cannot all slip under the limit.
+    const { count: claimed } = await this.prisma.emailChange.updateMany({
+      where: { userId, attempts: { lt: MAX_CODE_ATTEMPTS } },
+      data: { attempts: { increment: 1 } },
+    });
+    if (claimed === 0 || !sameHash(hashCode(emailChangeScope(userId, record.newEmail), input.code), record.codeHash)) throw invalid();
 
     const { count } = await this.prisma.emailChange.deleteMany({ where: { userId } });
     if (count === 0) throw invalid();

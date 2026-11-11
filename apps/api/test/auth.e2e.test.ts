@@ -144,6 +144,17 @@ describe("auth", () => {
     await api().post("/auth/login/verify").send({ email, code }).expect(401);
   });
 
+  it("counts simultaneous wrong guesses against the same 5 tries", async () => {
+    await api().post("/auth/login/start").send({ email, password }).expect(204);
+    const code = lastCode();
+    const guesses = Array.from({ length: 20 }, (_, i) => String(i + (code === "000000" ? 1 : 0)).padStart(6, "0")).filter((g) => g !== code);
+    await Promise.all(guesses.map((guess) => api().post("/auth/login/verify").send({ email, code: guess }).expect(401)));
+    const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+    const record = await prisma.loginCode.findFirstOrThrow({ where: { userId: user.id } });
+    expect(record.attempts).toBe(5);
+    await api().post("/auth/login/verify").send({ email, code }).expect(401);
+  });
+
   it("rejects an expired code", async () => {
     await api().post("/auth/login/start").send({ email, password }).expect(204);
     const code = lastCode();
