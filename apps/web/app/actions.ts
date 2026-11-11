@@ -152,7 +152,7 @@ export async function startEmailChangeAction(_: FormState, formData: FormData): 
   if (res.status === 403) return { error: "Your password is incorrect." };
   if (res.status === 409) return { error: "That email is already registered." };
   if (res.status === 400) return { error: "That is already your email." };
-  if (res.status === 422) return { error: await apiErrorMessage(res) };
+  if (res.status === 422 || res.status === 429) return { error: await apiErrorMessage(res) };
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
   redirect(`/account/email?pending=${encodeURIComponent(parsed.data.newEmail)}`);
 }

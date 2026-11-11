@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { EMAIL_CHANGE_RATE_LIMIT } from "@auction/shared";
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { SignJWT } from "jose";
@@ -27,6 +28,8 @@ const emails = {
   reset: `reset-${stamp}@example.com`,
   fresh: `fresh-${stamp}@example.com`,
   expired: `expired-${stamp}@example.com`,
+  slow: `slow-${stamp}@example.com`,
+  capped: `capped-${stamp}@example.com`,
   revoked: `revoked-${stamp}@example.com`,
 };
 const password = "hunter22!";
@@ -269,6 +272,47 @@ describe("account and password reset", () => {
       const fresh = lastCode();
       await prisma.emailChange.update({ where: { userId: id }, data: { expiresAt: new Date(Date.now() - 1000) } });
       await api().post("/me/email/confirm").set("Authorization", auth).send({ code: fresh }).expect(401);
+    });
+  });
+
+  describe("asking for email-change codes", () => {
+    const start = (auth: string, newEmail: string) => api().post("/me/email/start").set("Authorization", auth).send({ newEmail, password });
+    const emailsSent = () => sent.filter((m) => /confirmation code/.test(m.text)).length;
+
+    it("makes a second code wait, and says how long, like sign-in codes do", async () => {
+      const saved = process.env.LOGIN_CODE_COOLDOWN_SECONDS;
+      process.env.LOGIN_CODE_COOLDOWN_SECONDS = "30";
+      try {
+        const id = await signUpVerified(emails.slow);
+        const auth = `Bearer ${await tokenFor(id, emails.slow)}`;
+        const before = emailsSent();
+        await start(auth, `slow-new-${stamp}@example.com`).expect(204);
+        const res = await start(auth, `slow-other-${stamp}@example.com`).expect(429);
+        expect(res.body).toMatchObject({ code: "CODE_COOLDOWN" });
+        expect(res.body.retryAfterSeconds).toBeGreaterThan(0);
+        expect(res.body.retryAfterSeconds).toBeLessThanOrEqual(30);
+        expect(emailsSent() - before).toBe(1);
+        // The wait is over once the code is older than it.
+        await prisma.emailChange.update({ where: { userId: id }, data: { createdAt: new Date(Date.now() - 31_000) } });
+        await start(auth, `slow-other-${stamp}@example.com`).expect(204);
+        expect(emailsSent() - before).toBe(2);
+      } finally {
+        process.env.LOGIN_CODE_COOLDOWN_SECONDS = saved;
+      }
+    });
+
+    it("sends only a few an hour to one account, and a wrong password or a taken address uses none of them", async () => {
+      const id = await signUpVerified(emails.capped);
+      const auth = `Bearer ${await tokenFor(id, emails.capped)}`;
+      // The limiter connects to Redis in the background and lets requests through uncounted until it has, so wait for it.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await api().post("/me/email/start").set("Authorization", auth).send({ newEmail: `capped-x-${stamp}@example.com`, password: "wrong" }).expect(403);
+      await start(auth, emails.other).expect(409);
+      const before = emailsSent();
+      for (let i = 0; i < EMAIL_CHANGE_RATE_LIMIT.limit; i++) await start(auth, `capped-${i}-${stamp}@example.com`).expect(204);
+      const over = await start(auth, `capped-over-${stamp}@example.com`).expect(429);
+      expect(over.body.code).toBe("RATE_LIMITED");
+      expect(emailsSent() - before).toBe(EMAIL_CHANGE_RATE_LIMIT.limit);
     });
   });
 });
