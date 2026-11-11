@@ -98,3 +98,12 @@ export type ConfirmEmailChangeInput = z.infer<typeof confirmEmailChangeSchema>;
 
 export const USER_ROLES = ["USER", "ADMIN"] as const;
 export type UserRole = (typeof USER_ROLES)[number];
+
+// Limits on the endpoints anyone can call without signing in. Per email, so one account cannot be guessed at or mailed endlessly;
+// per address, so one machine cannot work through many emails.
+export const SIGN_IN_RATE_LIMIT = { limit: 10, windowSeconds: 900 } as const;
+export const SIGN_IN_IP_RATE_LIMIT = { limit: 30, windowSeconds: 900 } as const;
+export const SIGN_UP_RATE_LIMIT = { limit: 5, windowSeconds: 3600 } as const;
+export const SIGN_UP_IP_RATE_LIMIT = { limit: 10, windowSeconds: 3600 } as const;
+export const FORGOT_PASSWORD_RATE_LIMIT = { limit: 3, windowSeconds: 3600 } as const;
+export const FORGOT_PASSWORD_IP_RATE_LIMIT = { limit: 10, windowSeconds: 3600 } as const;

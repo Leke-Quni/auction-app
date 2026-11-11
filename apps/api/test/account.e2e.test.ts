@@ -26,6 +26,7 @@ const emails = {
   other: `acct-other-${stamp}@example.com`,
   reset: `reset-${stamp}@example.com`,
   fresh: `fresh-${stamp}@example.com`,
+  expired: `expired-${stamp}@example.com`,
 };
 const password = "hunter22!";
 
@@ -120,9 +121,12 @@ describe("account and password reset", () => {
     });
 
     it("rejects an expired link", async () => {
-      await api().post("/auth/forgot-password").send({ email: emails.reset }).expect(204);
+      // Its own account: forgot-password sends only 3 emails an hour to one address, and this would be the 4th for emails.reset.
+      await signUpVerified(emails.expired);
+      await api().post("/auth/forgot-password").send({ email: emails.expired }).expect(204);
+      expect(sent.at(-1)?.to).toBe(emails.expired);
       const token = lastResetToken();
-      const user = await prisma.user.findUniqueOrThrow({ where: { email: emails.reset } });
+      const user = await prisma.user.findUniqueOrThrow({ where: { email: emails.expired } });
       await prisma.passwordResetToken.updateMany({ where: { userId: user.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
       await api().post("/auth/reset-password").send({ token, password: "new-pass-789", confirmPassword: "new-pass-789" }).expect(400);
     });
