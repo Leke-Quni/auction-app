@@ -31,11 +31,11 @@ export default async function MyListingsPage() {
         </Link>
       </div>
       {listings.length === 0 ? (
-        <p className="border border-line bg-white p-4 text-muted">You have not listed anything yet.</p>
+        <p className="border border-line bg-surface p-4 text-muted">You have not listed anything yet.</p>
       ) : (
-        <table className="w-full border-collapse bg-white">
+        <table className="w-full border-collapse bg-surface">
           <thead>
-            <tr className="bg-[#f0f0f0] text-left text-xs font-normal text-muted">
+            <tr className="bg-head text-left text-xs font-normal text-muted">
               <th className="border border-line p-1.5 font-normal">Title</th>
               <th className="border border-line p-1.5 font-normal">Status</th>
               <th className="border border-line p-1.5 font-normal">Starting price</th>

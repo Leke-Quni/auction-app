@@ -8,7 +8,7 @@ import { ResendCode } from "./resend-code";
 export function CodeForm({ email }: { email: string }) {
   const [state, formAction, pending] = useActionState(verifyCodeAction, {});
   return (
-    <form action={formAction} className="mx-auto max-w-sm space-y-3 border border-line bg-white p-4">
+    <form action={formAction} className="mx-auto max-w-sm space-y-3 border border-line bg-surface p-4">
       <h1 className="text-lg font-bold">Check your email</h1>
       <p className="text-muted">
         We sent a 6-digit code to <b>{email}</b>. It expires in 10 minutes.
@@ -21,12 +21,13 @@ export function CodeForm({ email }: { email: string }) {
         pattern="\d{6}"
         maxLength={6}
         placeholder="123456"
+        aria-label="6-digit code"
         required
         autoFocus
-        className="w-full border border-[#888] bg-white p-2 text-center text-xl tracking-[0.5em]"
+        className="w-full border border-field bg-surface p-2 text-center text-xl tracking-[0.5em]"
       />
       {state.error && <p className="text-urgent">{state.error}</p>}
-      <button disabled={pending} className="w-full cursor-pointer bg-brand p-2 font-bold text-white hover:bg-brand-dark disabled:opacity-60">
+      <button disabled={pending} className="w-full cursor-pointer bg-brand p-2 font-bold text-on-brand hover:bg-brand-dark disabled:opacity-60">
         {pending ? "..." : "Verify and sign in"}
       </button>
       <ResendCode email={email} />

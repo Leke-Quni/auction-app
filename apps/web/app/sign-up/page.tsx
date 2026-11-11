@@ -2,6 +2,8 @@ import Link from "next/link";
 import { signUpAction } from "../actions";
 import { FieldsForm } from "../fields-form";
 
+export const metadata = { title: "Create an account - Auctionly" };
+
 export default function SignUpPage() {
   return (
     <FieldsForm

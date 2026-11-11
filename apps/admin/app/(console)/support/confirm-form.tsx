@@ -16,7 +16,7 @@ export function ConfirmForm({ action, fields, label, confirm, tone }: { action: 
       {Object.entries(fields).map(([name, value]) => (
         <input key={name} type="hidden" name={name} value={value} />
       ))}
-      <button disabled={pending} className={`cursor-pointer rounded px-2 py-0.5 font-semibold disabled:opacity-60 ${tone === "primary" ? "bg-accent text-white hover:bg-accent-dark" : "border border-line bg-panel hover:bg-page"}`}>{label}</button>
+      <button disabled={pending} className={`cursor-pointer rounded px-2 py-0.5 font-semibold disabled:opacity-60 ${tone === "primary" ? "bg-accent text-on-brand hover:bg-accent-dark" : "border border-line bg-panel hover:bg-page"}`}>{label}</button>
       {state.error && <p role="alert" className="mt-1 text-red-700">{state.error}</p>}
     </form>
   );

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import Link from "next/link";
 import { Suspense } from "react";
 import type { NotificationList } from "@auction/shared";
@@ -11,6 +12,8 @@ import { Notifications } from "./notifications";
 import { SearchBox } from "./search-box";
 import { SignedOutNotice } from "./signed-out-notice";
 import { UserMenu } from "./user-menu";
+
+const font = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-body", display: "swap" });
 
 export const metadata: Metadata = { title: "Auctionly" };
 
@@ -34,10 +37,14 @@ async function HeaderBell() {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
   return (
-    <html lang="en">
+    <html lang="en" className={font.variable}>
       <body className="flex min-h-screen flex-col">
-        <header className="flex items-center gap-4 bg-brand px-4 py-2 text-white sm:grid sm:grid-cols-[1fr_minmax(0,24rem)_1fr]">
-          <Link href="/" className="text-xl font-black italic">
+        <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:bg-surface focus:px-3 focus:py-2 focus:font-bold focus:text-brand">
+          Skip to content
+        </a>
+        {/* On a phone the search goes on a row of its own below the logo and the account links, where it has room. */}
+        <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line bg-surface px-4 py-2 text-ink sm:grid sm:grid-cols-[1fr_minmax(0,24rem)_1fr]">
+          <Link href="/" className="text-xl font-black italic text-brand">
             AUCTIONLY
           </Link>
           <Suspense fallback={<div className="flex-1" />}>
@@ -59,21 +66,25 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               </>
             ) : (
               <>
-                <Link href="/sign-in">Sign in</Link>
-                <Link href="/sign-up">Sign up</Link>
+                <Link href="/sign-in" className="inline-block py-1">
+                  Sign in
+                </Link>
+                <Link href="/sign-up" className="rounded-full bg-brand px-4 py-1.5 font-bold text-on-brand hover:bg-brand-dark">
+                  Sign up
+                </Link>
               </>
             )}
           </div>
         </header>
         <SignedOutNotice />
         {session && <Notifications />}
-        <main className="mx-auto w-full max-w-3xl flex-1 p-3">{children}</main>
-        <footer className="border-t border-line bg-white px-4 py-3">
+        <main id="main" className="mx-auto w-full max-w-3xl flex-1 p-3">{children}</main>
+        <footer className="border-t border-line bg-surface px-4 py-3">
           <div className="mx-auto flex max-w-3xl items-center justify-between px-3">
-            <Link href="/sell/new" className="font-bold text-brand underline">
+            <Link href="/sell/new" className="inline-block py-1 font-bold text-brand underline">
               Sell something
             </Link>
-            <Link href="/support" className="text-brand underline">
+            <Link href="/support" className="inline-block py-1 text-brand underline">
               Support
             </Link>
           </div>

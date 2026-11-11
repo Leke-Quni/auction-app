@@ -26,7 +26,7 @@ export function BanForm({ id, username }: { id: string; username: string }) {
         <textarea name="reason" required maxLength={500} rows={3} className="mt-1 w-full rounded border border-line bg-panel p-2" />
       </label>
       <FormError state={state} />
-      <button disabled={pending} className="cursor-pointer rounded bg-danger px-3 py-1 font-semibold text-white disabled:opacity-60">
+      <button disabled={pending} className="cursor-pointer rounded bg-danger px-3 py-1 font-semibold text-on-brand disabled:opacity-60">
         {pending ? "Banning..." : "Ban account"}
       </button>
     </form>
@@ -39,7 +39,7 @@ export function UnbanForm({ id }: { id: string }) {
     <form action={action} className="space-y-2">
       <input type="hidden" name="id" value={id} />
       <FormError state={state} />
-      <button disabled={pending} className="cursor-pointer rounded bg-accent px-3 py-1 font-semibold text-white hover:bg-accent-dark disabled:opacity-60">
+      <button disabled={pending} className="cursor-pointer rounded bg-accent px-3 py-1 font-semibold text-on-brand hover:bg-accent-dark disabled:opacity-60">
         {pending ? "Restoring..." : "Restore account"}
       </button>
     </form>
@@ -80,7 +80,7 @@ export function RoleForm({ id, username, role }: { id: string; username: string;
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="role" value={next} />
       <FormError state={state} />
-      <button disabled={pending} className={`cursor-pointer rounded px-3 py-1 font-semibold disabled:opacity-60 ${next === "ADMIN" ? "bg-accent text-white hover:bg-accent-dark" : "bg-danger text-white"}`}>
+      <button disabled={pending} className={`cursor-pointer rounded px-3 py-1 font-semibold disabled:opacity-60 ${next === "ADMIN" ? "bg-accent text-on-brand hover:bg-accent-dark" : "bg-danger text-on-brand"}`}>
         {pending ? "Saving..." : next === "ADMIN" ? "Make admin" : "Remove admin role"}
       </button>
     </form>
@@ -103,7 +103,7 @@ export function StrikeForm({ id, username, strikes, max }: { id: string; usernam
         <textarea name="reason" required maxLength={500} rows={2} className="mt-1 w-full rounded border border-line bg-panel p-2" />
       </label>
       <FormError state={state} />
-      <button disabled={pending} className="cursor-pointer rounded bg-warn px-3 py-1 font-semibold text-white disabled:opacity-60">
+      <button disabled={pending} className="cursor-pointer rounded bg-warn px-3 py-1 font-semibold text-on-brand disabled:opacity-60">
         {pending ? "Saving..." : "Give a strike"}
       </button>
     </form>

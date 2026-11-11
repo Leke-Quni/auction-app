@@ -31,7 +31,7 @@ export default async function AuditLog({ searchParams }: { searchParams: Promise
       <p className="text-muted">Which admin banned, restored, cleared a strike, removed a listing or opened an order (both addresses), newest first. Entries are kept for ever.</p>
       <form className="flex flex-wrap items-center gap-2">
         <input name="q" defaultValue={params.q ?? ""} placeholder="Admin username, email or id" className="w-72 rounded border border-line bg-panel px-2 py-1" />
-        <button className="cursor-pointer rounded bg-accent px-3 py-1 font-semibold text-white hover:bg-accent-dark">Search</button>
+        <button className="cursor-pointer rounded bg-accent px-3 py-1 font-semibold text-on-brand hover:bg-accent-dark">Search</button>
         {params.q && (
           <Link href="/audit" className="text-accent underline">
             Show all

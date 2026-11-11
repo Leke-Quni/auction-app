@@ -24,7 +24,7 @@ export function PayButton({ action, label, orderId }: { action: (orderId: string
             if (result?.error) setError(result.error);
           })
         }
-        className="cursor-pointer bg-brand px-4 py-2 font-bold text-white hover:bg-brand-dark disabled:opacity-60"
+        className="cursor-pointer bg-brand px-4 py-2 font-bold text-on-brand hover:bg-brand-dark disabled:opacity-60"
       >
         {pending ? "Please wait..." : label}
       </button>

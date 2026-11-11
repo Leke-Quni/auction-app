@@ -6,7 +6,7 @@ export default async function ResetPasswordPage({ searchParams }: { searchParams
   const { token } = await searchParams;
   if (!token) {
     return (
-      <div className="mx-auto max-w-sm border border-line bg-white p-4">
+      <div className="mx-auto max-w-sm border border-line bg-surface p-4">
         <h1 className="mb-2 text-lg font-bold">Link invalid or expired</h1>
         <Link href="/forgot-password" className="text-brand underline">
           Request a new link

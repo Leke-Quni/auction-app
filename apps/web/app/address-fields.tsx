@@ -3,7 +3,7 @@
 import { CALLING_CODES, SHIPPING_COUNTRIES, splitPhone, type ShippingAddress, type ShippingCountry } from "@auction/shared";
 import { useState } from "react";
 
-const input = "mt-1 w-full border border-[#888] bg-white p-1.5 text-sm";
+const input = "mt-1 w-full border border-field bg-surface p-1.5 text-sm";
 const label = "text-xs text-muted";
 
 // A country's flag as an emoji, built from its two-letter code.

@@ -4,14 +4,19 @@
 /* Admin theme: light, slate and indigo (decided 2026-11-05). A white and grey work area, a dark slate sidebar, an indigo accent;
    the storefront stays teal so the two are never confused. */
 @theme {
-  --color-page: #f3f4f7;
+  --radius-control: 8px;
+  --color-page: #fbfbfa;
   --color-panel: #ffffff;
-  --color-ink: #1d2230;
-  --color-muted: #636b7c;
-  --color-line: #dfe2e9;
-  --color-side: #1f2433;
-  --color-side-on: #2e3550;
-  --color-side-ink: #b9c0d0;
+  --color-ink: #1c1c1b;
+  --color-muted: #6b6a66;
+  --color-line: #e8e6e1;
+  --color-side: #f4f3f0;
+  --color-side-on: #e6e4de;
+  --color-side-ink: #55534e;
+  --color-side-active: #1c1c1b;
+  --color-side-line: #e8e6e1;
+  --color-brand: #4f46e5;
+  --color-on-brand: #ffffff;
   --color-accent: #4f46e5;
   --color-accent-dark: #4338ca;
   --color-danger: #b42318;
@@ -24,8 +29,43 @@
   --color-ok-soft: #dcf3e4;
 }
 
+/* Dark mode follows the device setting; there is no switch. Same token names, other values (2026-11-11). */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --color-page: #0d1014;
+    --color-panel: #14181d;
+    --color-ink: #e6eaee;
+    --color-muted: #8c97a3;
+    --color-line: #252c35;
+    --color-side: #10141a;
+    --color-side-on: #1a2028;
+    --color-side-ink: #8c97a3;
+    --color-side-active: #e6eaee;
+    --color-side-line: #252c35;
+    --color-brand: #818cf8;
+    --color-on-brand: #0d1014;
+    --color-accent: #818cf8;
+    --color-accent-dark: #a5b4fc;
+    --color-danger: #f87171;
+    --color-danger-soft: #301515;
+    --color-warn: #fbbf24;
+    --color-warn-soft: #2a2210;
+    --color-info: #a5b4fc;
+    --color-info-soft: #1e1b4b;
+    --color-ok: #4ade80;
+    --color-ok-soft: #102a1a;
+  }
+}
+
 body {
   background: var(--color-page);
   color: var(--color-ink);
-  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 13px/1.45 var(--font-body), system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* Restyle (2026-11-11, "B, soft modern"): every rounded box and control takes the one radius set here. Unlayered so it wins
+   over the rounded utility; rounded-full pills are a different class and keep their shape. */
+.rounded {
+  border-radius: var(--radius-control);
 }

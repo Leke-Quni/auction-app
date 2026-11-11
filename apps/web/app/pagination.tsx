@@ -19,23 +19,23 @@ export function Pagination({ page, pages, hrefFor }: { page: number; pages: numb
   return (
     <nav aria-label="Pagination" className="flex flex-wrap items-center justify-center gap-1">
       {page > 1 && (
-        <Link href={hrefFor(page - 1)} className={`${box} border-line bg-white text-brand hover:bg-[#f0f0f0]`}>
+        <Link href={hrefFor(page - 1)} className={`${box} border-line bg-surface text-brand hover:bg-head`}>
           Previous
         </Link>
       )}
       {pageNumbers(page, pages).map((n) =>
         n === page ? (
-          <span key={n} aria-current="page" className={`${box} border-brand bg-brand font-bold text-white`}>
+          <span key={n} aria-current="page" className={`${box} border-brand bg-brand font-bold text-on-brand`}>
             {n}
           </span>
         ) : (
-          <Link key={n} href={hrefFor(n)} aria-label={`Page ${n}`} className={`${box} border-line bg-white text-brand hover:bg-[#f0f0f0]`}>
+          <Link key={n} href={hrefFor(n)} aria-label={`Page ${n}`} className={`${box} border-line bg-surface text-brand hover:bg-head`}>
             {n}
           </Link>
         ),
       )}
       {page < pages && (
-        <Link href={hrefFor(page + 1)} className={`${box} border-line bg-white text-brand hover:bg-[#f0f0f0]`}>
+        <Link href={hrefFor(page + 1)} className={`${box} border-line bg-surface text-brand hover:bg-head`}>
           Next
         </Link>
       )}

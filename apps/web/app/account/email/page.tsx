@@ -10,7 +10,7 @@ export default async function ConfirmEmailChangePage({ searchParams }: { searchP
   if (!pending) redirect("/account/settings");
   return (
     <div className="mx-auto max-w-sm space-y-3">
-      <p className="border border-line bg-white p-4">
+      <p className="border border-line bg-surface p-4">
         We sent a 6-digit code to <b>{pending}</b>. Your email changes once you enter it. The code expires in 10 minutes.
       </p>
       <FieldsForm

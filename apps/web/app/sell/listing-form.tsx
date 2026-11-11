@@ -19,7 +19,7 @@ export interface FormListing {
   status: "DRAFT" | "PUBLISHED";
 }
 
-const input = "mt-1 w-full border border-[#888] bg-white p-1.5 text-sm";
+const input = "mt-1 w-full border border-field bg-surface p-1.5 text-sm";
 const label = "text-xs text-muted";
 
 const euros = (cents: number | null) => (cents == null ? "" : (cents / 100).toFixed(2));
@@ -71,7 +71,7 @@ export function ListingForm({
       {listing && <input type="hidden" name="listingId" value={listing.id} />}
 
       {published ? (
-        <div className="space-y-3 border border-line bg-white p-3">
+        <div className="space-y-3 border border-line bg-surface p-3">
           <h2 className="text-sm font-bold">Details</h2>
           <p className="text-xs text-muted">Once published, only the description can change.</p>
           <table className="w-full border-collapse text-sm">
@@ -86,7 +86,7 @@ export function ListingForm({
                 ["Pickup", listing.pickupAddress ? `${listing.pickupAddress.city}, ${SHIPPING_COUNTRIES[listing.pickupAddress.country] ?? listing.pickupAddress.country}` : "Not set"],
               ].map(([k, v]) => (
                 <tr key={k}>
-                  <th className="w-32 border border-line bg-[#f0f0f0] p-1.5 text-left font-normal text-muted">{k}</th>
+                  <th className="w-32 border border-line bg-head p-1.5 text-left font-normal text-muted">{k}</th>
                   <td className="border border-line p-1.5">{v}</td>
                 </tr>
               ))}
@@ -97,7 +97,7 @@ export function ListingForm({
         </div>
       ) : (
         <>
-          <div className="space-y-3 border border-line bg-white p-3">
+          <div className="space-y-3 border border-line bg-surface p-3">
             <h2 className="text-sm font-bold">{listing ? "Details" : "New listing"}</h2>
             <label className="block">
               <span className={label}>Title</span>
@@ -136,7 +136,7 @@ export function ListingForm({
 
           {photos}
 
-          <div className="space-y-3 border border-line bg-white p-3">
+          <div className="space-y-3 border border-line bg-surface p-3">
             <h2 className="text-sm font-bold">Price and duration</h2>
             <div className="grid grid-cols-3 gap-2">
               <label className="block">
@@ -174,7 +174,7 @@ export function ListingForm({
             <p className="text-xs text-muted">The reserve price is shown to bidders. If it is not met, the item does not sell.</p>
           </div>
 
-          <div className="space-y-3 border border-line bg-white p-3">
+          <div className="space-y-3 border border-line bg-surface p-3">
             <h2 className="text-sm font-bold">Pickup address</h2>
             <p className="text-xs text-muted">
               Our carrier collects the item here when it sells, so give an address and a phone number where someone can hand it over. Buyers never see it.
@@ -189,12 +189,12 @@ export function ListingForm({
         </>
       )}
 
-      <div className="space-y-2 border border-line bg-white p-3">
+      <div className="space-y-2 border border-line bg-surface p-3">
         {state.error && <p className="text-urgent">{state.error}</p>}
         {state.ok && <p className="text-brand">{state.ok}</p>}
         <button
           disabled={pending}
-          className="cursor-pointer bg-brand px-3 py-1 font-bold text-white hover:bg-brand-dark disabled:opacity-60"
+          className="cursor-pointer bg-brand px-3 py-1 font-bold text-on-brand hover:bg-brand-dark disabled:opacity-60"
         >
           {pending ? "..." : listing ? "Save" : "Create draft"}
         </button>

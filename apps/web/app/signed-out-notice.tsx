@@ -23,7 +23,7 @@ export function SignedOutNotice() {
 
   if (!show) return null;
   return (
-    <p role="status" className="border-b border-line bg-[#e6f4f1] px-4 py-2 text-center font-bold text-brand">
+    <p role="status" className="border-b border-line bg-brand-tint px-4 py-2 text-center font-bold text-brand">
       You have been signed out.
     </p>
   );

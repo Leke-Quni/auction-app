@@ -26,7 +26,7 @@ export function WatchButton({ listingId, watching, watcherCount }: { listingId: 
         onClick={toggle}
         disabled={pending}
         aria-pressed={state.watching}
-        className={`cursor-pointer whitespace-nowrap border px-2.5 py-1 text-sm font-bold disabled:opacity-60 ${state.watching ? "border-brand bg-white text-brand hover:bg-[#f0f0f0]" : "border-brand bg-brand text-white hover:bg-brand-dark"}`}
+        className={`cursor-pointer whitespace-nowrap border px-2.5 py-1 text-sm font-bold disabled:opacity-60 ${state.watching ? "border-brand bg-surface text-brand hover:bg-head" : "border-brand bg-brand text-on-brand hover:bg-brand-dark"}`}
       >
         {state.watching ? "Remove from watchlist" : "Add to watchlist"}
       </button>

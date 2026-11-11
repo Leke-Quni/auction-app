@@ -24,7 +24,7 @@ export function RemoveForm({ id, bidCount }: { id: string; bidCount: number }) {
           {state.error}
         </p>
       )}
-      <button disabled={pending} className="cursor-pointer rounded bg-danger px-3 py-1 font-semibold text-white disabled:opacity-60">
+      <button disabled={pending} className="cursor-pointer rounded bg-danger px-3 py-1 font-semibold text-on-brand disabled:opacity-60">
         {pending ? "Removing..." : "Remove listing"}
       </button>
     </form>

@@ -24,7 +24,7 @@ export default async function Support({ searchParams }: { searchParams: Promise<
   if (!res.ok) throw new Error(`API /admin/support failed: ${res.status}`);
   const { requests, openCount } = (await res.json()) as { requests: Request[]; openCount: number };
   const tab = (value: "OPEN" | "HANDLED", label: string) => (
-    <Link href={value === "OPEN" ? "/support" : "/support?status=HANDLED"} aria-current={status === value ? "page" : undefined} className={`rounded px-3 py-1 ${status === value ? "bg-accent font-semibold text-white" : "border border-line bg-panel hover:bg-page"}`}>
+    <Link href={value === "OPEN" ? "/support" : "/support?status=HANDLED"} aria-current={status === value ? "page" : undefined} className={`rounded px-3 py-1 ${status === value ? "bg-accent font-semibold text-on-brand" : "border border-line bg-panel hover:bg-page"}`}>
       {label}
     </Link>
   );

@@ -61,11 +61,11 @@ export function SettingRow({
         <div className="flex gap-2">
           <button
             disabled={pending}
-            className="cursor-pointer bg-brand px-3 py-1 font-bold text-white hover:bg-brand-dark disabled:opacity-60"
+            className="cursor-pointer bg-brand px-3 py-1 font-bold text-on-brand hover:bg-brand-dark disabled:opacity-60"
           >
             {pending ? "..." : "Save"}
           </button>
-          <button type="button" onClick={cancel} className="cursor-pointer border border-[#888] bg-white px-3 py-1">
+          <button type="button" onClick={cancel} className="cursor-pointer border border-field bg-surface px-3 py-1">
             Cancel
           </button>
         </div>

@@ -7,11 +7,11 @@ import { authedApiFetch } from "@/lib/api";
 import { orderStatusLabel } from "./order-status";
 
 function OrderTable({ orders, empty, other }: { orders: OrderView[]; empty: string; other: "Seller" | "Buyer" }) {
-  if (orders.length === 0) return <p className="border border-line bg-white p-4 text-muted">{empty}</p>;
+  if (orders.length === 0) return <p className="border border-line bg-surface p-4 text-muted">{empty}</p>;
   return (
-    <table className="w-full border-collapse bg-white">
+    <table className="w-full border-collapse bg-surface">
       <thead>
-        <tr className="bg-[#f0f0f0] text-left text-xs font-normal text-muted">
+        <tr className="bg-head text-left text-xs font-normal text-muted">
           <th className="border border-line p-1.5 font-normal">Item</th>
           <th className="border border-line p-1.5 font-normal">{other}</th>
           <th className="border border-line p-1.5 font-normal">Price</th>
@@ -71,11 +71,11 @@ export default async function MyOrdersPage() {
     <div className="space-y-3">
       <h1 className="text-lg font-bold">My orders</h1>
       <section className="space-y-2">
-        <h2 className="border border-line bg-white p-2 font-bold">Purchases</h2>
+        <h2 className="border border-line bg-surface p-2 font-bold">Purchases</h2>
         <OrderTable orders={orders.filter((o) => o.viewer === "buyer")} empty="You have not won anything yet." other="Seller" />
       </section>
       <section className="space-y-2">
-        <h2 className="border border-line bg-white p-2 font-bold">Sales</h2>
+        <h2 className="border border-line bg-surface p-2 font-bold">Sales</h2>
         <OrderTable orders={orders.filter((o) => o.viewer === "seller")} empty="Nothing you listed has sold yet." other="Buyer" />
       </section>
     </div>

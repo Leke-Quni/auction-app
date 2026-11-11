@@ -46,7 +46,7 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
   if (!res.ok) throw new Error(`API /admin/reports failed: ${res.status}`);
   const { reports, openCount } = (await res.json()) as { reports: Report[]; openCount: number };
   const tab = (value: "OPEN" | "HANDLED", label: string) => (
-    <Link href={value === "OPEN" ? "/reports" : "/reports?status=HANDLED"} aria-current={status === value ? "page" : undefined} className={`rounded px-3 py-1 ${status === value ? "bg-accent font-semibold text-white" : "border border-line bg-panel hover:bg-page"}`}>
+    <Link href={value === "OPEN" ? "/reports" : "/reports?status=HANDLED"} aria-current={status === value ? "page" : undefined} className={`rounded px-3 py-1 ${status === value ? "bg-accent font-semibold text-on-brand" : "border border-line bg-panel hover:bg-page"}`}>
       {label}
     </Link>
   );
@@ -102,7 +102,7 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
                     {r.status === "OPEN" && (
                       <form action={handleReportAction}>
                         <input type="hidden" name="id" value={r.id} />
-                        <button className="cursor-pointer rounded bg-accent px-2 py-0.5 font-semibold text-white hover:bg-accent-dark">Mark handled</button>
+                        <button className="cursor-pointer rounded bg-accent px-2 py-0.5 font-semibold text-on-brand hover:bg-accent-dark">Mark handled</button>
                       </form>
                     )}
                   </div>

@@ -41,26 +41,28 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
 
   return (
     <SidebarPage sidebar={<SearchSidebar params={{}} categories={categories} sort={resolveSearchSort({ q: "" })} maxEuros={sliderMaxEuros(topPriceCents)} />}>
+      {/* The page's main heading comes first for screen readers; the sections below it are headed in turn. */}
+      <h1 className="sr-only">Auctions</h1>
       {sections.map((section) => (
         <section key={section.title} className="space-y-2">
           <h2 className="text-lg font-bold">{section.title}</h2>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {section.items.map((listing) => (
               <ListingCard key={listing.id} listing={listing} />
             ))}
           </div>
         </section>
       ))}
-      <h1 className="text-lg font-bold">Auctions</h1>
+      <h2 className="text-lg font-bold">Auctions</h2>
       {items.length === 0 ? (
-        <div className="border border-line bg-white p-4 text-muted">
+        <div className="border border-line bg-surface p-4 text-muted">
           No auctions yet.{" "}
           <Link href="/sell/new" className="text-brand underline">
             Sell something
           </Link>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {items.map((listing) => (
             <ListingCard key={listing.id} listing={listing} />
           ))}

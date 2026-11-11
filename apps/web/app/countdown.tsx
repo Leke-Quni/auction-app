@@ -41,7 +41,7 @@ export function Countdown({ iso, startIso, serverNowIso }: { iso: string; startI
     return () => clearInterval(timer);
   }, [iso, startIso, serverNowIso]);
   return (
-    <time dateTime={iso} className={`whitespace-nowrap font-bold ${color}`}>
+    <time dateTime={iso} className={`whitespace-nowrap font-bold tabular-nums ${color}`}>
       {text}
     </time>
   );

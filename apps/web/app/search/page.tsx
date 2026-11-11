@@ -27,6 +27,8 @@ async function runSearch(params: ReturnType<typeof readSearchParams>): Promise<O
   return res.json();
 }
 
+export const metadata = { title: "Search - Auctionly" };
+
 export default async function SearchPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = readSearchParams(await searchParams);
   const [categories, outcome, topPriceCents] = await Promise.all([loadCategories(), runSearch(params), loadTopPriceCents()]);
@@ -44,15 +46,15 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
     <SidebarPage sidebar={<SearchSidebar params={params} categories={categories} sort={sort} maxEuros={sliderMaxEuros(topPriceCents)} />}>
       <h1 className="text-lg font-bold">{params.q ? `Results for "${params.q}"` : "Browse auctions"}</h1>
       {"message" in outcome ? (
-        <p className="border border-urgent bg-white p-3 text-urgent">{outcome.message}</p>
+        <p className="border border-urgent bg-surface p-3 text-urgent">{outcome.message}</p>
       ) : outcome.items.length === 0 ? (
-        <div className="border border-line bg-white p-4 text-muted">No auctions match your search.</div>
+        <div className="border border-line bg-surface p-4 text-muted">No auctions match your search.</div>
       ) : (
         <>
           <p className="text-muted">
             {outcome.total} {outcome.total === 1 ? "auction" : "auctions"}
           </p>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {outcome.items.map((listing) => (
               <ListingCard key={listing.id} listing={listing} />
             ))}

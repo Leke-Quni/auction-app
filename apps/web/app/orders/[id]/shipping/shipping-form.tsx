@@ -46,12 +46,12 @@ export function ShippingForm({
       }}
       className="space-y-3"
     >
-      <div className="space-y-2 border border-line bg-white p-3">
+      <div className="space-y-2 border border-line bg-surface p-3">
         <h2 className="text-sm font-bold">Delivery address</h2>
         <AddressFields defaults={saved} required />
       </div>
 
-      <div className="space-y-2 border border-line bg-white p-3">
+      <div className="space-y-2 border border-line bg-surface p-3">
         <h2 className="text-sm font-bold">Delivery option</h2>
         {options.map((o) => (
           <label key={o.id} className="flex cursor-pointer items-start gap-2 border border-line p-2">
@@ -76,7 +76,7 @@ export function ShippingForm({
             {error}
           </p>
         )}
-        <button disabled={pending || !chosen} className="cursor-pointer bg-brand px-4 py-2 font-bold text-white hover:bg-brand-dark disabled:opacity-60">
+        <button disabled={pending || !chosen} className="cursor-pointer bg-brand px-4 py-2 font-bold text-on-brand hover:bg-brand-dark disabled:opacity-60">
           {pending ? "Please wait..." : `Continue to payment${chosen ? ` (${formatEur(amountCents + chosen.priceCents)})` : ""}`}
         </button>
       </div>

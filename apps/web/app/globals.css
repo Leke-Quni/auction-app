@@ -1,20 +1,150 @@
 @import "tailwindcss";
+@source "../../../packages/ui/src";
 
 @theme {
+  --radius-card: 12px;
+  --radius-control: 8px;
   --color-brand: #0f766e;
-  --color-brand-dark: #115e59;
-  --color-urgent: #dc2626;
+  --color-on-brand: #ffffff;
+  --color-surface: #ffffff;
+  --color-brand-dark: #0b5f58;
+  --color-urgent: #b42318;
   --color-time-ok: #15803d;
-  --color-time-warn: #c97a06;
-  --color-page: #f4f4f4;
-  --color-line: #d0d0d0;
-  --color-muted: #666666;
+  --color-time-warn: #b45309;
+  --color-page: #faf8f5;
+  --color-line: #e7e1d8;
+  --color-muted: #645f58;
+  --color-ink: #1f2328;
+  --color-field: #8d867b;
+  --color-head: #f3efe8;
+  --color-head-hover: #ebe6dd;
+  --color-soft: #f8f5f0;
+  --color-chip: #f3efe8;
+  --color-sunken: #e3ddd2;
+  --color-line-soft: #efe9df;
+  --color-subtle: #55504a;
+  --color-faint: #7a746b;
+  --color-placeholder: #8d867b;
+  --color-warn-soft: #fff7e6;
+  --color-star: #b45309;
+  --color-flag: #fef08a;
+  --color-on-flag: #422006;
+  --color-danger: #b42318;
+  --color-danger-hover: #f9d6d6;
+  --color-danger-line: #f3b9b9;
+  --color-danger-soft: #fdeaea;
+  --color-danger-faint: #fff4f2;
+  --color-brand-soft: #f0fdfa;
+  --color-brand-faint: #f0fbf9;
+  --color-brand-tint: #e6f4f1;
+  --color-brand-chip: #ccfbf1;
+  --color-background: var(--color-page);
+  --color-foreground: var(--color-ink);
+  --color-card: var(--color-surface);
+  --color-card-foreground: var(--color-ink);
+  --color-popover: var(--color-surface);
+  --color-popover-foreground: var(--color-ink);
+  --color-primary: var(--color-brand);
+  --color-primary-foreground: var(--color-on-brand);
+  --color-secondary: var(--color-head);
+  --color-secondary-foreground: var(--color-ink);
+  --color-muted-foreground: var(--color-muted);
+  --color-destructive: var(--color-danger);
+  --color-border: var(--color-line);
+  --color-input: var(--color-field);
+  --color-ring: var(--color-brand);
+}
+
+/* Dark mode follows the device setting; there is no switch. Same token names, other values (2026-11-11). */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --color-brand: #2dd4bf;
+    --color-brand-dark: #5eead4;
+    --color-on-brand: #04201c;
+    --color-surface: #151c25;
+    --color-page: #0e1319;
+    --color-ink: #e8edf2;
+    --color-muted: #9aa7b4;
+    --color-line: #263140;
+    --color-field: #52637a;
+    --color-head: #1b2430;
+    --color-head-hover: #222d3b;
+    --color-soft: #18202a;
+    --color-chip: #1d2733;
+    --color-sunken: #243040;
+    --color-line-soft: #263140;
+    --color-subtle: #b3bec9;
+    --color-faint: #8794a1;
+    --color-placeholder: #7a8796;
+    --color-urgent: #f87171;
+    --color-time-ok: #4ade80;
+    --color-time-warn: #fbbf24;
+    --color-star: #fbbf24;
+    --color-danger: #f87171;
+    --color-danger-hover: #4a1f1f;
+    --color-danger-line: #6b2a2a;
+    --color-danger-soft: #301515;
+    --color-danger-faint: #271414;
+    --color-warn-soft: #2a2210;
+    --color-brand-soft: #0f2a27;
+    --color-brand-faint: #0d2623;
+    --color-brand-tint: #0f2e2a;
+    --color-brand-chip: #134e4a;
+  }
+}
+
+/* Rounded corners (restyle step 2). Cards and controls get their radius here so one place sets it; a rounded-* class on an
+   element still wins. Tables stay square for now. */
+@layer base {
+  .border.bg-surface, .border.bg-warn-soft, .border.bg-brand-soft, .border.bg-brand-tint, .border.bg-danger-faint, .border.bg-head:not(td):not(th) {
+    border-radius: var(--radius-card);
+  }
+  .border.bg-surface:has(> .bg-head) {
+    overflow: hidden;
+  }
+  button.border.bg-surface, a.border.bg-surface.px-3 {
+    border-radius: var(--radius-control);
+  }
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="hidden"], [type="file"]), select, textarea, button.bg-brand, button.border-field {
+    border-radius: var(--radius-control);
+  }
+}
+
+/* Square-cornered facts tables become rounded ones: separate borders, one line between cells (unlayered so it wins over the
+   border utilities on the cells). */
+table.border-collapse.bg-surface {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+table.border-collapse.bg-surface :is(th, td) {
+  border-width: 0 0 1px 0;
+}
+table.border-collapse.bg-surface :is(th, td) + :is(th, td) {
+  border-left-width: 1px;
+}
+table.border-collapse.bg-surface tr:last-child > * {
+  border-bottom-width: 0;
+}
+
+/* Phones and touch screens: 16px fields so iOS Safari does not zoom in on focus, and a checkbox big enough to hit. */
+@media (max-width: 639px), (pointer: coarse) {
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="hidden"], [type="file"]), select, textarea {
+    font-size: 16px;
+  }
+  input[type="checkbox"], input[type="radio"] {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
 }
 
 body {
   background: var(--color-page);
-  color: #222;
-  font: 13px/1.5 "Hiragino Sans", Arial, sans-serif;
+  color: var(--color-ink);
+  font: 13px/1.5 var(--font-body), "Hiragino Sans", Arial, sans-serif;
 }
 
 @keyframes toast-timer {
