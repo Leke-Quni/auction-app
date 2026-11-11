@@ -51,7 +51,10 @@ export class FakePaymentProvider implements PaymentProvider {
   async createOnboardingLink(request: { accountId: string; returnUrl: string }) {
     // The fake has no onboarding page: coming back at once, with the account ready, stands in for finishing it.
     this.readyAccounts.add(request.accountId);
-    return { url: request.returnUrl };
+    // `payouts=demo` lets the settings page say that nothing was sent to a provider.
+    const url = new URL(request.returnUrl);
+    url.searchParams.set("payouts", "demo");
+    return { url: url.toString() };
   }
 
   async isPayoutAccountReady(accountId: string) {

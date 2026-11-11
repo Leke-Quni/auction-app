@@ -78,6 +78,9 @@ export const stripeConfig = () => {
   return secretKey && webhookSecret ? { secretKey, webhookSecret } : undefined;
 };
 
+// With Stripe keys set, payouts are still simulated (the demo) unless this is "true": then sellers onboard on Stripe and are paid by transfer.
+export const realStripePayouts = () => process.env.STRIPE_PAYOUTS === "true";
+
 // QStash, which calls the API at the moment an auction ends or an order's payment window runs out, so nothing waits for the
 // next sweep (and a stopped Fly machine is woken). All four are needed: the token to publish messages, both signing keys to
 // verify the calls that come back (the next key lets Upstash rotate keys without a gap), and the address the API is

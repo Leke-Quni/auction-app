@@ -19,6 +19,13 @@ export function PayoutAccountSetting({ status, returned }: { status: PayoutAccou
         <span className="min-w-0 flex-1">{text.value}</span>
       </div>
       {returned === "refresh" && <p className="text-xs text-urgent">That setup link expired. Open a new one below.</p>}
+      {returned === "demo" && status === "READY" && (
+        <p role="status" className="text-xs text-brand">
+          Payouts are set up. This is a demo, so the payout account is simulated and no payment provider page opens.
+        </p>
+      )}
+      {returned === "1" && status === "READY" && <p role="status" className="text-xs text-brand">Payouts are set up.</p>}
+      {returned === "1" && status === "PENDING" && <p role="status" className="text-xs text-muted">Setup is not finished yet. Use Finish setup to continue.</p>}
       <p className="text-xs text-muted">Your share is paid 3 days after the buyer receives the item.</p>
       <PayButton action={startPayoutOnboardingAction} label={text.button} orderId="" />
     </div>
