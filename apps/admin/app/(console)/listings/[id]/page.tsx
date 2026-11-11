@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { adminApiFetch } from "@/lib/api";
 import { requireAdmin } from "@/lib/require-admin";
+import { PhotoGallery } from "./photo-gallery";
 import { RemoveForm } from "./remove-form";
 
 interface Person {
@@ -84,16 +85,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
         {l.images.length === 0 ? (
           <p className="text-muted">No photos.</p>
         ) : (
-          <ul className="flex flex-wrap gap-2">
-            {l.images.map((url, i) => (
-              <li key={url}>
-                <a href={url} target="_blank" rel="noreferrer">
-                  <img src={url} alt={`Photo ${i + 1}`} className="h-28 w-28 rounded border border-line bg-page object-cover" />
-                </a>
-                {i === 0 && <span className="text-xs text-muted">Cover</span>}
-              </li>
-            ))}
-          </ul>
+          <PhotoGallery images={l.images} />
         )}
       </div>
       <div className="space-y-2 rounded border border-line bg-panel p-4">
