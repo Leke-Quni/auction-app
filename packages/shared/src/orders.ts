@@ -124,3 +124,9 @@ export const ORDER_ATTENTION = { expiringHours: 24, notShippedDays: 3, notDelive
 
 // An admin's private note on an order (see the admin app's order page).
 export const ORDER_NOTE_MAX = 1000;
+
+// The emails about an order that an admin can send again (see the admin app's order page). Which of them apply depends on where the
+// order stands, and one of them can be sent again only every 10 minutes.
+export const ORDER_RESEND_KINDS = ["WON", "PAID", "SOLD", "SHIPPED", "IN_TRANSIT", "DELIVERED", "PAYOUT", "EXPIRED"] as const;
+export type OrderResendKind = (typeof ORDER_RESEND_KINDS)[number];
+export const ORDER_RESEND_COOLDOWN_MINUTES = 10;

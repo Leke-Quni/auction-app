@@ -4,14 +4,23 @@ import { Test } from "@nestjs/testing";
 import { SignJWT } from "jose";
 import type { AddressInfo } from "node:net";
 import request from "supertest";
-import { ORDER_ATTENTION_KINDS, ORDER_NOTE_MAX, type OrderAttentionKind } from "@auction/shared";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ORDER_ATTENTION_KINDS, ORDER_NOTE_MAX, ORDER_RESEND_COOLDOWN_MINUTES, type OrderAttentionKind, type OrderResendKind } from "@auction/shared";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module";
 import { authSecret, payoutDelayDays } from "../src/config";
 import { attentionOf, attentionWhere } from "../src/admin/admin-order-attention";
 import { PRISMA, type Prisma } from "../src/db/db.module";
+import * as outboxModule from "../src/email/mail-outbox";
+import { sendOutboxMail } from "../src/email/outbox-messages";
 import { MAIL_SENDER } from "../src/email/mail-sender";
 import { NoopSearchIndex, SEARCH_INDEX } from "../src/search/search-index";
+
+// Calls through to the real queueMail and records what was queued. The resend route also starts a mail sweep at once, which sends and
+// deletes the row, so what was queued cannot be read back from the table afterwards.
+vi.mock("../src/email/mail-outbox", async (original) => {
+  const real = await original<typeof import("../src/email/mail-outbox")>();
+  return { ...real, queueMail: vi.fn(real.queueMail) };
+});
 
 const stamp = Date.now();
 const DAY = 86_400_000;
@@ -29,6 +38,7 @@ describe("the admin's view of an order", () => {
   const userIds: string[] = [];
   const listingIds: string[] = [];
   const noteOrderIds: string[] = [];
+  const mailSent: { to: string; subject: string }[] = [];
 
   type Who = { id: string; email: string; username: string; auth: Record<string, string> };
   const person = async (role: "USER" | "ADMIN" = "USER", over: Record<string, unknown> = {}): Promise<Who> => {
@@ -45,7 +55,7 @@ describe("the admin's view of an order", () => {
       .overrideProvider(SEARCH_INDEX)
       .useValue(new NoopSearchIndex())
       .overrideProvider(MAIL_SENDER)
-      .useValue({ send: async () => undefined })
+      .useValue({ send: async (to: string, subject: string) => void mailSent.push({ to, subject }) })
       .compile();
     app = moduleRef.createNestApplication();
     await app.listen(0);
@@ -56,6 +66,7 @@ describe("the admin's view of an order", () => {
 
   afterAll(async () => {
     await prisma.orderNote.deleteMany({ where: { orderId: { in: noteOrderIds } } });
+    await prisma.pendingEndEmail.deleteMany({ where: { listingId: { in: listingIds } } });
     await prisma.adminAction.deleteMany({ where: { adminId: { in: userIds } } });
     await prisma.rating.deleteMany({ where: { order: { listingId: { in: listingIds } } } });
     await prisma.payout.deleteMany({ where: { order: { listingId: { in: listingIds } } } });
@@ -389,5 +400,128 @@ describe("the admin's view of an order", () => {
     });
   });
 
+  describe("sending an order's email again", () => {
+    const queued = vi.mocked(outboxModule.queueMail);
+    const resend = (who: Who, orderId: string, kind: unknown) => request(url).post(`/admin/orders/${orderId}/resend`).set(who.auth).send({ kind });
+    const options = async (admin: Who, orderId: string) => ((await get(admin, `/admin/orders/${orderId}`).expect(200)).body.resendable as { kind: string }[]).map((r) => r.kind);
+    const lastQueuedFor = (orderId: string) => queued.mock.calls.filter(([, mail]) => mail.listingId === listingOf.get(orderId)).map(([, mail]) => ({ userId: mail.userId, kind: mail.kind }));
+    const listingOf = new Map<string, string>();
+    // Fixtures the background jobs leave alone: payment due in 3 days, a parcel whose label was only just made (the fake carrier takes
+    // minutes to move it on), and nothing else that moves by itself.
+    const fixture = async (over: Record<string, unknown> = {}, sellerOver: Record<string, unknown> = {}) => {
+      const made = await order({ payBy: new Date(Date.now() + 3 * DAY), ...over }, sellerOver);
+      noteOrderIds.push(made.order.id);
+      listingOf.set(made.order.id, made.listing.id);
+      return made;
+    };
+    const justShipped = () => ({ ...paid, invoiceNumber: `INV-2026-${stamp}-${++counter}`, shipmentStatus: "IN_TRANSIT", trackingCode: `RESEND${counter}`, shippedAt: new Date(), inTransitAt: new Date() });
 
+    it("is for admins only, and refuses an unknown order or kind", async () => {
+      const user = await person();
+      const admin = await person("ADMIN");
+      const { order: o } = await fixture();
+      await request(url).post(`/admin/orders/${o.id}/resend`).send({ kind: "WON" }).expect(401);
+      await resend(user, o.id, "WON").expect(403);
+      await resend(admin, `nope_${stamp}`, "WON").expect(404);
+      for (const kind of ["", "SPAM", undefined, 5]) await resend(admin, o.id, kind).expect(400);
+      expect(await prisma.adminAction.count({ where: { action: "RESEND_ORDER_EMAIL", targetId: o.id } })).toBe(0);
+    });
+
+    it("offers only the emails that fit the order's state", async () => {
+      const admin = await person("ADMIN");
+      const payoutSeller = { payoutAccountId: `acct_rs_${stamp}` };
+      const waiting = await fixture();
+      const expired = await fixture({ status: "EXPIRED", payBy: new Date(Date.now() - 2 * DAY) });
+      const unshipped = await fixture({ ...paid, invoiceNumber: `INV-2026-${stamp}-${++counter}` });
+      const moving = await fixture(justShipped());
+      const silent = await fixture({ ...justShipped(), trackingEmails: false });
+      const delivered = await fixture({ ...justShipped(), shipmentStatus: "DELIVERED", deliveredAt: new Date() }, payoutSeller);
+      await prisma.payout.create({ data: { orderId: delivered.order.id, sellerId: delivered.seller.id, amountCents: 4275, reference: `tr_rs_${stamp}` } });
+
+      expect(await options(admin, waiting.order.id)).toEqual(["WON"]);
+      expect(await options(admin, expired.order.id)).toEqual(["EXPIRED"]);
+      expect(await options(admin, unshipped.order.id)).toEqual(["PAID", "SOLD"]);
+      expect(await options(admin, moving.order.id)).toEqual(["PAID", "SOLD", "IN_TRANSIT"]);
+      expect(await options(admin, silent.order.id)).toEqual(["PAID", "SOLD"]);
+      expect(await options(admin, delivered.order.id)).toEqual(["PAID", "SOLD", "DELIVERED", "PAYOUT"]);
+    });
+
+    // The builders skip quietly when an order is not in the state they expect, so an offered email that built nothing would look sent.
+    // Each offered email is built here directly, with a mailer of its own, so the app's own sweeps cannot take it first.
+    it("offers only emails that really produce a message for the right person", async () => {
+      const admin = await person("ADMIN");
+      const built: { to: string; subject: string }[] = [];
+      const ctx = { prisma, mail: { send: async (to: string, subject: string) => void built.push({ to, subject }) } };
+      const waiting = await fixture();
+      const expired = await fixture({ status: "EXPIRED", payBy: new Date(Date.now() - 2 * DAY) });
+      const delivered = await fixture({ ...justShipped(), shipmentStatus: "DELIVERED", deliveredAt: new Date() });
+      await prisma.payout.create({ data: { orderId: delivered.order.id, sellerId: delivered.seller.id, amountCents: 4275, reference: `tr_rb_${stamp}` } });
+      const moving = await fixture(justShipped());
+
+      let offered = 0;
+      for (const made of [waiting, expired, delivered, moving]) {
+        const view = (await get(admin, `/admin/orders/${made.order.id}`).expect(200)).body as { resendable: { kind: OrderResendKind; to: "buyer" | "seller" }[] };
+        for (const option of view.resendable) {
+          const person = option.to === "buyer" ? made.buyer : made.seller;
+          built.length = 0;
+          await sendOutboxMail(ctx as never, person.id, made.listing.id, option.kind);
+          expect(built.map((m) => m.to), `${option.kind} for the ${option.to} of a ${made.order.status} order`).toEqual([person.email]);
+          offered++;
+        }
+      }
+      expect(offered).toBeGreaterThanOrEqual(8);
+    });
+
+    it("queues the email for the right person, writes the audit record, and the email goes out", async () => {
+      const admin = await person("ADMIN");
+      const { buyer, seller, listing, order: o } = await fixture(justShipped());
+      queued.mockClear();
+      expect((await resend(admin, o.id, "SOLD").expect(200)).body).toEqual({ kind: "SOLD", to: "seller" });
+      expect((await resend(admin, o.id, "IN_TRANSIT").expect(200)).body).toEqual({ kind: "IN_TRANSIT", to: "buyer" });
+      expect(lastQueuedFor(o.id)).toEqual([{ userId: seller.id, kind: "SOLD" }, { userId: buyer.id, kind: "IN_TRANSIT" }]);
+      expect((await prisma.adminAction.findMany({ where: { action: "RESEND_ORDER_EMAIL", targetId: o.id }, orderBy: { createdAt: "asc" } })).map((a) => [a.adminId, a.reason])).toEqual([[admin.id, "SOLD"], [admin.id, "IN_TRANSIT"]]);
+
+      // The route starts a sweep at once, so both emails reach this app's mailer within moments.
+      await vi.waitFor(() => expect(mailSent.filter((m) => m.to === buyer.email || m.to === seller.email)).toHaveLength(2), { timeout: 8000 });
+      expect(mailSent.find((m) => m.to === buyer.email)!.subject).toMatch(/in transit/i);
+      expect(await prisma.pendingEndEmail.count({ where: { listingId: listing.id } })).toBe(0);
+    });
+
+    it("sends each email again only after the wait, and not twice when two admins click together", async () => {
+      const admin = await person("ADMIN");
+      const other = await person("ADMIN");
+      const { order: o } = await fixture();
+      queued.mockClear();
+      const [a, b] = await Promise.all([resend(admin, o.id, "WON"), resend(other, o.id, "WON")]);
+      expect([a.status, b.status].sort()).toEqual([200, 429]);
+      expect([a, b].find((r) => r.status === 429)!.body.code).toBe("RESEND_TOO_SOON");
+      expect(lastQueuedFor(o.id)).toHaveLength(1);
+      expect(await prisma.adminAction.count({ where: { action: "RESEND_ORDER_EMAIL", targetId: o.id } })).toBe(1);
+
+      // The wait is for the same email on the same order; another order is not held up by it.
+      const { order: another } = await fixture();
+      await resend(admin, another.id, "WON").expect(200);
+
+      // Once the wait is over it can be sent again.
+      await prisma.adminAction.updateMany({ where: { action: "RESEND_ORDER_EMAIL", targetId: o.id }, data: { createdAt: new Date(Date.now() - (ORDER_RESEND_COOLDOWN_MINUTES + 1) * 60_000) } });
+      await vi.waitFor(async () => expect(await prisma.pendingEndEmail.count({ where: { listingId: listingOf.get(o.id), kind: "WON" } })).toBe(0), { timeout: 8000 });
+      await resend(admin, o.id, "WON").expect(200);
+      expect(lastQueuedFor(o.id)).toHaveLength(2);
+    });
+
+    it("refuses an email that does not fit the order, or that is still waiting to go out, and writes nothing", async () => {
+      const admin = await person("ADMIN");
+      const { buyer, listing, order: o } = await fixture();
+      queued.mockClear();
+      for (const kind of ["PAID", "SOLD", "SHIPPED", "PAYOUT", "EXPIRED"]) {
+        const res = await resend(admin, o.id, kind).expect(409);
+        expect(res.body.code).toBe("NOT_RESENDABLE");
+      }
+      await prisma.pendingEndEmail.create({ data: { userId: buyer.id, listingId: listing.id, kind: "WON", dueAt: new Date(Date.now() + DAY) } });
+      expect((await resend(admin, o.id, "WON").expect(409)).body.code).toBe("ALREADY_QUEUED");
+      expect(lastQueuedFor(o.id)).toEqual([]);
+      expect(await prisma.adminAction.count({ where: { action: "RESEND_ORDER_EMAIL", targetId: o.id } })).toBe(0);
+      await prisma.pendingEndEmail.deleteMany({ where: { listingId: listing.id } });
+    });
+  });
 });

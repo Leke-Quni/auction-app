@@ -1,6 +1,8 @@
-import { ORDER_NOTE_MAX, type OrderAttentionKind, type ShippingAddress } from "@auction/shared";
-import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { ORDER_NOTE_MAX, ORDER_RESEND_COOLDOWN_MINUTES, type OrderAttentionKind, type OrderResendKind, type ShippingAddress } from "@auction/shared";
+import { ConflictException, HttpException, HttpStatus, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { queueMail } from "../email/mail-outbox";
+import { MailOutbox } from "../email/mail-outbox.service";
 import { deliveryOf, invoiceDataOf, renderInvoice } from "../orders/invoice";
 import { payoutViewOf } from "../orders/payout-view";
 import { attentionOf, attentionWhere } from "./admin-order-attention";
@@ -19,7 +21,10 @@ const person = { select: { id: true, username: true, email: true, firstName: tru
 // of the other, in one place, so a dispute or a lost parcel can be looked into. It only reads; it changes nothing.
 @Injectable()
 export class AdminOrdersService {
-  constructor(@Inject(PRISMA) private readonly prisma: Prisma) {}
+  constructor(
+    @Inject(PRISMA) private readonly prisma: Prisma,
+    private readonly outbox: MailOutbox,
+  ) {}
 
   async list({ q, status, attention, limit }: OrderListQuery) {
     const now = new Date();
@@ -89,6 +94,51 @@ export class AdminOrdersService {
     });
   }
 
+  // The emails about this order that make sense to send again now, and to whom. Only what the order's state calls for: a pay-now email
+  // for an order still waiting for payment, the shipping update for the stage the parcel is at (and only when the buyer asked for
+  // tracking emails), and so on. Each is sent by the same code that sent it the first time.
+  private resendOptions(o: { status: string; shipmentStatus: string | null; trackingEmails: boolean; payout: unknown; buyer: { id: string }; seller: { id: string } }) {
+    const options: { kind: OrderResendKind; to: "buyer" | "seller"; userId: string; label: string }[] = [];
+    const buyer = (kind: OrderResendKind, label: string) => options.push({ kind, to: "buyer", userId: o.buyer.id, label });
+    const seller = (kind: OrderResendKind, label: string) => options.push({ kind, to: "seller", userId: o.seller.id, label });
+    if (o.status === "AWAITING_PAYMENT") buyer("WON", "Pay-now email to the buyer");
+    if (o.status === "EXPIRED") buyer("EXPIRED", "Missed-payment notice to the buyer");
+    if (o.status === "PAID") {
+      buyer("PAID", "Payment confirmation with the invoice to the buyer");
+      seller("SOLD", "\"Sold, ship to\" notice to the seller");
+      const stage = { LABEL_CREATED: ["SHIPPED", "On its way"], IN_TRANSIT: ["IN_TRANSIT", "In transit"], DELIVERED: ["DELIVERED", "Delivered"] } as const;
+      const current = o.shipmentStatus ? stage[o.shipmentStatus as keyof typeof stage] : null;
+      if (current && o.trackingEmails) buyer(current[0], `Shipping update to the buyer (${current[1].toLowerCase()})`);
+      if (o.payout) seller("PAYOUT", "Payout notice to the seller");
+    }
+    return options;
+  }
+
+  // Sends one of those emails again. The email is queued like any other and sent at once; the cooldown and the audit row are saved in the
+  // same transaction as the queueing, under a lock, so two admins clicking together send it once.
+  async resendEmail(adminId: string, orderId: string, kind: OrderResendKind) {
+    const o = await this.prisma.order.findUnique({ where: { id: orderId }, include: { buyer: { select: { id: true } }, seller: { select: { id: true } }, payout: { select: { id: true } } } });
+    if (!o) throw new NotFoundException();
+    const option = this.resendOptions(o).find((x) => x.kind === kind);
+    if (!option) throw new ConflictException({ code: "NOT_RESENDABLE", message: "That email does not apply to this order in its present state." });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`resend:${orderId}:${kind}`}))`;
+      const since = new Date(Date.now() - ORDER_RESEND_COOLDOWN_MINUTES * 60_000);
+      const recent = await tx.adminAction.findFirst({ where: { action: "RESEND_ORDER_EMAIL", targetId: orderId, reason: kind, createdAt: { gte: since } }, orderBy: { createdAt: "desc" }, select: { createdAt: true } });
+      if (recent) {
+        const wait = Math.ceil((recent.createdAt.getTime() + ORDER_RESEND_COOLDOWN_MINUTES * 60_000 - Date.now()) / 60_000);
+        throw new HttpException({ code: "RESEND_TOO_SOON", message: `That email was sent again a moment ago. Wait ${wait} minute${wait === 1 ? "" : "s"}.` }, HttpStatus.TOO_MANY_REQUESTS);
+      }
+      if (await tx.pendingEndEmail.findUnique({ where: { userId_listingId_kind: { userId: option.userId, listingId: o.listingId, kind } }, select: { id: true } })) {
+        throw new ConflictException({ code: "ALREADY_QUEUED", message: "That email is already waiting to be sent." });
+      }
+      await queueMail(tx, { userId: option.userId, listingId: o.listingId, kind });
+      await tx.adminAction.create({ data: { adminId, action: "RESEND_ORDER_EMAIL", targetId: orderId, reason: kind } });
+    });
+    void this.outbox.sweep();
+    return { kind, to: option.to };
+  }
+
   private async notesOf(orderId: string) {
     const notes = await this.prisma.orderNote.findMany({ where: { orderId }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
     const admins = await this.prisma.user.findMany({ where: { id: { in: [...new Set(notes.map((n) => n.adminId))] } }, select: { id: true, username: true } });
@@ -110,6 +160,7 @@ export class AdminOrdersService {
     return {
       id: o.id,
       notes,
+      resendable: this.resendOptions(o).map(({ kind, to, label }) => ({ kind, to, label })),
       status: o.status,
       round: o.round,
       listing: o.listing,

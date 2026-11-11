@@ -5,6 +5,7 @@ import { adminApiFetch } from "@/lib/api";
 import { requireAdmin } from "@/lib/require-admin";
 import { STATUS_LABEL, STATUS_PILL } from "../status";
 import { NoteForm } from "./note-form";
+import { ResendButton } from "./resend-form";
 
 interface Party {
   id: string;
@@ -32,6 +33,7 @@ interface Order {
   shipment: { status: string; trackingCode: string | null; shippedAt: string | null; inTransitAt: string | null; deliveredAt: string | null } | null;
   payout: { status: "NOT_DELIVERED" | "SCHEDULED" | "WAITING_FOR_ACCOUNT" | "PAID"; dueAt: string | null; paidAt: string | null; amountCents: number; reference: string | null } | null;
   rating: { stars: number; comment: string | null; createdAt: string } | null;
+  resendable: { kind: string; to: "buyer" | "seller"; label: string }[];
   notes: { id: string; body: string; createdAt: string; admin: { id: string; username: string | null } }[];
 }
 
@@ -125,6 +127,14 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
           </ul>
         )}
         <NoteForm id={o.id} />
+      </Section>
+
+      <Section title="Emails">
+        {o.resendable.length === 0 ? (
+          <p className="p-2 text-muted">No email about this order can be sent again right now.</p>
+        ) : (
+          o.resendable.map((r) => <ResendButton key={r.kind} id={o.id} kind={r.kind} label={r.label} recipient={`@${o[r.to].username}`} />)
+        )}
       </Section>
 
       <Section title="People">

@@ -4,7 +4,7 @@ import { requireAdmin } from "@/lib/require-admin";
 
 interface Entry {
   id: string;
-  action: "BAN_USER" | "UNBAN_USER" | "CLEAR_STRIKE" | "REMOVE_LISTING" | "VIEW_ORDER" | "REMOVE_POST" | "SET_ROLE" | "STRIKE_USER" | "VIEW_INVOICE" | "HANDLE_SUPPORT" | "ADD_ORDER_NOTE";
+  action: "BAN_USER" | "UNBAN_USER" | "CLEAR_STRIKE" | "REMOVE_LISTING" | "VIEW_ORDER" | "REMOVE_POST" | "SET_ROLE" | "STRIKE_USER" | "VIEW_INVOICE" | "HANDLE_SUPPORT" | "ADD_ORDER_NOTE" | "RESEND_ORDER_EMAIL";
   targetId: string;
   reason: string | null;
   createdAt: string;
@@ -12,8 +12,8 @@ interface Entry {
 }
 
 const FILTERS = ["adminId", "targetId", "q"] as const;
-const LABEL = { BAN_USER: "Banned a user", UNBAN_USER: "Restored a user", CLEAR_STRIKE: "Cleared a strike", REMOVE_LISTING: "Removed a listing", VIEW_ORDER: "Opened an order", REMOVE_POST: "Removed a question or answer", SET_ROLE: "Changed an admin role", STRIKE_USER: "Gave a strike", VIEW_INVOICE: "Opened an invoice", HANDLE_SUPPORT: "Closed a support request", ADD_ORDER_NOTE: "Added an order note" } as const;
-const HREF = { BAN_USER: "/users", UNBAN_USER: "/users", CLEAR_STRIKE: "/users", REMOVE_LISTING: "/listings", VIEW_ORDER: "/orders", REMOVE_POST: "/question-log?questionId=", SET_ROLE: "/users", STRIKE_USER: "/users", VIEW_INVOICE: "/orders", HANDLE_SUPPORT: "/support", ADD_ORDER_NOTE: "/orders" } as const;
+const LABEL = { BAN_USER: "Banned a user", UNBAN_USER: "Restored a user", CLEAR_STRIKE: "Cleared a strike", REMOVE_LISTING: "Removed a listing", VIEW_ORDER: "Opened an order", REMOVE_POST: "Removed a question or answer", SET_ROLE: "Changed an admin role", STRIKE_USER: "Gave a strike", VIEW_INVOICE: "Opened an invoice", HANDLE_SUPPORT: "Closed a support request", ADD_ORDER_NOTE: "Added an order note", RESEND_ORDER_EMAIL: "Sent an order email again" } as const;
+const HREF = { BAN_USER: "/users", UNBAN_USER: "/users", CLEAR_STRIKE: "/users", REMOVE_LISTING: "/listings", VIEW_ORDER: "/orders", REMOVE_POST: "/question-log?questionId=", SET_ROLE: "/users", STRIKE_USER: "/users", VIEW_INVOICE: "/orders", HANDLE_SUPPORT: "/support", ADD_ORDER_NOTE: "/orders", RESEND_ORDER_EMAIL: "/orders" } as const;
 const when = (iso: string) => new Date(iso).toISOString().replace("T", " ").slice(0, 19) + " UTC";
 
 export default async function AuditLog({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {

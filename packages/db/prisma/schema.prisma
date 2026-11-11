@@ -596,6 +596,7 @@ enum AdminActionKind {
   VIEW_INVOICE
   HANDLE_SUPPORT
   ADD_ORDER_NOTE
+  RESEND_ORDER_EMAIL
 }
 
 enum SupportKind {
