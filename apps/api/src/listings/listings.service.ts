@@ -30,6 +30,8 @@ import { runEvery } from "../jobs/sweep-support";
 import { SEARCH_INDEX, type ListingDocument, type SearchIndex } from "../search/search-index";
 import { isSellerImage } from "./seller-image";
 
+const BID_LOCK_MESSAGE = "This listing has bids, so its description and photos can no longer change.";
+
 const ENDING_SOON_MS = 24 * 60 * 60 * 1000;
 const SEARCH_SWEEP_MS = 5 * 60 * 1000;
 
@@ -228,6 +230,7 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
     this.refuseIfEnded(listing);
 
     if (listing.status === "PUBLISHED") {
+      this.refuseIfBid(listing);
       const locked = Object.keys(input).filter((k) => k !== "description");
       if (locked.length > 0) {
         throw new BadRequestException(`Only the description can change after publishing (not ${locked.join(", ")})`);
@@ -251,11 +254,15 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
 
     // The draft or published state was read a moment ago. If the listing was published since, its terms (price, reserve,
     // duration) must not change under bidders, so a draft's details are written only while it is still a draft.
+    // A published listing is written only while it has no bid: a bid placed since the check above locks the same row, so one of
+    // the two goes first and the other sees it.
     const written = await this.prisma.listing.updateMany({
-      where: listing.status === "DRAFT" ? { id, status: "DRAFT" } : { id },
+      where: listing.status === "DRAFT" ? { id, status: "DRAFT" } : { id, bidCount: 0 },
       data: input,
     });
-    if (written.count === 0) throw new ConflictException("This listing was just published, so those details can no longer change.");
+    if (written.count === 0) {
+      throw new ConflictException(listing.status === "DRAFT" ? "This listing was just published, so those details can no longer change." : BID_LOCK_MESSAGE);
+    }
     const updated = await this.prisma.listing.findUniqueOrThrow({ where: { id }, include: listingInclude });
     await this.syncSearch(updated);
     return toDto(updated, new Date(), true);
@@ -277,6 +284,7 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
     const listing = await this.getOwned(sellerId, id);
     this.refuseIfModeratorRemoved(listing);
     this.refuseIfEnded(listing);
+    if (listing.status === "PUBLISHED") this.refuseIfBid(listing);
     if (listing.status === "PUBLISHED" && images.length === 0) {
       throw new BadRequestException("A published listing needs at least one photo");
     }
@@ -284,12 +292,15 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException("Photos must be uploaded through the site");
     }
 
-    await this.prisma.$transaction([
-      this.prisma.listingImage.deleteMany({ where: { listingId: id } }),
-      this.prisma.listingImage.createMany({
+    await this.prisma.$transaction(async (tx) => {
+      // Touching the row first takes its lock (a bid takes the same one) and proves there is still no bid on a published listing.
+      const held = await tx.listing.updateMany({ where: listing.status === "PUBLISHED" ? { id, bidCount: 0 } : { id }, data: { updatedAt: new Date() } });
+      if (held.count === 0) throw new ConflictException(BID_LOCK_MESSAGE);
+      await tx.listingImage.deleteMany({ where: { listingId: id } });
+      await tx.listingImage.createMany({
         data: images.map((image, position) => ({ listingId: id, url: image.url, pathname: image.pathname, position })),
-      }),
-    ]);
+      });
+    });
 
     // The caller deletes these from Blob; this service has no Blob credentials.
     const kept = new Set(images.map((i) => i.url));
@@ -396,6 +407,11 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
   }
 
   // An ended auction is closed by the system and stays as the record; the seller can only list it again (relist).
+  // Bidders bid on what they saw, so once there is a bid the description and photos are fixed.
+  private refuseIfBid(listing: { bidCount: number }) {
+    if (listing.bidCount > 0) throw new ConflictException(BID_LOCK_MESSAGE);
+  }
+
   private refuseIfEnded(listing: { status: string; closedAt: Date | null; endsAt: Date | null; removedAt: Date | null }) {
     // A moderator removal has its own message.
     if (listing.removedAt) return;

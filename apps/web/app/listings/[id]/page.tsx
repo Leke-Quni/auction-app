@@ -66,7 +66,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
           {listing.status === "DRAFT" ? "This is a draft. Only you can see it. " : "This is your listing. "}
           {!listing.removed && listing.phase !== "ended" && (
             <Link href={`/sell/${listing.id}/edit`} className="text-brand underline">
-              {listing.status === "DRAFT" ? "Edit and publish" : "Edit description and photos"}
+              {listing.status === "DRAFT" ? "Edit and publish" : listing.bidCount > 0 ? "Edit pickup address" : "Edit description and photos"}
             </Link>
           )}
           {listing.closedAt && !listing.removed && (listing.outcome === "NO_SALE" || listing.outcome === "NO_BIDS") && (

@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { randomUUID } from "node:crypto";
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { SignJWT } from "jose";
@@ -119,11 +120,15 @@ describe("listings", () => {
   });
 
   // The tests reuse the same photo URLs; real uploads are unique, and a photo another listing still uses is not reported as removed.
-  beforeEach(async () => {
+  const clearListings = async () => {
+    await prisma.bid.deleteMany({ where: { listing: { sellerId } } });
     await prisma.listing.deleteMany({ where: { sellerId } });
-  });
+  };
+
+  beforeEach(clearListings);
 
   afterAll(async () => {
+    await clearListings();
     await prisma.user.deleteMany({ where: { email: { in: Object.values(emails) } } });
     await app.close();
   });
@@ -386,6 +391,37 @@ describe("listings", () => {
       const res = await put([image(sellerId, 2)]).expect(200);
       expect(res.body.images).toHaveLength(1);
       expect(res.body.removedImageUrls).toEqual([image(sellerId, 1).url]);
+    });
+
+    it("fixes the description and photos once there is a bid, but still lets the seller correct the pickup address", async () => {
+      const listing = await createPublished();
+      const bid = await api().post(`/listings/${listing.id}/bids`).set(as(other)).send({ amountCents: 1000, idempotencyKey: randomUUID() });
+      expect(bid.status).toBe(201);
+
+      const edit = await api().patch(`/listings/${listing.id}`).set(as(seller)).send({ description: "Now something else entirely" }).expect(409);
+      expect(edit.body.message).toMatch(/has bids/);
+      await api().put(`/listings/${listing.id}/images`).set(as(seller)).send({ images: [image(sellerId, 2)] }).expect(409);
+
+      const after = await api().get(`/listings/${listing.id}`).set(as(seller)).expect(200);
+      expect(after.body.description).toBe(listing.description);
+      expect(after.body.images.map((i: { url: string }) => i.url)).toEqual([image(sellerId, 1).url]);
+      await api().put(`/listings/${listing.id}/pickup-address`).set(as(seller)).send({ ...validListing.pickupAddress, line1: "Elsewhere 1" }).expect(200);
+    });
+
+    it("loses the race to a bid: simultaneous edits and bids never leave an edited listing with a bid on it", async () => {
+      const listing = await createPublished();
+      const [edit, images, bid] = await Promise.all([
+        api().patch(`/listings/${listing.id}`).set(as(seller)).send({ description: "Changed at the same moment" }),
+        api().put(`/listings/${listing.id}/images`).set(as(seller)).send({ images: [image(sellerId, 2)] }),
+        api().post(`/listings/${listing.id}/bids`).set(as(other)).send({ amountCents: 1000, idempotencyKey: randomUUID() }),
+      ]);
+      expect(bid.status).toBe(201);
+      const after = await api().get(`/listings/${listing.id}`).set(as(seller)).expect(200);
+      // Whatever went in before the bid may stay, but nothing may have gone in after it: a 200 here means the edit won the race.
+      for (const [res, changed] of [[edit, after.body.description !== listing.description], [images, after.body.images[0].url !== image(sellerId, 1).url]] as const) {
+        expect(res.status === 200).toBe(changed);
+        expect([200, 409]).toContain(res.status);
+      }
     });
 
     it("can be removed by its seller, who gets the photos back to delete; others get 403 (since it is public)", async () => {

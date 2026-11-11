@@ -44,6 +44,7 @@ export default async function EditListingPage({
         </p>
       )}
       <ListingEditor
+        locked={listing.status === "PUBLISHED" && listing.bidCount > 0}
         categories={categories}
         defaultPickup={defaultPickup}
         userId={session.user.id}

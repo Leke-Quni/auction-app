@@ -37,16 +37,30 @@ export function ListingEditor({
   userId,
   initialPhotos,
   defaultPickup,
+  locked = false,
 }: {
   categories: { id: string; name: string }[];
   listing: FormListing;
   userId: string;
   initialPhotos: string[];
   defaultPickup?: FormListing["pickupAddress"];
+  // A published listing with bids: bidders bid on what they saw, so only the pickup address can change.
+  locked?: boolean;
 }) {
   const draft = listing.status === "DRAFT";
   const [unsaved, setUnsaved] = useState(false);
   const uploader = <ImageUploader userId={userId} initial={initialPhotos} />;
+
+  if (locked) {
+    return (
+      <>
+        <p role="status" className="border border-brand bg-white p-2">
+          This listing has bids, so its description and photos can no longer change. You can still correct the pickup address.
+        </p>
+        <PickupAddressEditor listingId={listing.id} address={listing.pickupAddress ?? null} />
+      </>
+    );
+  }
 
   return (
     <>
