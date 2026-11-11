@@ -50,13 +50,16 @@ export class AccountService {
 
   async changePassword(userId: string, input: ChangePasswordInput) {
     await this.requirePassword(userId, input.currentPassword);
-    await this.prisma.$transaction([
+    // Every other session ends. The caller gets the new number so the browser they are using can keep its own.
+    const [user] = await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: userId },
-        data: { passwordHash: await bcrypt.hash(input.newPassword, 12) },
+        data: { passwordHash: await bcrypt.hash(input.newPassword, 12), sessionVersion: { increment: 1 } },
+        select: { sessionVersion: true },
       }),
       this.prisma.passwordResetToken.deleteMany({ where: { userId } }),
     ]);
+    return { sessionVersion: user.sessionVersion };
   }
 
   async startEmailChange(userId: string, input: StartEmailChangeInput) {

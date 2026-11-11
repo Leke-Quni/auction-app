@@ -139,6 +139,9 @@ export async function changePasswordAction(_: FormState, formData: FormData): Pr
   const res = await authedApiFetch("/me/password", { method: "POST", body: JSON.stringify(parsed.data) });
   if (res.status === 403) return { error: "Your current password is incorrect." };
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
+  // Every other browser is signed out; this one takes the new number and stays signed in.
+  const { sessionVersion } = await res.json();
+  await unstable_update({ user: { sessionVersion } });
   return { ok: "Password changed." };
 }
 

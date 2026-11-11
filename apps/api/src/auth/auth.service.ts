@@ -160,7 +160,7 @@ export class AuthService {
     if (!user.emailVerified) {
       await this.prisma.user.update({ where: { id: user.id }, data: { emailVerified: new Date() } });
     }
-    return { id: user.id, email: user.email, name: user.username, role: user.role };
+    return { id: user.id, email: user.email, name: user.username, role: user.role, sessionVersion: user.sessionVersion };
   }
 
   async forgotPassword(input: ForgotPasswordInput, ip: string | null = null) {
@@ -205,7 +205,7 @@ export class AuthService {
       // Following the emailed link proves the inbox, so it also verifies the email.
       this.prisma.user.update({
         where: { id: user.id },
-        data: { passwordHash: await bcrypt.hash(input.password, 12), emailVerified: user.emailVerified ?? new Date() },
+        data: { passwordHash: await bcrypt.hash(input.password, 12), emailVerified: user.emailVerified ?? new Date(), sessionVersion: { increment: 1 } },
       }),
       this.prisma.passwordResetToken.deleteMany({ where: { userId: user.id } }),
       this.prisma.loginCode.deleteMany({ where: { userId: user.id } }),

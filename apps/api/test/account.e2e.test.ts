@@ -27,6 +27,7 @@ const emails = {
   reset: `reset-${stamp}@example.com`,
   fresh: `fresh-${stamp}@example.com`,
   expired: `expired-${stamp}@example.com`,
+  revoked: `revoked-${stamp}@example.com`,
 };
 const password = "hunter22!";
 
@@ -52,8 +53,8 @@ describe("account and password reset", () => {
     const res = await api().post("/auth/login/verify").send({ email, code: lastCode() }).expect(200);
     return res.body.id as string;
   };
-  const tokenFor = (id: string, email: string) =>
-    new SignJWT({ email, role: "USER" })
+  const tokenFor = (id: string, email: string, sv?: number) =>
+    new SignJWT({ email, role: "USER", ...(sv === undefined ? {} : { sv }) })
       .setProtectedHeader({ alg: "HS256" })
       .setSubject(id)
       .setExpirationTime("5m")
@@ -131,6 +132,22 @@ describe("account and password reset", () => {
       await api().post("/auth/reset-password").send({ token, password: "new-pass-789", confirmPassword: "new-pass-789" }).expect(400);
     });
 
+    it("ends every session made before the reset", async () => {
+      const id = await signUpVerified(emails.revoked);
+      const before = `Bearer ${await tokenFor(id, emails.revoked)}`;
+      await api().get("/me").set("Authorization", before).expect(200);
+
+      await api().post("/auth/forgot-password").send({ email: emails.revoked }).expect(204);
+      await api().post("/auth/reset-password").send({ token: lastResetToken(), password: "new-pass-123", confirmPassword: "new-pass-123" }).expect(204);
+      await api().get("/me").set("Authorization", before).expect(401);
+
+      // A sign-in after the reset carries the new number and works.
+      await api().post("/auth/login/start").send({ email: emails.revoked, password: "new-pass-123" }).expect(204);
+      const verified = await api().post("/auth/login/verify").send({ email: emails.revoked, code: lastCode() }).expect(200);
+      expect(verified.body.sessionVersion).toBe(1);
+      await api().get("/me").set("Authorization", `Bearer ${await tokenFor(id, emails.revoked, verified.body.sessionVersion)}`).expect(200);
+    });
+
     it("verifies the email and voids pending sign-in codes", async () => {
       await api().post("/auth/signup").send(su(emails.fresh, password)).expect(201);
       const pendingCode = lastCode();
@@ -196,7 +213,12 @@ describe("account and password reset", () => {
     it("changes the password only with the current one", async () => {
       await api().post("/me/password").set("Authorization", auth).send({ currentPassword: "wrong", newPassword: "changed-pass1", confirmPassword: "changed-pass1" }).expect(403);
       await api().post("/me/password").set("Authorization", auth).send({ currentPassword: password, newPassword: "short", confirmPassword: "short" }).expect(400);
-      await api().post("/me/password").set("Authorization", auth).send({ currentPassword: password, newPassword: "changed-pass1", confirmPassword: "changed-pass1" }).expect(204);
+      const changed = await api().post("/me/password").set("Authorization", auth).send({ currentPassword: password, newPassword: "changed-pass1", confirmPassword: "changed-pass1" }).expect(200);
+      expect(changed.body).toEqual({ sessionVersion: 1 });
+      // The old session ends; one carrying the new number works.
+      await api().get("/me").set("Authorization", auth).expect(401);
+      auth = `Bearer ${await tokenFor(id, emails.user, changed.body.sessionVersion)}`;
+      await api().get("/me").set("Authorization", auth).expect(200);
       await api().post("/auth/login/start").send({ email: emails.user, password }).expect(401);
       await api().post("/auth/login/start").send({ email: emails.user, password: "changed-pass1" }).expect(204);
     });

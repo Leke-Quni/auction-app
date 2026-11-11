@@ -6,7 +6,8 @@ import { authSecret } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
 
 // Only who is asking. The email and role are read from the database, so a token without them is still a valid token.
-const claimsSchema = z.object({ sub: z.string().min(1) });
+// `sv` is the account's session version when the person signed in; a token from before the claim existed counts as 0.
+const claimsSchema = z.object({ sub: z.string().min(1), sv: z.number().int().optional() });
 
 export interface AuthUser {
   id: string;
@@ -16,13 +17,14 @@ export interface AuthUser {
 }
 
 /** Returns the user id for a valid token, or null for a malformed, expired, or incomplete one. The token's role is not trusted. */
-export async function verifyToken(token: string): Promise<{ id: string } | null> {
+export async function verifyToken(token: string): Promise<{ id: string; sessionVersion: number } | null> {
   try {
     const { payload } = await jwtVerify(token, authSecret(), {
       algorithms: ["HS256"],
       requiredClaims: ["exp", "sub"],
     });
-    return { id: claimsSchema.parse(payload).sub };
+    const claims = claimsSchema.parse(payload);
+    return { id: claims.sub, sessionVersion: claims.sv ?? 0 };
   } catch {
     return null;
   }
@@ -31,14 +33,15 @@ export async function verifyToken(token: string): Promise<{ id: string } | null>
 export type TokenUser = { status: "ok"; user: AuthUser } | { status: "banned" } | { status: "invalid" };
 
 /**
- * A token is only proof of who is asking. What that person may do is read from the database on every request, so a demoted
+ * A token is only proof of who is asking (and that the password has not changed since). What that person may do is read from the database on every request, so a demoted
  * admin, a promoted user or a banned account changes at once instead of when their 30-day token runs out.
  */
 export async function loadTokenUser(prisma: Prisma, token: string): Promise<TokenUser> {
   const verified = await verifyToken(token);
   if (!verified) return { status: "invalid" };
-  const user = await prisma.user.findUnique({ where: { id: verified.id }, select: { id: true, email: true, role: true, isSuperAdmin: true, bannedAt: true } });
-  if (!user) return { status: "invalid" };
+  const user = await prisma.user.findUnique({ where: { id: verified.id }, select: { id: true, email: true, role: true, isSuperAdmin: true, bannedAt: true, sessionVersion: true } });
+  // A password change or reset ends every session made before it.
+  if (!user || user.sessionVersion !== verified.sessionVersion) return { status: "invalid" };
   if (user.bannedAt) return { status: "banned" };
   return { status: "ok", user: { id: user.id, email: user.email, role: user.role, isSuperAdmin: user.isSuperAdmin } };
 }

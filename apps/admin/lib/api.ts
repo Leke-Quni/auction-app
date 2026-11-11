@@ -16,7 +16,7 @@ export async function adminApiFetch(path: string, init: RequestInit = {}) {
   const session = await auth();
   if (!session) throw new Error("Not signed in");
   const token = await encodeJwt({
-    token: { sub: session.user.id, email: session.user.email, role: session.user.role },
+    token: { sub: session.user.id, email: session.user.email, role: session.user.role, sv: session.user.sessionVersion },
     secret: process.env.AUTH_SECRET!,
     salt: "",
     maxAge: 5 * 60,

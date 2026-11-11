@@ -20,6 +20,8 @@ model User {
   lastName            String
   username            String               @unique
   passwordHash        String
+  // Raised when the password changes or is reset. A sign-in carries the number it was made with, and the API refuses any token with an older one, so old sessions end.
+  sessionVersion      Int                  @default(0)
   emailVerified       DateTime?
   role                Role                 @default(USER)
   // Only a super admin changes other people's admin roles. Made from the command line only (make-admin --super).

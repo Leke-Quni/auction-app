@@ -8,7 +8,7 @@ export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ token: null }, { headers: { "Cache-Control": "no-store" } });
   const token = await encodeJwt({
-    token: { sub: session.user.id, email: session.user.email, role: session.user.role },
+    token: { sub: session.user.id, email: session.user.email, role: session.user.role, sv: session.user.sessionVersion },
     secret: process.env.AUTH_SECRET!,
     salt: "",
     maxAge: 5 * 60,

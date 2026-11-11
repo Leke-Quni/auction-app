@@ -63,12 +63,12 @@ export class UsersController {
   }
 
   @Post("password")
-  @HttpCode(204)
-  async changePassword(
+  @HttpCode(200)
+  changePassword(
     @Req() req: AuthedRequest,
     @Body(new ZodValidationPipe(changePasswordSchema)) body: ChangePasswordInput,
   ) {
-    await this.account.changePassword(req.user.id, body);
+    return this.account.changePassword(req.user.id, body);
   }
 
   @Post("email/start")
