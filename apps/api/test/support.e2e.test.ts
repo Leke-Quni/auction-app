@@ -133,6 +133,21 @@ describe("support requests and strike appeals", () => {
     expect(await prisma.supportRequest.count({ where: { userId: user.id } })).toBe(1);
   });
 
+  it("records that an admin opened a reply, once, and shows it to every admin", async () => {
+    const [admin, other, user] = [await person("ADMIN"), await person("ADMIN"), await person()];
+    const id = (await send(user, { kind: "GENERAL", message: "Please help" }).expect(201)).body.id;
+    const find = async (who: Who) => (await api().get("/admin/support?limit=200").set(who.auth).expect(200)).body.requests.find((r: { id: string }) => r.id === id);
+    expect((await find(admin)).repliedAt).toBeNull();
+    await api().post(`/admin/support/${id}/replied`).set(user.auth).expect(403);
+    await api().post("/admin/support/nope/replied").set(admin.auth).expect(404);
+    const first = (await api().post(`/admin/support/${id}/replied`).set(admin.auth).expect(200)).body;
+    expect(first).toEqual({ id, repliedAt: expect.any(String) });
+    // A second click, by anyone, keeps the first time; and replying does not close the request.
+    expect((await api().post(`/admin/support/${id}/replied`).set(other.auth).expect(200)).body.repliedAt).toBe(first.repliedAt);
+    expect((await find(other)).repliedAt).toBe(first.repliedAt);
+    expect((await prisma.supportRequest.findUniqueOrThrow({ where: { id } })).status).toBe("OPEN");
+  });
+
   it("does not count a ban appeal as a message waiting", async () => {
     const user = await person();
     await prisma.supportRequest.create({ data: { userId: user.id, kind: "BAN_APPEAL", message: "Please restore me" } });

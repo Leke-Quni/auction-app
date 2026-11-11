@@ -80,6 +80,13 @@ export class AdminController {
     return this.support.list(query);
   }
 
+  // Records that an admin opened a reply to the person, so the Support page can show "Replied".
+  @Post("support/:id/replied")
+  @HttpCode(200)
+  markSupportReplied(@Param("id") id: string) {
+    return this.support.markReplied(id);
+  }
+
   @Post("support/:id/handle")
   @HttpCode(200)
   handleSupport(@Param("id") id: string, @Req() req: { user: AuthUser }) {

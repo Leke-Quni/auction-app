@@ -19,6 +19,14 @@ async function failure(res: Response, what: string): Promise<ActionResult> {
   return { error: `${what} (the API answered ${res.status}). Try again.` };
 }
 
+// Remembers that an admin opened a reply to the person. Best effort: the mail program has already opened, so a failure is not shown.
+export async function markRepliedAction(id: string): Promise<void> {
+  await requireAdmin();
+  if (!id) return;
+  const res = await adminApiFetch(`/admin/support/${encodeURIComponent(id)}/replied`, { method: "POST" });
+  if (res.ok) revalidatePath("/support");
+}
+
 export async function handleSupportAction(_: ActionResult, formData: FormData): Promise<ActionResult> {
   await requireAdmin();
   const id = String(formData.get("id") ?? "");

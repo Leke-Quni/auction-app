@@ -3,6 +3,7 @@ import { adminApiFetch } from "@/lib/api";
 import { requireAdmin } from "@/lib/require-admin";
 import { clearStrikeAndCloseAction, handleSupportAction, liftBanAndCloseAction } from "./actions";
 import { ConfirmForm } from "./confirm-form";
+import { ReplyButton } from "./reply-button";
 
 interface Request {
   id: string;
@@ -11,9 +12,20 @@ interface Request {
   message: string;
   createdAt: string;
   handledAt: string | null;
+  repliedAt?: string | null;
   user: { id: string; username: string; email: string; strikeCount: number; banned: boolean; banReason: string | null };
   strike: { id: string; createdAt: string; reason: string | null; givenByAdmin: boolean; listingTitle: string | null } | null;
 }
+
+const KIND_LABEL = { GENERAL: "question", STRIKE_APPEAL: "strike appeal", BAN_APPEAL: "suspension appeal" } as const;
+
+// Opens the admin's own mail program with a reply to the person: their address, a subject and their words quoted below (cut short, because
+// a link much over 2,000 characters is refused by some mail programs).
+const replyHref = (r: Request) => {
+  const quoted = r.message.slice(0, 500).split("\n").map((line) => `> ${line}`).join("\n");
+  const body = `Hi @${r.user.username},\n\n\n\nOn ${when(r.createdAt).slice(0, 10)} you wrote:\n${quoted}${r.message.length > 500 ? "\n> ..." : ""}`;
+  return `mailto:${r.user.email}?subject=${encodeURIComponent(`Re: your ${KIND_LABEL[r.kind]} to support`)}&body=${encodeURIComponent(body)}`;
+};
 
 const when = (iso: string) => new Date(iso).toISOString().replace("T", " ").slice(0, 16) + " UTC";
 
@@ -53,13 +65,16 @@ export default async function Support({ searchParams }: { searchParams: Promise<
                   </a>{" "}
                   <span className="text-muted">{when(status === "OPEN" ? r.createdAt : (r.handledAt ?? r.createdAt))}</span>
                 </p>
-                {r.status === "OPEN" && (
-                  <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  {r.status === "OPEN" && (
+                    <>
+                    <ReplyButton id={r.id} href={replyHref(r)} email={r.user.email} repliedAt={r.repliedAt} />
                     {r.kind === "STRIKE_APPEAL" && r.strike && <ConfirmForm action={clearStrikeAndCloseAction} fields={{ id: r.id, strikeId: r.strike.id }} label="Clear the strike and close" confirm={`Clear this strike for @${r.user.username} and close the request? They are emailed that it was accepted.`} tone="primary" />}
                     {r.kind === "BAN_APPEAL" && r.user.banned && <ConfirmForm action={liftBanAndCloseAction} fields={{ id: r.id }} label="Unban and close" confirm={`Lift the ban on @${r.user.username} and close the request? They are emailed that their account was restored.`} tone="primary" />}
                     <ConfirmForm action={handleSupportAction} fields={{ id: r.id }} label={r.kind === "STRIKE_APPEAL" && r.strike ? "Refuse and close" : r.kind === "BAN_APPEAL" && r.user.banned ? "Refuse and close" : "Mark handled"} confirm={(r.kind === "STRIKE_APPEAL" && r.strike) || (r.kind === "BAN_APPEAL" && r.user.banned) ? "Refuse this appeal and close the request? They are emailed that it was denied." : "Close this request? They are not emailed: write to them yourself."} tone="plain" />
-                  </div>
-                )}
+                    </>
+                  )}
+                </div>
               </div>
               {r.kind === "BAN_APPEAL" && (
                 <p className="rounded bg-page p-2 text-muted">

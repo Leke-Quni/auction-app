@@ -624,6 +624,8 @@ model SupportRequest {
   createdAt   DateTime      @default(now())
   handledAt   DateTime?
   handledById String?
+  // When an admin first opened a reply to the person from the Support page (the first click only), so every admin sees it was answered.
+  repliedAt   DateTime?
 
   @@index([status, createdAt])
   @@index([userId])

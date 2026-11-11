@@ -45,12 +45,22 @@ export class AdminSupportService {
           message: r.message,
           createdAt: r.createdAt.toISOString(),
           handledAt: r.handledAt?.toISOString() ?? null,
+          repliedAt: r.repliedAt?.toISOString() ?? null,
           user: { id: r.user.id, username: r.user.username, email: r.user.email, strikeCount: r.user._count.strikes, banned: r.user.bannedAt !== null, banReason: r.user.banReason },
           // For an appeal: the strike, or null once it has been cleared (the appeal outlives it).
           strike: r.kind === "STRIKE_APPEAL" ? (strike ? { id: strike.id, createdAt: strike.createdAt.toISOString(), reason: strike.reason, givenByAdmin: strike.givenById !== null, listingTitle: strike.listingId ? (titleOf.get(strike.listingId) ?? null) : null } : null) : null,
         };
       }),
     };
+  }
+
+  // An admin opened a reply to the person (the Reply button): only the first time is kept, so a second click changes nothing and every
+  // admin sees the same time. It records the click, not that the email was sent; closing the request is separate.
+  async markReplied(id: string) {
+    await this.prisma.supportRequest.updateMany({ where: { id, repliedAt: null }, data: { repliedAt: new Date() } });
+    const row = await this.prisma.supportRequest.findUnique({ where: { id }, select: { id: true, repliedAt: true } });
+    if (!row) throw new NotFoundException();
+    return { id: row.id, repliedAt: row.repliedAt?.toISOString() ?? null };
   }
 
   // Closing one that is already closed changes nothing, so a double click is harmless.
