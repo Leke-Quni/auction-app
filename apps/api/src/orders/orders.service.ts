@@ -66,6 +66,27 @@ export class OrdersService {
   // (a second tab, a double click, a retry) sends the buyer to the page that is already open, so they cannot pay twice.
   // The order row is locked while this runs, so two calls at the same moment cannot each open a page.
   async checkout(userId: string, orderId: string): Promise<{ url: string }> {
+    let opened: string | null = null;
+    try {
+      return await this.openCheckout(userId, orderId, (id) => void (opened = id));
+    } catch (error) {
+      // The buyer is only given a page after its id is saved on the order, so a page whose saving failed cannot be reached; it is
+      // closed anyway so it does not sit open at the provider. One that did get saved (the failure came after) is left alone.
+      if (opened) await this.closeUnsavedSession(orderId, opened);
+      throw error;
+    }
+  }
+
+  private async closeUnsavedSession(orderId: string, sessionId: string) {
+    try {
+      const order = await this.prisma.order.findUnique({ where: { id: orderId }, select: { paymentRefs: true } });
+      if (!order?.paymentRefs.includes(sessionId)) await this.payments.expireCheckout(sessionId);
+    } catch (error) {
+      this.log.error(`Could not close unsaved session ${sessionId} of order ${orderId}: ${(error as Error).message}`);
+    }
+  }
+
+  private async openCheckout(userId: string, orderId: string, onCreated: (sessionId: string) => void): Promise<{ url: string }> {
     return this.prisma.$transaction(
       async (tx) => {
         await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${orderId} FOR UPDATE`;
@@ -88,6 +109,7 @@ export class OrdersService {
           description: order.listing.title,
           buyerEmail: order.buyer.email,
         });
+        onCreated(session.id);
         await tx.order.update({ where: { id: orderId }, data: { paymentRef: session.id, paymentRefs: { push: session.id } } });
         return { url: session.url };
       },
