@@ -491,6 +491,15 @@ describe("listings", () => {
     });
   });
 
+  describe("photos that are not images", () => {
+    it("are refused when saved on a listing, even from a Blob store and the seller's own folder", async () => {
+      const draft = await createDraft();
+      const put = (name: string) => api().put(`/listings/${draft.id}/images`).set(as(seller)).send({ images: [{ url: `https://abc123.public.blob.vercel-storage.com/listings/${sellerId}/${name}`, pathname: `listings/${sellerId}/${name}` }] });
+      for (const name of ["x.svg", "x.html", "x.js", "x"]) await put(name).expect(400);
+      await put("x.webp").expect(200);
+    });
+  });
+
   describe("deleting a draft", () => {
     it("removes it and reports its photos so the web app can delete them", async () => {
       const draft = await createDraft();
