@@ -103,7 +103,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
             <p className="font-semibold text-danger">Banned {when(u.bannedAt)}</p>
             <p className="whitespace-pre-wrap break-words">{u.banReason}</p>
             <p className="text-muted">Restoring the account lets them sign in and use the site again.</p>
-            <UnbanForm id={u.id} />
+            <UnbanForm id={u.id} username={u.username} />
           </>
         ) : u.role === "ADMIN" ? (
           <p className="text-muted">An admin cannot be banned. Remove their admin role first (in the Admin role box below).</p>
