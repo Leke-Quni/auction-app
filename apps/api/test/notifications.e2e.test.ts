@@ -178,8 +178,9 @@ describe("bid notifications", () => {
     expect(annaGot[0] as OutbidNotice).toMatchObject({
       listingId: listing.id,
       title: "Notice test listing",
-      currentBidCents: 1200,
-      minimumNextBidCents: 1300,
+      // ben typed €12 but takes the lead one step above anna's €10.
+      currentBidCents: 1100,
+      minimumNextBidCents: 1200,
       extended: false,
       extensionCount: 0,
     });
@@ -193,8 +194,8 @@ describe("bid notifications", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0].to).toBe(anna.email);
     expect(sent[0].subject).toContain("outbid");
+    expect(sent[0].text).toContain("€11.00");
     expect(sent[0].text).toContain("€12.00");
-    expect(sent[0].text).toContain("€13.00");
     expect(sent[0].text).toContain(`/listings/${listing.id}`);
   });
 
@@ -209,7 +210,7 @@ describe("bid notifications", () => {
     const key = randomUUID();
     await bid(ben, listing.id, 1100, key).expect(201);
     await bid(ben, listing.id, 1100, key).expect(200); // replay
-    await bid(ben, listing.id, 1200).expect(409); // ben already leads
+    await bid(ben, listing.id, 1100).expect(409); // 11.00 is not above ben's own maximum
     await settle();
     await flushEmails();
 
@@ -372,7 +373,7 @@ describe("bid notifications", () => {
       expect(about).toHaveLength(1); // not one from each
       expect(about[0].to).toBe(anna.email);
       expect(about[0].subject).toContain("has ended");
-      expect(about[0].text).toContain("Final price: €12.00");
+      expect(about[0].text).toContain("Final price: €11.00");
     });
 
     it("sends the winner a won toast when the auction closes in a sale, and nobody else, and nothing when there is no sale", async () => {
@@ -390,7 +391,7 @@ describe("bid notifications", () => {
       for (const l of [sold, noSale]) await app.get(AuctionCloseService).close(l.id);
       await settle();
       const order = await prisma.order.findFirstOrThrow({ where: { listingId: sold.id } });
-      expect(benWon).toEqual([{ listingId: sold.id, title: "Notice test listing", finalPriceCents: 1200, orderId: order.id }]);
+      expect(benWon).toEqual([{ listingId: sold.id, title: "Notice test listing", finalPriceCents: 1100, orderId: order.id }]);
       expect(annaWon).toEqual([]);
     });
 
@@ -407,7 +408,7 @@ describe("bid notifications", () => {
       await settle();
       const won = (person: Person) => request(url).get("/notifications").set("Authorization", `Bearer ${person.token}`).then((r) => (r.body.items as { type: string; listingId: string; data: unknown }[]).filter((n) => n.type === "WON"));
       const order = await prisma.order.findFirstOrThrow({ where: { listingId: sold.id } });
-      expect(await won(ben)).toMatchObject([{ listingId: sold.id, data: { finalPriceCents: 1200, orderId: order.id } }]);
+      expect(await won(ben)).toMatchObject([{ listingId: sold.id, data: { finalPriceCents: 1100, orderId: order.id } }]);
       expect(await won(anna)).toEqual([]);
 
     });

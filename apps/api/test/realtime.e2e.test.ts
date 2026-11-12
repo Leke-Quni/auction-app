@@ -145,14 +145,19 @@ describe("realtime", () => {
     expect(eventA).toEqual(eventB);
     expect(eventA).toMatchObject({
       listingId: listing.id,
-      currentBidCents: 1500,
+      // The bidder typed a maximum of €15, but a first bid sets the starting price, and only the price is public.
+      currentBidCents: 1000,
       bidCount: 1,
       extensionCount: 0,
       extended: false,
       highBidder: { id: bidder.id },
-      bid: { amountCents: 1500, bidder: { id: bidder.id } },
+      bid: { amountCents: 1000, bidder: { id: bidder.id } },
     });
-    expect(eventA.minimumNextBidCents).toBe(1600);
+    // Every amount in the event is a price; the bidder's typed maximum of €15 is in none of them.
+    const amounts = (value: unknown): number[] =>
+      Array.isArray(value) ? value.flatMap(amounts) : value && typeof value === "object" ? Object.entries(value).flatMap(([k, v]) => (k.endsWith("Cents") && typeof v === "number" ? [v] : amounts(v))) : [];
+    expect(amounts(eventA)).not.toContain(1500);
+    expect(eventA.minimumNextBidCents).toBe(1100);
     expect(await quiet).toBe(true);
   });
 

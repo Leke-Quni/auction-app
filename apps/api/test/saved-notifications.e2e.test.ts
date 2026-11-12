@@ -129,6 +129,7 @@ describe("saved notifications", () => {
     const unread: UnreadEvent[] = [];
     socket.on(SOCKET_EVENTS.unread, (event: UnreadEvent) => unread.push(event));
 
+    // ben typed €12 but takes the lead one step above anna's €10.
     await bid(ben, listing.id, 1200).expect(201);
     await settle();
 
@@ -136,7 +137,7 @@ describe("saved notifications", () => {
     expect(mine.unreadCount).toBe(1);
     expect(mine.items).toHaveLength(1);
     expect(mine.items[0]).toMatchObject({ type: "OUTBID", listingId: listing.id, title: "Saved notice listing", readAt: null });
-    expect(mine.items[0].data).toMatchObject({ currentBidCents: 1200, minimumNextBidCents: 1300 });
+    expect(mine.items[0].data).toMatchObject({ currentBidCents: 1100, minimumNextBidCents: 1200 });
     expect(unread).toEqual([{ unreadCount: 1 }]);
     expect((await list(ben).expect(200)).body).toEqual({ items: [], unreadCount: 0 });
   });
@@ -150,13 +151,14 @@ describe("saved notifications", () => {
     const first = ((await list(anna)).body as NotificationList).items[0];
     await request(url).post(`/notifications/${first.id}/read`).set("Authorization", `Bearer ${anna.token}`).expect(201);
     await bid(anna, listing.id, 1300).expect(201);
+    // ben typed €15 and takes the lead one step above anna's €13: €14.
     await bid(ben, listing.id, 1500).expect(201);
     await settle();
 
     const after = (await list(anna)).body as NotificationList;
     expect(after.items).toHaveLength(1);
     expect(after.unreadCount).toBe(1);
-    expect(after.items[0]).toMatchObject({ readAt: null, data: { currentBidCents: 1500 } });
+    expect(after.items[0]).toMatchObject({ readAt: null, data: { currentBidCents: 1400 } });
   });
 
   it("marks one as read for its owner only", async () => {

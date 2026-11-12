@@ -120,7 +120,7 @@ describe("the top bidder is safe", () => {
 
     await bid(rival, listing.id, 10_499).expect(422); // below the minimum
     await bid(rival, listing.id, 1).expect(422);
-    await bid(top, listing.id, 50_000).expect(409); // already the top bidder
+    await bid(top, listing.id, 10_000).expect(409); // not above their own maximum
     await bid(seller, listing.id, 50_000).expect(403); // the seller's own listing
     await api().post(`/listings/${listing.id}/bids`).set("Authorization", `Bearer ${bystander.token}`).send({ amountCents: "x" }).expect(400);
     await api().post(`/listings/${listing.id}/bids`).send({ amountCents: 20_000, idempotencyKey: randomUUID() }).expect(401);
@@ -144,12 +144,14 @@ describe("the top bidder is safe", () => {
       // Just under the minimum is refused and changes nothing; the top bidder stays.
       await bid(person, listing.id, minimum - 1).expect(422);
       expect((await prisma.listing.findUniqueOrThrow({ where: { id: listing.id } })).highBidderId).toBe(topId);
-      // At the minimum, or any amount above it, takes over.
-      const amount = i % 2 === 0 ? minimum : minimum + 37;
-      await bid(person, listing.id, amount).expect(201);
-      current = amount;
+      // At the minimum, or any maximum above it, takes over, one step above the old leader's maximum (so at the minimum here).
+      const typed = i % 2 === 0 ? minimum : minimum + 37;
+      await bid(person, listing.id, typed).expect(201);
+      current = minimum;
       topId = person.id;
-      expect(await prisma.listing.findUniqueOrThrow({ where: { id: listing.id } })).toMatchObject({ currentBidCents: amount, highBidderId: topId, bidCount: i + 1 });
+      const row = await prisma.listing.findUniqueOrThrow({ where: { id: listing.id } });
+      expect(row).toMatchObject({ currentBidCents: minimum, highBidderId: topId });
+      expect(row.bidCount).toBe(await prisma.bid.count({ where: { listingId: listing.id, kind: { not: "RAISE" } } }));
     }
   });
 
@@ -224,22 +226,31 @@ describe("the top bidder is safe", () => {
   }, 30_000);
 
   it("gives a clear answer, not a server error, for amounts at the top of the range", async () => {
-    const [a, b] = await makePeople(2);
+    const [a, b, c] = await makePeople(3);
     const listing = await makeListing({ startingPriceCents: MAX_PRICE_CENTS });
+    // A maximum at the largest bid still starts at the starting price, and the next minimum fits the column.
     const top = await bid(a, listing.id, MAX_BID_CENTS).expect(201);
-    expect(top.body.listing.minimumNextBidCents).toBe(1_050_000_000); // fits the column, but is above the largest bid
+    expect(top.body.listing).toMatchObject({ currentBidCents: MAX_PRICE_CENTS, minimumNextBidCents: 105_000_000 });
     await bid(b, listing.id, MAX_BID_CENTS + 1).expect(400); // more than the largest bid
-    await bid(b, listing.id, MAX_BID_CENTS).expect(422); // below the minimum
-    expect(await prisma.listing.findUniqueOrThrow({ where: { id: listing.id } })).toMatchObject({ highBidderId: a.id, currentBidCents: MAX_BID_CENTS, bidCount: 1 });
+    await bid(b, listing.id, 104_999_999).expect(422); // below the minimum
+    // The same maximum ties and the earlier one wins, at the cap; after that nothing can outbid it.
+    const tie = await bid(b, listing.id, MAX_BID_CENTS).expect(201);
+    expect(tie.body).toMatchObject({ outcome: "OUTBID_BY_PROXY", listing: { currentBidCents: MAX_BID_CENTS, highBidderId: a.id, minimumNextBidCents: 1_050_000_000 } });
+    expect((await bid(c, listing.id, MAX_BID_CENTS).expect(422)).body.minimumNextBidCents).toBe(1_050_000_000);
+    expect(await prisma.listing.findUniqueOrThrow({ where: { id: listing.id } })).toMatchObject({ highBidderId: a.id, currentBidCents: MAX_BID_CENTS, bidCount: 3 });
   });
 
-  it("lets one person's different bids sent at the same moment place only one: the rest see they already lead", async () => {
+  it("lets one person's different maximums sent at the same moment only ever raise their own: the highest wins, lower ones that come after it are refused", async () => {
     const [person] = await makePeople(1);
     const listing = await makeListing();
     const responses = await Promise.all(Array.from({ length: 6 }, (_, i) => bid(person, listing.id, 1000 + i * 500)));
-    const statuses = responses.map((res) => res.status).sort();
-    expect(statuses).toEqual([201, 409, 409, 409, 409, 409]);
-    expect(await prisma.bid.count({ where: { listingId: listing.id } })).toBe(1);
+    const statuses = responses.map((res) => res.status);
+    expect(statuses.every((status) => status === 201 || status === 409)).toBe(true);
+    expect(responses.filter((res) => res.status === 409).every((res) => res.body.code === "MAX_NOT_HIGHER")).toBe(true);
+    // The highest is always accepted, whatever the order they arrived in; the price is still the starting price and counts once.
+    expect(await prisma.autoBid.findUniqueOrThrow({ where: { listingId_bidderId: { listingId: listing.id, bidderId: person.id } } })).toMatchObject({ maxCents: 3500 });
+    expect(await prisma.listing.findUniqueOrThrow({ where: { id: listing.id } })).toMatchObject({ currentBidCents: 1000, bidCount: 1, highBidderId: person.id });
+    expect(await prisma.bid.count({ where: { listingId: listing.id } })).toBe(statuses.filter((status) => status === 201).length);
   });
 
   describe("the database itself refuses to lose a bid", () => {

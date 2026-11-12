@@ -34,12 +34,12 @@ Today a bid is a price. With proxy bidding the number a bidder types is a hidden
 ### Checkpoint A: foundation
 
 ### Phase 2: The bid path (API)
-- [ ] T4: First bid, takeover, defence and tie through the resolver
-- [ ] T5: Raising your own maximum
-- [ ] T6: Idempotency and replay for multi-row bids
-- [ ] T7: Reserve lift
-- [ ] T8: Anti-sniping on price changes
-- [ ] T9: Ineligible leaders (banned, closing, two strikes)
+- [x] T4: First bid, takeover, defence and tie through the resolver
+- [x] T5: Raising your own maximum
+- [x] T6: Idempotency and replay for multi-row bids
+- [x] T7: Reserve lift
+- [x] T8: Anti-sniping on price changes
+- [ ] T9: Ineligible leaders (banned, closing, two strikes) (T4 to T8 were built together in one transaction, because they all go through the one resolver call)
 
 ### Checkpoint B: the API places proxy bids correctly
 

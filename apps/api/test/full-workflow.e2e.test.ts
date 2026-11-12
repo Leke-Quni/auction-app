@@ -131,7 +131,7 @@ describe("the whole workflow, through the real API", () => {
       await bid(listingId, "seller", 1000).expect(403);
       await bid(listingId, "rival", 1000).expect(201);
       await bid(listingId, "buyer", 1100).expect(201);
-      await bid(listingId, "buyer", 1200).expect(409); // the buyer already leads, so cannot raise their own bid
+      await bid(listingId, "buyer", 1100).expect(409); // the buyer already leads, and 11.00 is not above their own maximum
       await bid(listingId, "rival", 1150).expect(422); // below the 12.00 minimum
       await bid(listingId, "rival", 1200).expect(201);
       await bid(listingId, "buyer", 1300).expect(201);
@@ -348,13 +348,15 @@ describe("the whole workflow, through the real API", () => {
       await bid(listingId, "buyer", 1000).expect(201);
       await endNow(listingId);
       const order = await orderOf(listingId);
-      expect((await pay(order.id, "standard")).status).toBe(201);
+      // Paying starts a mail sweep in the background, which can send these emails before the next line runs, so the list is
+      // measured first and the emails are picked out by this order, not by who they went to (the accounts are shared by tests).
       const before = sent.length;
+      expect((await pay(order.id, "standard")).status).toBe(201);
       failNextMail = 1;
       await emails.sweep(); // the first send fails; its row is leased for 2 minutes
       await prisma.pendingEndEmail.updateMany({ where: { listingId, kind: { in: ["PAID", "SOLD"] } }, data: { dueAt: new Date() } });
       await emails.sweep();
-      const delivered = sent.slice(before).filter((m) => m.subject.includes("Payment completed") || m.subject.includes("Sold"));
+      const delivered = sent.slice(before).filter((m) => (m.subject.includes("Payment completed") || m.subject.includes("Sold")) && m.text.includes(`/orders/${order.id}`));
       expect(delivered.map((m) => m.to).sort()).toEqual([emailOf("buyer"), emailOf("seller")]);
     });
 

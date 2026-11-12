@@ -44,7 +44,8 @@ export function endsAtAfterBid(endsAt: Date, bidAt: Date, ceiling: Date): { ends
   return { endsAt: new Date(newEnd), extended: true };
 }
 
-// What the bidder sends. The key makes a retry harmless: the same key never places two bids.
+// What the bidder sends. `amountCents` is their maximum: the system bids for them, one step at a time, only as far as needed to
+// stay ahead. The key makes a retry harmless: the same key never places two bids.
 export const placeBidSchema = z.object({
   amountCents: z
     .number({ invalid_type_error: "Enter your bid" })
@@ -65,7 +66,7 @@ export const BID_REFUSALS = [
   "NOT_FOUND",
   "NOT_LIVE",
   "OWN_LISTING",
-  "ALREADY_HIGHEST",
+  "MAX_NOT_HIGHER",
   "TOO_LOW",
   "RATE_LIMITED",
   "BLOCKED",
@@ -76,7 +77,7 @@ export const BID_REFUSAL_MESSAGES: Record<BidRefusal, string> = {
   NOT_FOUND: "This auction does not exist.",
   NOT_LIVE: "This auction is not open for bids.",
   OWN_LISTING: "You cannot bid on your own listing.",
-  ALREADY_HIGHEST: "You already have the highest bid.",
+  MAX_NOT_HIGHER: "Your new maximum must be higher than your current maximum.",
   TOO_LOW: "Your bid is below the minimum.",
   RATE_LIMITED: "You are bidding too fast. Wait a moment and try again.",
   BLOCKED: "You cannot bid because you did not pay for auctions you won.",

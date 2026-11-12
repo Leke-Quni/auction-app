@@ -89,12 +89,12 @@ describe("search index follows bids", () => {
     const listing = await makeListing(90_000);
     await bid(bidders[0], listing.id, 1000).expect(201);
     await settle();
-    await bid(bidders[1], listing.id, 1200).expect(201); // extends again, inside the window
+    await bid(bidders[1], listing.id, 1200).expect(201); // extends again, inside the window (a takeover is one step above the old maximum: 11.00)
     await settle();
     const mine = updates.filter((u) => u.id === listing.id);
     expect(mine).toHaveLength(2);
     const row = await prisma.listing.findUniqueOrThrow({ where: { id: listing.id } });
-    expect(mine[1].fields).toMatchObject({ price_cents: 1200, bid_count: 2, ends_at: Math.floor(row.endsAt!.getTime() / 1000) });
+    expect(mine[1].fields).toMatchObject({ price_cents: 1100, bid_count: 2, ends_at: Math.floor(row.endsAt!.getTime() / 1000) });
     expect(mine[1].fields.ends_at).toBeGreaterThan(Math.floor(Date.now() / 1000) + 100);
   });
 });

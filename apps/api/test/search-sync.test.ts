@@ -7,6 +7,10 @@ import type { LiveFields, SearchIndex } from "../src/search/search-index";
 const endsAt = new Date("2026-11-05T10:00:00Z");
 const result = (over: Partial<BidResult["listing"]> = {}, extended = false, replayed = false): BidResult => ({
   bid: { id: "b", amountCents: 1000, createdAt: new Date(), bidder: { id: "u1", username: "anna" } },
+  rows: [{ id: "b", amountCents: 1000, createdAt: new Date(), bidder: { id: "u1", username: "anna" } }],
+  outcome: "LEADING",
+  yourMaxCents: 1000,
+  requestedBy: "u1",
   listing: {
     id: "L1",
     currentBidCents: 1000,
@@ -16,6 +20,7 @@ const result = (over: Partial<BidResult["listing"]> = {}, extended = false, repl
     finalChance: false,
     minimumNextBidCents: 1100,
     highBidderId: "u1",
+    highBidder: { id: "u1", username: "anna" },
     ...over,
   },
   extended,

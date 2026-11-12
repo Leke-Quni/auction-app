@@ -56,8 +56,8 @@ describe("placeBidAction", () => {
   it("says in words why a bid was refused, and passes the minimum on", async () => {
     authedApiFetch.mockResolvedValue(reply(422, { code: "TOO_LOW", message: "x", minimumNextBidCents: 1500 }));
     expect(await placeBidAction("L1", 1000, "key-123456")).toEqual({ error: "Your bid is below the minimum of €15.00.", minimumNextBidCents: 1500 });
-    authedApiFetch.mockResolvedValue(reply(409, { code: "ALREADY_HIGHEST", message: "x" }));
-    expect((await placeBidAction("L1", 2000, "key-654321")).error).toBe("You already have the highest bid.");
+    authedApiFetch.mockResolvedValue(reply(409, { code: "MAX_NOT_HIGHER", message: "x" }));
+    expect((await placeBidAction("L1", 2000, "key-654321")).error).toBe("Your new maximum must be higher than your current maximum.");
     authedApiFetch.mockResolvedValue(reply(409, { code: "NOT_LIVE", message: "x" }));
     expect((await placeBidAction("L1", 2000, "key-111111")).error).toBe("This auction is not open for bids.");
     authedApiFetch.mockResolvedValue(reply(400, { message: "Enter your bid" }));
