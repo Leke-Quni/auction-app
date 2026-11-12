@@ -5,6 +5,8 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
 // How long the winner has to pay (also the runner-up, when the item is offered on).
 export const PAYMENT_WINDOW_HOURS = 48;
+// How long a banned seller's unpaid orders stay paused before they are cancelled.
+export const SUSPENDED_ORDER_DAYS = 7;
 // The buyer is reminded once, when this many hours are left to pay.
 export const PAYMENT_REMINDER_HOURS = 24;
 
@@ -28,13 +30,14 @@ export function platformFeeCents(amountCents: number, percent: number, capCents?
 export const SHIPMENT_STATUSES = ["LABEL_CREATED", "IN_TRANSIT", "DELIVERED"] as const;
 export type ShipmentStatus = (typeof SHIPMENT_STATUSES)[number];
 
-export const ORDER_REFUSALS = ["NOT_FOUND", "NOT_BUYER", "NOT_PAYABLE", "PAYMENT_WINDOW_CLOSED", "SHIPPING_REQUIRED", "SHIPPING_OPTION_UNAVAILABLE", "NOT_PAID", "NOT_SELLER", "ALREADY_SHIPPED", "NOT_DELIVERED", "ALREADY_RATED"] as const;
+export const ORDER_REFUSALS = ["NOT_FOUND", "NOT_BUYER", "NOT_PAYABLE", "SELLER_SUSPENDED", "PAYMENT_WINDOW_CLOSED", "SHIPPING_REQUIRED", "SHIPPING_OPTION_UNAVAILABLE", "NOT_PAID", "NOT_SELLER", "ALREADY_SHIPPED", "NOT_DELIVERED", "ALREADY_RATED"] as const;
 export type OrderRefusal = (typeof ORDER_REFUSALS)[number];
 
 export const ORDER_REFUSAL_MESSAGES: Record<OrderRefusal, string> = {
   NOT_FOUND: "That order does not exist.",
   NOT_BUYER: "Only the buyer can pay for this order.",
   NOT_PAYABLE: "This order is not waiting for payment.",
+  SELLER_SUSPENDED: "This order is paused because the seller's account was suspended. Nothing is needed from you now; the time to pay starts again if it goes ahead, and it is cancelled if the suspension lasts 7 days.",
   PAYMENT_WINDOW_CLOSED: "The time to pay for this order has run out.",
   SHIPPING_REQUIRED: "Enter the delivery address and choose a delivery option before paying.",
   SHIPPING_OPTION_UNAVAILABLE: "That delivery option is no longer available. Choose another.",
@@ -56,6 +59,9 @@ export interface OrderView {
   payBy: string;
   paidAt: string | null;
   viewer: "buyer" | "seller";
+  // True while the seller's account is banned and the order is waiting for payment or for its payout: it cannot be paid or
+  // paid out, and nothing expires, until the ban is lifted.
+  sellerSuspended?: boolean;
   buyer: { id: string; username: string };
   seller: { id: string; username: string };
   // Delivery details: null until the buyer has chosen them. The total is the price plus shipping.

@@ -1,4 +1,4 @@
-import { isLowRating } from "@auction/shared";
+import { isLowRating, displayUsername, isDeletedUsername } from "@auction/shared";
 import Link from "next/link";
 import { Stars } from "./stars";
 
@@ -9,9 +9,13 @@ export function SellerInfo({ username, average, count, isOwner }: { username: st
     <div className="mt-3 space-y-1 border border-line bg-surface p-2">
       <p>
         <span className="text-xs text-muted">Seller </span>
-        <Link href={`/sellers/${username}`} className="font-bold text-brand underline">
-          {username}
-        </Link>
+        {isDeletedUsername(username) ? (
+          <span className="font-bold">{displayUsername(username)}</span>
+        ) : (
+          <Link href={`/sellers/${username}`} className="font-bold text-brand underline">
+            {username}
+          </Link>
+        )}
       </p>
       <p>
         {average === null ? (

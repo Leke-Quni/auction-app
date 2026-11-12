@@ -1,3 +1,4 @@
+import { hasStake, pageExpired } from "./listing-retention";
 import {
   createListingSchema,
   extensionCeiling,
@@ -171,6 +172,8 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
     const listing = await this.prisma.listing.findUnique({ where: { id }, include: listingInclude });
     // A draft is private: anyone but the seller gets the same answer as for a listing that does not exist.
     if (!listing || (listing.status === "DRAFT" && listing.sellerId !== viewerId)) throw new NotFoundException();
+    // An auction that ended long ago is only for the people it concerned.
+    if (pageExpired(listing.endsAt) && !(await hasStake(this.prisma, listing, viewerId))) throw new NotFoundException();
     const dto = toDto(listing, new Date(), listing.sellerId === viewerId);
     // How many watch it, and, for a signed-in viewer, whether they are blocked from bidding (two strikes), so the page says
     // so instead of offering a bid box, and whether they are watching it. One round trip, not one after another.
@@ -200,7 +203,7 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
         ? [{ startsAt: "asc" as const }, { id: "asc" as const }]
         : section === "endingSoon"
           ? [{ endsAt: "asc" as const }, { id: "asc" as const }]
-          : [{ publishedAt: "desc" as const }, { id: "desc" as const }];
+          : [{ bidCount: "desc" as const }, { endsAt: "asc" as const }, { id: "asc" as const }];
     const [items, total] = await Promise.all([
       this.prisma.listing.findMany({
         where,

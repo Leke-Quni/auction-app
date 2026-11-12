@@ -56,14 +56,16 @@ describe("ImageUploader", () => {
     expect(screen.getByText("Photos (3/8)")).toBeTruthy();
   });
 
-  it("removes and reorders in the hidden field", async () => {
+  it("reorders by dragging and removes, in the hidden field", async () => {
     const { hidden } = setup([blobUrl("a"), blobUrl("b"), blobUrl("c")]);
-    expect((screen.getByRole("button", { name: "Move photo 1 earlier" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Move photo 3 later" }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Move photo 2 earlier" }));
-    await waitFor(() => expect(hidden()).toEqual([blobUrl("b"), blobUrl("a"), blobUrl("c")]));
-    fireEvent.click(screen.getByRole("button", { name: "Remove photo 1" }));
-    await waitFor(() => expect(hidden()).toEqual([blobUrl("a"), blobUrl("c")]));
+    const items = screen.getAllByRole("listitem");
+    const data = { setData: () => undefined, effectAllowed: "" };
+    fireEvent.dragStart(items[2], { dataTransfer: data });
+    fireEvent.dragOver(items[0], { dataTransfer: data });
+    fireEvent.drop(items[0], { dataTransfer: data });
+    await waitFor(() => expect(hidden()).toEqual([blobUrl("c"), blobUrl("a"), blobUrl("b")]));
+    fireEvent.click(screen.getByRole("button", { name: "Remove photo 2" }));
+    await waitFor(() => expect(hidden()).toEqual([blobUrl("c"), blobUrl("b")]));
   });
 
   it("refuses wrong file types and files over 5 MB without uploading them", async () => {

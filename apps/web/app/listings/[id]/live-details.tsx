@@ -1,6 +1,6 @@
 "use client";
 
-import { CONDITION_LABELS, formatDuration, formatEur } from "@auction/shared";
+import { CONDITION_LABELS, formatDuration, formatEur, displayUsername } from "@auction/shared";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -37,7 +37,7 @@ const RESULT_CHECK_LIMIT = 30;
 function resultText(listing: DetailsListing, viewerId?: string, topBidCents?: number | null): string {
   if (listing.removed && listing.outcome) return "Ended by a moderator: no sale";
   if (listing.outcome === "SOLD" && listing.winner && listing.finalPriceCents != null) {
-    return `Sold for ${formatEur(listing.finalPriceCents)} to ${listing.winner.id === viewerId ? `${listing.winner.username} (you)` : listing.winner.username}`;
+    return `Sold for ${formatEur(listing.finalPriceCents)} to ${listing.winner.id === viewerId ? `${displayUsername(listing.winner.username)} (you)` : displayUsername(listing.winner.username)}`;
   }
   if (listing.outcome === "NO_SALE") {
     // Either the top bid never reached the reserve, or the buyers it was offered to did not pay.
@@ -135,7 +135,7 @@ export function LiveDetails({ listing, openMode, viewerId, order }: { listing: D
     ...(live.bidCount > 0 ? ([["Starting price", formatEur(listing.startingPriceCents)]] as [string, React.ReactNode][]) : []),
     ["Bids", String(live.bidCount)],
     ...(live.highBidder
-      ? ([["High bidder", live.highBidder.id === viewerId ? `${live.highBidder.username} (you)` : live.highBidder.username]] as [string, React.ReactNode][])
+      ? ([["High bidder", live.highBidder.id === viewerId ? `${displayUsername(live.highBidder.username)} (you)` : displayUsername(live.highBidder.username)]] as [string, React.ReactNode][])
       : []),
     ...(isLive ? ([["Minimum next bid", formatEur(live.minimumNextBidCents)]] as [string, React.ReactNode][]) : []),
     ["Reserve price", listing.reservePriceCents == null ? "None" : `${formatEur(listing.reservePriceCents)}${reserveNote}`],

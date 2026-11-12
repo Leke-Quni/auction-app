@@ -73,7 +73,7 @@ describe("GET /search", () => {
     expect(res.body.items[1]).toMatchObject({ phase: "upcoming", images: [] });
   });
 
-  it("passes the filters through, and picks best match with text and newest without", async () => {
+  it("passes the filters through, and picks best match, with or without text", async () => {
     await api().get("/search?q=watch&category=art&condition=FAIR&minPriceCents=100&maxPriceCents=900&endingSoon=true&page=2&pageSize=10").expect(200);
     expect(lastParams).toMatchObject({
       q: "watch",
@@ -87,7 +87,7 @@ describe("GET /search", () => {
       pageSize: 10,
     });
     await api().get("/search").expect(200);
-    expect(lastParams).toMatchObject({ q: "", sort: "newest", endingSoon: false });
+    expect(lastParams).toMatchObject({ q: "", sort: "relevance", endingSoon: false });
     await api().get("/search?sort=priceAsc").expect(200);
     expect(lastParams?.sort).toBe("priceAsc");
   });

@@ -1,10 +1,16 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const { push, router } = vi.hoisted(() => {
+  const push = vi.fn();
+  return { push, router: { push } };
+});
+vi.mock("next/navigation", () => ({ useRouter: () => router }));
 vi.mock("./actions", () => ({ saveListingAction: vi.fn(async () => ({})) }));
 
-import { ListingForm, type FormListing } from "./listing-form";
+import { saveListingAction } from "./actions";
+import { ListingForm, flagIncompleteForPublish, type FormListing } from "./listing-form";
 
 afterEach(cleanup);
 
@@ -39,7 +45,7 @@ describe("ListingForm", () => {
 
   it("fills in a draft, showing prices in euros and an empty reserve", () => {
     render(<ListingForm categories={categories} listing={listing} />);
-    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Saved" })).toBeTruthy();
     expect(field("listingId")?.value).toBe("L1");
     expect(field("title")?.value).toBe("Vintage wristwatch");
     expect(field("categoryId")?.value).toBe("c2");
@@ -47,6 +53,125 @@ describe("ListingForm", () => {
     expect(field("startingPrice")?.value).toBe("25.50");
     expect(field("reservePrice")?.value).toBe("");
     expect(field("durationDays")?.value).toBe("3");
+  });
+
+  it("locks Save on an existing listing until something is edited", () => {
+    render(<ListingForm categories={categories} listing={listing} />);
+    const save = screen.getByRole("button", { name: "Saved" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.input(field("title")!, { target: { value: "Vintage wristwatch, boxed" } });
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    expect(save.disabled).toBe(false);
+  });
+
+  it("does not submit without a photo; it marks the photo section and scrolls to it", () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    render(<ListingForm categories={categories} listing={listing} photos={<input type="hidden" name="photos" value="[]" />} />);
+    const form = document.getElementById("listing-form")!;
+    expect(fireEvent.submit(form)).toBe(false);
+    expect(document.querySelector("[data-invalid]")?.contains(field("photos"))).toBe(true);
+    expect(scroll).toHaveBeenCalled();
+  });
+
+  it("when saving, marks only the first empty required field, the title here, and leaves the rest alone", () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    render(<ListingForm categories={categories} />);
+    (document.getElementById("listing-form") as HTMLFormElement).requestSubmit();
+    expect(field("title")?.getAttribute("aria-invalid")).toBe("true");
+    expect(document.activeElement).toBe(field("title"));
+    for (const name of ["categoryId", "condition", "description", "startingPrice"]) {
+      expect(field(name)?.getAttribute("aria-invalid")).toBeNull();
+    }
+    fireEvent.input(field("title")!, { target: { value: "Vintage wristwatch" } });
+    expect(field("title")?.getAttribute("aria-invalid")).toBeNull();
+  });
+
+  it("says what is wrong under the field: too short, then updates as the text grows, and goes when fixed", () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    render(<ListingForm categories={categories} listing={listing} />);
+    fireEvent.input(field("description")!, { target: { value: "Short" } });
+    act(() => (document.getElementById("listing-form") as HTMLFormElement).requestSubmit());
+    expect(screen.getByText("Write at least 10 characters (you have 5).")).toBeTruthy();
+    fireEvent.input(field("description")!, { target: { value: "Short one" } });
+    expect(screen.getByText("Write at least 10 characters (you have 9).")).toBeTruthy();
+    fireEvent.input(field("description")!, { target: { value: "Long enough now" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("does not count spaces and blank lines as writing: they are refused like an empty field", () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    render(<ListingForm categories={categories} listing={listing} />);
+    fireEvent.input(field("description")!, { target: { value: "\n\n\n\n\n\n\n\n\n\n\n\n" } });
+    act(() => (document.getElementById("listing-form") as HTMLFormElement).requestSubmit());
+    expect(screen.getByRole("alert").textContent).toBe("Fill in this field.");
+    expect(field("description")?.getAttribute("aria-invalid")).toBe("true");
+    fireEvent.input(field("description")!, { target: { value: "  abc  " } });
+    expect(screen.getByRole("alert").textContent).toBe("Write at least 10 characters (you have 3).");
+  });
+
+  it("says a required field is empty", () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    render(<ListingForm categories={categories} />);
+    act(() => (document.getElementById("listing-form") as HTMLFormElement).requestSubmit());
+    expect(screen.getByRole("alert").textContent).toBe("Fill in this field.");
+  });
+
+  it("takes the seller to the first empty pickup field, with a message, when the address is only half filled in", () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    render(<ListingForm categories={categories} listing={listing} />);
+    fireEvent.input(field("pickup_city")!, { target: { value: "Pristina" } });
+    act(() => (document.getElementById("listing-form") as HTMLFormElement).requestSubmit());
+    expect(field("pickup_name")?.getAttribute("aria-invalid")).toBe("true");
+    expect(document.activeElement).toBe(field("pickup_name"));
+    expect(scroll).toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toBe("Fill in this field.");
+    expect(field("pickup_name")?.closest("label")?.contains(screen.getByRole("alert"))).toBe(true);
+    fireEvent.input(field("pickup_name")!, { target: { value: "Ana" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("lets a draft be saved with the whole pickup address empty", () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    render(<ListingForm categories={categories} listing={listing} />);
+    fireEvent.input(field("title")!, { target: { value: "Vintage wristwatch, boxed" } });
+    act(() => (document.getElementById("listing-form") as HTMLFormElement).requestSubmit());
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("flags the empty pickup fields for publishing with a red border and moves to the first", () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    render(<ListingForm categories={categories} listing={listing} />);
+    expect(flagIncompleteForPublish()).toBe(true);
+    expect(field("pickup_name")?.getAttribute("aria-invalid")).toBe("true");
+    expect(document.activeElement).toBe(field("pickup_name"));
+    fireEvent.input(field("pickup_name")!, { target: { value: "Ana" } });
+    expect(field("pickup_name")?.getAttribute("aria-invalid")).toBeNull();
+    expect(field("pickup_line1")?.getAttribute("aria-invalid")).toBe("true");
+  });
+
+  it("shows the new duration once the saved listing arrives with a different one", () => {
+    const { rerender } = render(<ListingForm categories={categories} listing={{ ...listing, durationDays: 7 }} />);
+    expect(field("durationDays")?.value).toBe("7");
+    rerender(<ListingForm categories={categories} listing={{ ...listing, durationDays: 1 }} />);
+    expect(field("durationDays")?.value).toBe("1");
+  });
+
+  it("says it saved, then a moment later goes to the listing page when the save asks for it", async () => {
+    vi.mocked(saveListingAction).mockResolvedValueOnce({ ok: "Saved.", redirectTo: "/listings/L1" });
+    render(
+      <>
+        <ListingForm categories={categories} listing={{ ...listing, status: "PUBLISHED" }} externalSave />
+        <div id="listing-form-status" />
+      </>,
+    );
+    fireEvent.input(field("description")!, { target: { value: "A new, longer description" } });
+    act(() => (document.getElementById("listing-form") as HTMLFormElement).requestSubmit());
+    await waitFor(() => expect(screen.getByText("Saved. Taking you back to the listing…")).toBeTruthy());
+    expect(push).not.toHaveBeenCalled();
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/listings/L1"), { timeout: 3000 });
   });
 
   it("shows an existing reserve price", () => {

@@ -11,6 +11,7 @@ import { NotificationBell } from "./notification-bell";
 import { Notifications } from "./notifications";
 import { SearchBox } from "./search-box";
 import { SignedOutNotice } from "./signed-out-notice";
+import { THEME_SCRIPT, ThemeSwitch } from "./theme-switch";
 import { UserMenu } from "./user-menu";
 
 const font = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-body", display: "swap" });
@@ -37,7 +38,10 @@ async function HeaderBell() {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
   return (
-    <html lang="en" className={font.variable}>
+    <html lang="en" className={font.variable} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body className="flex min-h-screen flex-col">
         <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:bg-surface focus:px-3 focus:py-2 focus:font-bold focus:text-brand">
           Skip to content
@@ -50,7 +54,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <Suspense fallback={<div className="flex-1" />}>
             <HeaderSearch />
           </Suspense>
-          <div className="ml-auto flex items-center justify-end gap-4 whitespace-nowrap sm:col-start-3">
+          <div className="ml-auto flex items-center justify-end gap-4 whitespace-nowrap max-sm:gap-2 sm:col-start-3">
+            <ThemeSwitch />
             {session ? (
               <>
                 <Suspense fallback={<div className="h-8 w-8" />}>

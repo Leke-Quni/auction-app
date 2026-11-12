@@ -3,7 +3,7 @@
 import { CALLING_CODES, SHIPPING_COUNTRIES, splitPhone, type ShippingAddress, type ShippingCountry } from "@auction/shared";
 import { useState } from "react";
 
-const input = "mt-1 w-full border border-field bg-surface p-1.5 text-sm";
+const input = "mt-1 w-full border border-field bg-surface p-1.5 text-sm aria-invalid:border-urgent aria-invalid:outline aria-invalid:outline-2 aria-invalid:outline-urgent";
 const label = "text-xs text-muted";
 
 // A country's flag as an emoji, built from its two-letter code.
@@ -18,7 +18,16 @@ export type AddressDefaults = Partial<ShippingAddress> | null | undefined;
 // The phone is a country-code selector (+1 to start, then it follows the chosen country until the person picks a code
 // themselves; each option is a flag and a code) and a number box; together they are sent as one international number in `${prefix}phone`.
 // `required` is left off where a draft may be saved half-filled; the API checks everything it needs.
-export function AddressFields({ prefix = "", defaults, required = false, nameLabel = "Full name" }: { prefix?: string; defaults?: AddressDefaults; required?: boolean; nameLabel?: string }) {
+// `markRequired` tags the fields that must be filled before publishing, so the form can point at the empty ones.
+export function AddressFields({ prefix = "", defaults, required = false, markRequired = false, nameLabel = "Full name", error = null }: { prefix?: string; defaults?: AddressDefaults; required?: boolean; markRequired?: boolean; nameLabel?: string; error?: { name: string; message: string } | null }) {
+  const publish = markRequired ? { "data-publish-required": "" } : {};
+  // The line under a field when the form says what is wrong with it (`error.name` is the field's name, with the prefix).
+  const problem = (field: string) =>
+    error?.name === `${prefix}${field}` && (
+      <span role="alert" className="mt-0.5 block text-xs text-urgent">
+        {error.message}
+      </span>
+    );
   const [country, setCountry] = useState<string>(defaults?.country ?? "");
   const saved = defaults?.phone ? splitPhone(defaults.phone) : null;
   const [code, setCode] = useState(saved?.code ?? CALLING_CODES[(defaults?.country ?? "") as ShippingCountry] ?? CALLING_CODES.US);
@@ -30,11 +39,13 @@ export function AddressFields({ prefix = "", defaults, required = false, nameLab
     <div className="space-y-2">
       <label className="block">
         <span className={label}>{nameLabel}</span>
-        <input name={`${prefix}name`} required={required} defaultValue={defaults?.name} className={input} autoComplete="name" />
+        <input name={`${prefix}name`} required={required} {...publish} defaultValue={defaults?.name} className={input} autoComplete="name" />
+        {problem("name")}
       </label>
       <label className="block">
         <span className={label}>Street address</span>
-        <input name={`${prefix}line1`} required={required} defaultValue={defaults?.line1} className={input} autoComplete="address-line1" />
+        <input name={`${prefix}line1`} required={required} {...publish} defaultValue={defaults?.line1} className={input} autoComplete="address-line1" />
+        {problem("line1")}
       </label>
       <label className="block">
         <span className={label}>Apartment, floor (optional)</span>
@@ -43,17 +54,20 @@ export function AddressFields({ prefix = "", defaults, required = false, nameLab
       <div className="grid grid-cols-3 gap-2">
         <label className="block">
           <span className={label}>City</span>
-          <input name={`${prefix}city`} required={required} defaultValue={defaults?.city} className={input} autoComplete="address-level2" />
+          <input name={`${prefix}city`} required={required} {...publish} defaultValue={defaults?.city} className={input} autoComplete="address-level2" />
+          {problem("city")}
         </label>
         <label className="block">
           <span className={label}>Postcode</span>
-          <input name={`${prefix}postcode`} required={required} defaultValue={defaults?.postcode} className={input} autoComplete="postal-code" />
+          <input name={`${prefix}postcode`} required={required} {...publish} defaultValue={defaults?.postcode} className={input} autoComplete="postal-code" />
+          {problem("postcode")}
         </label>
         <label className="block">
           <span className={label}>Country</span>
           <select
             name={`${prefix}country`}
             required={required}
+            {...publish}
             value={country}
             onChange={(e) => {
               setCountry(e.target.value);
@@ -70,6 +84,7 @@ export function AddressFields({ prefix = "", defaults, required = false, nameLab
               </option>
             ))}
           </select>
+          {problem("country")}
         </label>
       </div>
       <div>
@@ -96,11 +111,14 @@ export function AddressFields({ prefix = "", defaults, required = false, nameLab
             value={national}
             onChange={(e) => setNational(e.target.value)}
             required={required}
+            {...publish}
+            data-field-name={`${prefix}phone`}
             inputMode="tel"
             autoComplete="tel-national"
             className={input}
           />
         </div>
+        {problem("phone")}
         <input type="hidden" name={`${prefix}phone`} value={code && digits ? `+${code}${digits}` : ""} />
       </div>
     </div>

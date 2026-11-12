@@ -1,3 +1,4 @@
+import { WATCHLIST_ENDED_DAYS } from "@auction/shared";
 import { Prisma as PrismaNamespace } from "@auction/db";
 import { ForbiddenException, HttpException, HttpStatus, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
@@ -62,7 +63,8 @@ export class WatchlistService {
   async list(userId: string) {
     const now = new Date();
     const rows = await this.prisma.watch.findMany({
-      where: { userId },
+      // An auction that ended more than WATCHLIST_ENDED_DAYS ago drops off the list.
+      where: { userId, listing: { endsAt: { gt: new Date(now.getTime() - WATCHLIST_ENDED_DAYS * DAY_MS) } } },
       orderBy: { createdAt: "desc" },
       take: WATCHLIST_LIMIT,
       include: { listing: { include: listingCardInclude } },

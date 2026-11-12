@@ -1,4 +1,4 @@
-import { formatEur } from "@auction/shared";
+import { formatEur, displayUsername } from "@auction/shared";
 import { LocalTime } from "@/app/local-time";
 
 export interface BidRow {
@@ -29,7 +29,7 @@ export function BidHistory({ bids, total, viewerId }: { bids: BidRow[]; total: n
             {bids.map((bid, i) => (
               <tr key={bid.id} className={i === 0 ? "bg-brand-soft font-bold" : ""}>
                 <td className="border-t border-line px-3 py-1">
-                  {bid.bidder.username}
+                  {displayUsername(bid.bidder.username)}
                   {bid.bidder.id === viewerId && <span className="font-normal text-muted"> (you)</span>}
                 </td>
                 <td className="border-t border-line px-3 py-1">{formatEur(bid.amountCents)}</td>

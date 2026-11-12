@@ -1,4 +1,4 @@
-import { formatEur, type OrderView, type ShippingAddress } from "@auction/shared";
+import { formatEur, type OrderView, type ShippingAddress, displayUsername, isDeletedUsername } from "@auction/shared";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
@@ -40,7 +40,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
         </p>
       )}
       <OrderDetails order={order} />
-      {order.viewer === "buyer" && order.status === "PAID" && (
+      {order.viewer === "buyer" && order.status === "PAID" && !isDeletedUsername(order.seller.username) && (
         <p>
           <Link href={`/sellers/${order.seller.username}`} className="text-brand underline">
             See {order.seller.username}&apos;s profile, ratings and other listings
@@ -57,7 +57,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
         </div>
       )}
       {order.viewer === "buyer" && order.shipment?.status === "DELIVERED" && !order.rating && (
-        <RatingForm orderId={order.id} sellerName={order.seller.username} />
+        <RatingForm orderId={order.id} sellerName={displayUsername(order.seller.username)} />
       )}
       {order.viewer === "seller" && order.payout?.status === "WAITING_FOR_ACCOUNT" && (
         <div className="space-y-2 border border-line bg-surface p-3">
@@ -67,7 +67,11 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
       )}
       {order.status === "AWAITING_PAYMENT" &&
         (order.viewer === "buyer" ? (
-          order.shipping && order.totalCents !== null ? (
+          order.sellerSuspended ? (
+            <p role="status" className="border border-l-4 border-time-warn border-l-time-warn bg-warn-soft p-3 font-bold">
+              This order is paused because the seller&apos;s account was suspended. You do not need to pay now and nothing will be counted against you. If the suspension is lifted, the time to pay starts again; if it lasts 7 days, the order is cancelled and we will tell you.
+            </p>
+          ) : order.shipping && order.totalCents !== null ? (
             <div className="space-y-2 border border-line bg-surface p-3">
               <p>
                 You won this auction. Pay {formatEur(order.totalCents)} (price and delivery) by card before the time above, or the item may be offered to the next bidder.

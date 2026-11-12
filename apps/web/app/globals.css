@@ -55,9 +55,11 @@
   --color-ring: var(--color-brand);
 }
 
-/* Dark mode follows the device setting; there is no switch. Same token names, other values (2026-11-11). */
+/* Dark mode follows the device unless the visitor chose Light or Dark with the header switch (`data-theme` on <html>, set before the
+   page paints; see theme-switch.tsx). Same token names, other values (2026-11-11). The two blocks below must hold the same
+   tokens; theme-tokens.test.ts checks that. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     color-scheme: dark;
     --color-brand: #2dd4bf;
     --color-brand-dark: #5eead4;
@@ -92,6 +94,44 @@
     --color-brand-tint: #0f2e2a;
     --color-brand-chip: #134e4a;
   }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-brand: #2dd4bf;
+  --color-brand-dark: #5eead4;
+  --color-on-brand: #04201c;
+  --color-surface: #151c25;
+  --color-page: #0e1319;
+  --color-ink: #e8edf2;
+  --color-muted: #9aa7b4;
+  --color-line: #263140;
+  --color-field: #52637a;
+  --color-head: #1b2430;
+  --color-head-hover: #222d3b;
+  --color-soft: #18202a;
+  --color-chip: #1d2733;
+  --color-sunken: #243040;
+  --color-line-soft: #263140;
+  --color-subtle: #b3bec9;
+  --color-faint: #8794a1;
+  --color-placeholder: #7a8796;
+  --color-urgent: #f87171;
+  --color-time-ok: #4ade80;
+  --color-time-warn: #fbbf24;
+  --color-star: #fbbf24;
+  --color-danger: #f87171;
+  --color-danger-hover: #4a1f1f;
+  --color-danger-line: #6b2a2a;
+  --color-danger-soft: #301515;
+  --color-danger-faint: #271414;
+  --color-warn-soft: #2a2210;
+  --color-brand-soft: #0f2a27;
+  --color-brand-faint: #0d2623;
+  --color-brand-tint: #0f2e2a;
+  --color-brand-chip: #134e4a;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 /* Rounded corners (restyle step 2). Cards and controls get their radius here so one place sets it; a rounded-* class on an

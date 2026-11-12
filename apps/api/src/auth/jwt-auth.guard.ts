@@ -1,5 +1,6 @@
 import { USER_ROLES } from "@auction/shared";
-import { CanActivate, ExecutionContext, ForbiddenException, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
+import { CanActivate, ExecutionContext, ForbiddenException, Inject, Injectable, SetMetadata, UnauthorizedException } from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
 import { jwtVerify } from "jose";
 import { z } from "zod";
 import { authSecret } from "../config";
@@ -30,7 +31,12 @@ export async function verifyToken(token: string): Promise<{ id: string; sessionV
   }
 }
 
-export type TokenUser = { status: "ok"; user: AuthUser } | { status: "banned" } | { status: "invalid" };
+export type TokenUser = { status: "ok"; user: AuthUser } | { status: "closing"; user: AuthUser } | { status: "banned" } | { status: "invalid" };
+
+// A closed account (its owner asked to delete it) is refused everywhere except the routes marked with this: looking at the
+// deletion and restoring the account.
+const ALLOW_CLOSING = "allowClosing";
+export const AllowClosing = () => SetMetadata(ALLOW_CLOSING, true);
 
 /**
  * A token is only proof of who is asking (and that the password has not changed since). What that person may do is read from the database on every request, so a demoted
@@ -39,18 +45,22 @@ export type TokenUser = { status: "ok"; user: AuthUser } | { status: "banned" } 
 export async function loadTokenUser(prisma: Prisma, token: string): Promise<TokenUser> {
   const verified = await verifyToken(token);
   if (!verified) return { status: "invalid" };
-  const user = await prisma.user.findUnique({ where: { id: verified.id }, select: { id: true, email: true, role: true, isSuperAdmin: true, bannedAt: true, sessionVersion: true } });
+  const user = await prisma.user.findUnique({ where: { id: verified.id }, select: { id: true, email: true, role: true, isSuperAdmin: true, bannedAt: true, sessionVersion: true, deletionRequestedAt: true, deletedAt: true } });
   // A password change or reset ends every session made before it.
-  if (!user || user.sessionVersion !== verified.sessionVersion) return { status: "invalid" };
+  if (!user || user.sessionVersion !== verified.sessionVersion || user.deletedAt) return { status: "invalid" };
   if (user.bannedAt) return { status: "banned" };
-  return { status: "ok", user: { id: user.id, email: user.email, role: user.role, isSuperAdmin: user.isSuperAdmin } };
+  const authUser = { id: user.id, email: user.email, role: user.role, isSuperAdmin: user.isSuperAdmin };
+  return user.deletionRequestedAt ? { status: "closing", user: authUser } : { status: "ok", user: authUser };
 }
 
 const bearer = (header: string | undefined) => (header?.startsWith("Bearer ") ? header.slice(7) : null);
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(@Inject(PRISMA) private readonly prisma: Prisma) {}
+  constructor(
+    @Inject(PRISMA) private readonly prisma: Prisma,
+    private readonly reflector: Reflector,
+  ) {}
 
   async canActivate(context: ExecutionContext) {
     const req = context.switchToHttp().getRequest();
@@ -58,12 +68,15 @@ export class JwtAuthGuard implements CanActivate {
     const result = token ? await loadTokenUser(this.prisma, token) : ({ status: "invalid" } as const);
     if (result.status === "invalid") throw new UnauthorizedException();
     if (result.status === "banned") throw new ForbiddenException({ code: "BANNED", message: "This account has been suspended." });
+    if (result.status === "closing" && !this.reflector.getAllAndOverride<boolean>(ALLOW_CLOSING, [context.getHandler(), context.getClass()])) {
+      throw new ForbiddenException({ code: "ACCOUNT_CLOSING", message: "This account is being deleted. You can restore it until it is gone for good." });
+    }
     req.user = result.user;
     return true;
   }
 }
 
-/** For public routes that show more to a signed-in owner: sets `req.user` when the token is valid, never rejects. A banned account is treated as signed out. */
+/** For public routes that show more to a signed-in owner: sets `req.user` when the token is valid, never rejects. A banned or closed account is treated as signed out. */
 @Injectable()
 export class OptionalJwtAuthGuard implements CanActivate {
   constructor(@Inject(PRISMA) private readonly prisma: Prisma) {}

@@ -22,6 +22,12 @@ const order = (over: Partial<OrderView> = {}): OrderView => ({
 const shipment = (status: "LABEL_CREATED" | "IN_TRANSIT" | "DELIVERED") => ({ status, trackingCode: "F", shippedAt: "2026-11-05T11:00:00.000Z", inTransitAt: null, deliveredAt: null });
 
 describe("orderStatusLabel", () => {
+  it("says an unpaid order is paused, not 'Pay now', while the seller is banned", () => {
+    const held = order({ status: "AWAITING_PAYMENT", sellerSuspended: true });
+    expect(orderStatusLabel(held)).toEqual({ label: "Paused: the seller's account was suspended", action: false });
+    expect(orderStatusLabel({ ...held, sellerSuspended: false }).label).toBe("Pay now");
+  });
+
   it("tells the buyer to pay, and the seller that they are waiting", () => {
     expect(orderStatusLabel(order({ status: "AWAITING_PAYMENT" }))).toEqual({ label: "Pay now", action: true });
     expect(orderStatusLabel(order({ status: "AWAITING_PAYMENT", viewer: "seller" }))).toEqual({ label: "Waiting for the buyer to pay", action: false });

@@ -1,4 +1,4 @@
-import { formatEur, MAX_PAYMENT_ROUNDS, MAX_STRIKES, type ShippingAddress } from "@auction/shared";
+import { formatEur, MAX_PAYMENT_ROUNDS, MAX_STRIKES, SUSPENDED_ORDER_DAYS, type ShippingAddress } from "@auction/shared";
 import { webUrl } from "../config";
 import type { Prisma } from "../db/db.module";
 import { addressLines, deliveryOf, invoiceDataOf, renderInvoice } from "../orders/invoice";
@@ -13,10 +13,13 @@ const sortedKeys = (value: unknown) => Object.fromEntries(Object.entries((value 
 
 // Returns normally when the email was sent or is no longer needed; throws when it should be tried again.
 export async function sendOutboxMail(ctx: Ctx, userId: string, listingId: string, kind: OutboxKind) {
+  // Nothing is sent to an account that is being deleted or is gone (the row is dropped as no longer needed).
+  if (await ctx.prisma.user.findFirst({ where: { id: userId, OR: [{ deletionRequestedAt: { not: null } }, { deletedAt: { not: null } }] }, select: { id: true } })) return;
   if (kind === "PAID" || kind === "SOLD") return sendPaid(ctx, userId, listingId, kind);
   if (kind === "EXPIRED" || kind === "NOT_PAID") return sendExpired(ctx, userId, listingId, kind);
   if (kind === "PAYOUT") return sendPayout(ctx, userId, listingId);
   if (kind === "REMOVED") return sendRemoved(ctx, userId, listingId);
+  if (kind === "SELLER_SUSPENDED" || kind === "ORDER_CANCELLED") return sendSuspendedSale(ctx, userId, listingId, kind);
   if (kind === "ENDING_SOON") return sendEndingSoon(ctx, userId, listingId);
   if (kind === "SHIPPED" || kind === "IN_TRANSIT" || kind === "DELIVERED") return sendShipping(ctx, userId, listingId, kind);
   const [listing, user] = await Promise.all([
@@ -185,6 +188,40 @@ async function sendShipping(ctx: Ctx, userId: string, listingId: string, kind: "
   };
   const [subject, line] = text[kind];
   await ctx.mail.send(order.buyer.email, subject, [line, "", `Tracking code: ${order.trackingCode}`, "", `${webUrl()}/orders/${order.id}`].join("\n"));
+}
+
+// A banned seller's unpaid order: the buyer is told it is paused (when the ban happens), and later that it was cancelled (when
+// the ban has lasted SUSPENDED_ORDER_DAYS). Either way nothing is charged and nothing counts against the buyer. Not sent when the
+// order has moved on since (paid, restored, or already told).
+async function sendSuspendedSale(ctx: Ctx, userId: string, listingId: string, kind: "SELLER_SUSPENDED" | "ORDER_CANCELLED") {
+  const order = await ctx.prisma.order.findFirst({
+    where: { listingId, buyerId: userId },
+    orderBy: { round: "desc" },
+    include: { listing: { select: { title: true } }, buyer: { select: { email: true } }, seller: { select: { bannedAt: true } } },
+  });
+  if (!order) return;
+  const title = order.listing.title;
+  if (kind === "SELLER_SUSPENDED") {
+    if (order.status !== "AWAITING_PAYMENT" || !order.seller.bannedAt) return; // paid, cancelled, or the ban is already lifted
+    const lines = [
+      `The seller of "${title}" (${formatEur(order.amountCents)}) has had their account suspended, so your order is paused.`,
+      "",
+      "You do not need to pay now, you will not be charged, and nothing counts against you.",
+      "",
+      `If the suspension is lifted, you will have the full time to pay again and we will remind you. If it lasts ${SUSPENDED_ORDER_DAYS} days, the order is cancelled and we will tell you.`,
+      "",
+      `${webUrl()}/orders/${order.id}`,
+    ];
+    await ctx.mail.send(order.buyer.email, `Your order for ${title} is paused`, lines.join("\n"));
+    return;
+  }
+  if (order.status !== "CANCELLED") return;
+  const lines = [
+    `Your order for "${title}" (${formatEur(order.amountCents)}) could not go ahead: the seller's account stayed suspended for ${SUSPENDED_ORDER_DAYS} days, so the order has been cancelled.`,
+    "",
+    "You were not charged, and this does not count against you.",
+  ];
+  await ctx.mail.send(order.buyer.email, `Your order for ${title} was cancelled`, lines.join("\n"));
 }
 
 // When a buyer did not pay in time. The buyer is told they were struck and what that means; the seller is told what happens

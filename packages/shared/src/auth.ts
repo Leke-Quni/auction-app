@@ -11,12 +11,17 @@ const nameField = (label: string) =>
 
 export const RESERVED_USERNAMES = ["admin", "administrator", "moderator", "root", "staff", "support", "system"];
 
+// What an anonymised account's username starts with. Nobody can pick such a name, and the pages show "Deleted user" instead of it.
+export const DELETED_USERNAME_PREFIX = "deleted_";
+export const isDeletedUsername = (username: string) => username.startsWith(DELETED_USERNAME_PREFIX);
+export const displayUsername = (username: string) => (isDeletedUsername(username) ? "Deleted user" : username);
+
 export const usernameField = z
   .string()
   .trim()
   .toLowerCase()
   .regex(/^[a-z0-9_]{3,20}$/, "Username must be 3-20 characters and can only contain letters, numbers, and underscores")
-  .refine((v) => !RESERVED_USERNAMES.includes(v), "That username is not available");
+  .refine((v) => !RESERVED_USERNAMES.includes(v) && !isDeletedUsername(v), "That username is not available");
 
 const passwordsMatch = {
   message: "Passwords do not match",
@@ -85,6 +90,10 @@ export const startEmailChangeSchema = z.object({
 
 export const confirmEmailChangeSchema = z.object({ code: codeField });
 
+// Deleting an account: the password asks for a code by email, then the password and the code confirm it.
+export const startAccountDeletionSchema = z.object({ password: z.string().min(1, "Enter your password") });
+export const confirmAccountDeletionSchema = z.object({ password: z.string().min(1, "Enter your password"), code: codeField });
+
 export type SignUpInput = z.infer<typeof signUpSchema>;
 export type SignInInput = z.infer<typeof signInSchema>;
 export type LoginCodeInput = z.infer<typeof loginCodeSchema>;
@@ -95,6 +104,28 @@ export type UpdateUsernameInput = z.infer<typeof updateUsernameSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type StartEmailChangeInput = z.infer<typeof startEmailChangeSchema>;
 export type ConfirmEmailChangeInput = z.infer<typeof confirmEmailChangeSchema>;
+export type StartAccountDeletionInput = z.infer<typeof startAccountDeletionSchema>;
+export type ConfirmAccountDeletionInput = z.infer<typeof confirmAccountDeletionSchema>;
+
+// A closed account is kept this long, and can be restored by signing in, before it is anonymised for good.
+export const ACCOUNT_DELETION_GRACE_DAYS = 30;
+
+// What stops an account being deleted yet. Each one links to where it can be dealt with.
+export interface DeletionBlocker {
+  kind: "LIVE_AUCTION_WITH_BIDS" | "HIGH_BIDDER" | "PURCHASE_IN_PROGRESS" | "SALE_IN_PROGRESS";
+  title: string;
+  listingId: string;
+  orderId?: string;
+  // What to wait for, in a few words.
+  text: string;
+}
+
+export interface AccountDeletionStatus {
+  // Set once the account is closed: when it was, and when it will be anonymised for good.
+  closedAt: string | null;
+  deletesAt: string | null;
+  blockers: DeletionBlocker[];
+}
 
 export const USER_ROLES = ["USER", "ADMIN"] as const;
 export type UserRole = (typeof USER_ROLES)[number];

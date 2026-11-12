@@ -15,6 +15,12 @@ describe("SellerInfo", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("shows a deleted seller as 'Deleted user', with no link to a profile that is gone", () => {
+    render(<SellerInfo username="deleted_ab12cd34" average={4} count={3} />);
+    expect(screen.getByText("Deleted user")).toBeTruthy();
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
   it("says when nobody has rated the seller yet, with no warning", () => {
     render(<SellerInfo username="sam" average={null} count={0} />);
     expect(screen.getByText("No ratings yet")).toBeTruthy();

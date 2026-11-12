@@ -107,6 +107,55 @@ describe("orders that are not paid in time", () => {
   const listingOf = (id: string) => prisma.listing.findUniqueOrThrow({ where: { id } });
   const mailsTo = (p: Person, needle: string) => sent.filter((m) => m.to === p.email && m.subject.includes(needle));
 
+  describe("when the seller is banned", () => {
+    it("pauses the unpaid order: it does not expire and the buyer gets no strike", async () => {
+      const [a, b] = await makePeople(2);
+      const { order } = await sale([[b, 1500], [a, 2000]]);
+      await overdue(order.id);
+      await prisma.user.update({ where: { id: seller.id }, data: { bannedAt: new Date(), banReason: "Fraud" } });
+      try {
+        expect(await expiry.expire(order.id)).toBeNull();
+        expect(await expiry.sweep()).toBe(0);
+        expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("AWAITING_PAYMENT");
+        expect(await strikes(a)).toBe(0);
+      } finally {
+        await prisma.user.update({ where: { id: seller.id }, data: { bannedAt: null, banReason: null } });
+      }
+      // Once the ban is lifted the order is judged by its deadline as before.
+      expect(await expiry.expire(order.id)).toMatchObject({ nextBuyerId: b.id });
+    });
+
+    it("cancels the unpaid order once the ban has lasted 7 days, tells the buyer, and charges and strikes nobody", async () => {
+      const [a, b] = await makePeople(2);
+      const { listing, order } = await sale([[b, 1500], [a, 2000]]);
+      const ban = (daysAgo: number) => prisma.user.update({ where: { id: seller.id }, data: { bannedAt: new Date(Date.now() - daysAgo * 86_400_000), banReason: "Fraud" } });
+      try {
+        await ban(6);
+        expect(await expiry.cancelForSuspension(order.id)).toBe(false);
+        await expiry.sweep();
+        expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("AWAITING_PAYMENT");
+
+        await ban(8);
+        sent.length = 0;
+        await expiry.sweep();
+        expect(await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).toMatchObject({ status: "CANCELLED" });
+        expect(await listingOf(listing.id)).toMatchObject({ outcome: "NO_SALE", winnerId: null, finalPriceCents: null });
+        expect(await strikes(a)).toBe(0);
+        expect(await prisma.order.count({ where: { listingId: listing.id } })).toBe(1); // not offered on, and not deleted
+        await emails.sweep();
+        expect(mailsTo(a, "was cancelled")).toHaveLength(1);
+        expect(mailsTo(a, "was cancelled")[0]!.text).toContain("stayed suspended for 7 days");
+        expect(mailsTo(b, "was cancelled")).toHaveLength(0);
+        // Nothing more happens on the next sweeps.
+        await expiry.sweep();
+        await emails.sweep();
+        expect(mailsTo(a, "was cancelled")).toHaveLength(1);
+      } finally {
+        await prisma.user.update({ where: { id: seller.id }, data: { bannedAt: null, banReason: null } });
+      }
+    });
+  });
+
   describe("when the buyer does not pay", () => {
     it("expires the order, strikes the buyer and offers the item to the next bidder at their own highest bid", async () => {
       const [a, b, c] = await makePeople(3);

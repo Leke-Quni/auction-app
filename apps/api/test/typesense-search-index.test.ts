@@ -123,8 +123,12 @@ describe("TypesenseSearchIndex.search", () => {
     await fetch(`${url}/collections/${searchCollection.collection}`, { method: "DELETE", headers: { "X-TYPESENSE-API-KEY": apiKey } });
   });
 
-  it("returns live and upcoming listings, newest first, and never an ended one", async () => {
-    expect((await run()).titles).toEqual(["Blue ceramic vase", "Film camera", "Vintage wristwatch", "Upcoming painting"]);
+  it("returns live and upcoming listings, never an ended one, most active first and then soonest ending when there is no text", async () => {
+    expect((await run()).titles).toEqual(["Film camera", "Vintage wristwatch", "Upcoming painting", "Blue ceramic vase"]);
+  });
+
+  it("still lists newest first when newest is asked for", async () => {
+    expect((await run({ sort: "newest" })).titles).toEqual(["Blue ceramic vase", "Film camera", "Vintage wristwatch", "Upcoming painting"]);
   });
 
   it("forgives typos and partial words", async () => {
@@ -143,7 +147,7 @@ describe("TypesenseSearchIndex.search", () => {
   it("filters by category, condition and price range", async () => {
     expect((await run({ category: "electronics" })).titles).toEqual(["Film camera"]);
     expect((await run({ condition: ["LIKE_NEW"] })).titles).toEqual(["Blue ceramic vase"]);
-    expect((await run({ condition: ["LIKE_NEW", "FAIR"] })).titles).toEqual(["Blue ceramic vase", "Film camera"]);
+    expect((await run({ condition: ["LIKE_NEW", "FAIR"] })).titles).toEqual(["Film camera", "Blue ceramic vase"]);
     expect((await run({ minPriceCents: 5000, maxPriceCents: 30000, sort: "priceAsc" })).titles).toEqual(["Film camera", "Vintage wristwatch"]);
     expect((await run({ category: "electronics", condition: ["NEW"] })).titles).toEqual([]);
   });

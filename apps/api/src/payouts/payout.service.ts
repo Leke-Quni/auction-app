@@ -35,10 +35,11 @@ export class PayoutService implements OnModuleInit, OnModuleDestroy {
     this.stop?.();
   }
 
-  // Returns true if this call paid the order, false if it did nothing (not due, no ready account, already paid).
+  // Returns true if this call paid the order, false if it did nothing (not due, no ready account, already paid, or paused
+  // because the seller is banned: the money waits until the ban is lifted).
   async release(orderId: string): Promise<boolean> {
     const order = await this.prisma.order.findFirst({
-      where: { id: orderId, status: "PAID", shipmentStatus: "DELIVERED", deliveredAt: { lte: new Date(Date.now() - payoutDelayDays() * 86_400_000) }, payout: null },
+      where: { id: orderId, status: "PAID", shipmentStatus: "DELIVERED", deliveredAt: { lte: new Date(Date.now() - payoutDelayDays() * 86_400_000) }, payout: null, seller: { bannedAt: null } },
       select: { id: true, sellerId: true, listingId: true, sellerNetCents: true, paymentRef: true, seller: { select: { payoutAccountId: true } } },
     });
     if (!order || !order.paymentRef || !order.seller.payoutAccountId) return false;
@@ -71,7 +72,7 @@ export class PayoutService implements OnModuleInit, OnModuleDestroy {
           shipmentStatus: "DELIVERED",
           deliveredAt: { lte: new Date(now - payoutDelayDays() * 86_400_000) },
           payout: null,
-          seller: { payoutAccountId: { not: null } },
+          seller: { payoutAccountId: { not: null }, bannedAt: null },
           id: { notIn: this.failed.skipping() },
         },
         orderBy: { deliveredAt: "asc" },

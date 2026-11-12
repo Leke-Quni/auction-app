@@ -28,6 +28,20 @@ describe("PublishPanel", () => {
     expect(screen.getByText("Add at least one photo to publish.")).toBeTruthy();
   });
 
+  it("drops the 'fill in the highlighted fields' message once the form is edited", () => {
+    render(
+      <form id="listing-form">
+        <input name="pickup_name" data-publish-required defaultValue="" />
+      </form>,
+    );
+    const { rerender } = setup();
+    Element.prototype.scrollIntoView = vi.fn();
+    fireEvent.click(publishButton());
+    expect(screen.getByText("Fill in the highlighted fields to publish.")).toBeTruthy();
+    rerender(<PublishPanel listingId="L1" photoCount={1} durationDays={5} unsaved />);
+    expect(screen.queryByText("Fill in the highlighted fields to publish.")).toBeNull();
+  });
+
   it("states what publishing does", () => {
     setup();
     expect(screen.getByText(/starts a 5-day auction/)).toBeTruthy();
@@ -73,7 +87,7 @@ describe("PublishPanel", () => {
 
   it("asks the seller to save first and disables Publish while the form has unsaved changes", () => {
     setup(2, true);
-    expect(screen.getByText(/You have unsaved changes, including photos\. Press Save above before publishing/)).toBeTruthy();
+    expect(screen.getByText(/You have unsaved changes\. Press Save before publishing/)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Publish" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Delete draft" }) as HTMLButtonElement).disabled).toBe(false);
   });

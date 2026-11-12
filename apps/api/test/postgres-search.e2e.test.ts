@@ -157,6 +157,13 @@ describe("PostgresSearchIndex", () => {
     expect(page.documents).toHaveLength(1);
   });
 
+  it("lists the most active auctions first, then the soonest ending, for best match with no text", async () => {
+    const { documents } = await index.search({ q: "", sort: "relevance", endingSoon: false, page: 1, pageSize: 100, now: new Date() });
+    const mine = documents.map((d) => d.title).filter((title) => title.startsWith(word));
+    expect(mine[0]).toBe(`${word} soon`);
+    expect(mine.at(-1)).toBe(`${word} upcoming`);
+  });
+
   it("returns the fields a card needs", async () => {
     const [doc] = (await index.search({ q: `${word} soon`, sort: "newest", endingSoon: false, page: 1, pageSize: 5, now: new Date() })).documents;
     expect(doc).toMatchObject({ id: ids[`${word} soon`], price_cents: 1500, bid_count: 2, category_slug: "collectibles", condition: "GOOD", final_chance: false });

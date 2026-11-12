@@ -1,4 +1,4 @@
-import { formatEur, type OrderView } from "@auction/shared";
+import { formatEur, type OrderView, displayUsername, isDeletedUsername } from "@auction/shared";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LocalTime } from "@/app/local-time";
@@ -31,11 +31,15 @@ function OrderTable({ orders, empty, other }: { orders: OrderView[]; empty: stri
               </td>
               <td className="border border-line p-1.5">
                 {other === "Seller" ? (
-                  <Link href={`/sellers/${o.seller.username}`} className="text-brand underline">
-                    {o.seller.username}
-                  </Link>
+                  isDeletedUsername(o.seller.username) ? (
+                    displayUsername(o.seller.username)
+                  ) : (
+                    <Link href={`/sellers/${o.seller.username}`} className="text-brand underline">
+                      {o.seller.username}
+                    </Link>
+                  )
                 ) : (
-                  o.buyer.username
+                  displayUsername(o.buyer.username)
                 )}
               </td>
               <td className="border border-line p-1.5">{formatEur(o.amountCents)}</td>

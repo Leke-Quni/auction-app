@@ -29,10 +29,17 @@ describe("SortSelect", () => {
     expect(nav.push).toHaveBeenCalledWith("/search?q=watch&category=art&sort=priceAsc");
   });
 
-  it("leaves filters that are set in the form but not applied out of it", () => {
+  it("inside a form, submits the whole form, so ticked but not yet applied filters are applied with the sort", () => {
     nav.search = "q=watch";
+    const submitted: Record<string, string>[] = [];
     render(
-      <form>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          submitted.push(Object.fromEntries(new FormData(e.currentTarget) as unknown as Iterable<[string, string]>));
+        }}
+      >
+        <input type="hidden" name="q" value="watch" />
         <select name="condition" aria-label="Condition" defaultValue="">
           <option value="">Any</option>
           <option value="GOOD">Good</option>
@@ -44,8 +51,9 @@ describe("SortSelect", () => {
       </form>,
     );
     fireEvent.change(screen.getByLabelText("Condition"), { target: { value: "GOOD" } });
-    fireEvent.change(screen.getByLabelText("Sort by"), { target: { value: "endingSoon" } });
-    expect(nav.push).toHaveBeenCalledWith("/search?q=watch&sort=endingSoon");
+    fireEvent.change(screen.getByLabelText("Sort by"), { target: { value: "priceAsc" } });
+    expect(submitted).toEqual([{ q: "watch", condition: "GOOD", sort: "priceAsc" }]);
+    expect(nav.push).not.toHaveBeenCalled();
   });
 
   it("starts on the sort it is given", () => {

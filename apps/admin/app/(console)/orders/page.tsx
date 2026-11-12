@@ -11,6 +11,7 @@ interface Row {
   listing: { id: string; title: string };
   buyer: { id: string; username: string };
   seller: { id: string; username: string };
+  sellerSuspended?: boolean;
   amountCents: number;
   totalCents: number | null;
   invoiceNumber: string | null;
@@ -92,6 +93,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<{
                 <td className="p-2">{formatEur(o.amountCents)}</td>
                 <td className="p-2">
                   <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${STATUS_PILL[o.status]}`}>{STATUS_LABEL[o.status]}</span>
+                  {o.sellerSuspended && <span className="ml-1 rounded bg-warn-soft px-1.5 py-0.5 text-xs font-semibold text-warn" title="The seller is banned: this order is paused, and cannot be paid or paid out until the ban is lifted (an unpaid one is cancelled after 7 days)">Seller suspended</span>}
                 </td>
                 <td className="p-2 text-muted">{o.shipmentStatus ? SHIPMENT_LABEL[o.shipmentStatus] : "-"}</td>
               </tr>

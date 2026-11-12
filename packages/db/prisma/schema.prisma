@@ -33,11 +33,19 @@ model User {
   pickupAddress       Json?
   // The seller's connected payment account at the payment provider, created when they first ask to get paid.
   payoutAccountId     String?             @unique
+  // The person asked to delete their account: it is closed at once (the API refuses everything except looking at this and
+  // restoring) and kept for ACCOUNT_DELETION_GRACE_DAYS, then anonymised for good (`deletedAt`). Restoring clears the first.
+  deletionRequestedAt DateTime?
+  deletedAt           DateTime?
+  // A one-way fingerprint of the email, kept on an anonymised account so that when the same address signs up again and verifies it,
+  // the strikes of the deleted account move to the new one. Null until the account is anonymised.
+  emailFingerprint    String?
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   loginCodes          LoginCode[]
   passwordResetTokens PasswordResetToken[]
   emailChange         EmailChange?
+  deletionCode        AccountDeletionCode?
   listings            Listing[]            @relation("ListingSeller")
   leadingListings     Listing[]            @relation("ListingHighBidder")
   wonListings         Listing[]            @relation("ListingWinner")
@@ -83,6 +91,16 @@ model EmailChange {
   userId    String   @id
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   newEmail  String
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+// The emailed code that confirms deleting an account (like EmailChange, but nothing else is waiting on it).
+model AccountDeletionCode {
+  userId    String   @id
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   codeHash  String
   expiresAt DateTime
   attempts  Int      @default(0)
@@ -388,6 +406,9 @@ enum EndEmailKind {
   DELIVERED
   // The seller's share has been paid out.
   PAYOUT
+  // A banned seller's unpaid order is paused (the buyer is told), and later cancelled if the ban lasts 7 days (the buyer is told).
+  SELLER_SUSPENDED
+  ORDER_CANCELLED
   // A watched auction ends in about 24 hours.
   ENDING_SOON
   // The seller's notice that a moderator ended their auction.

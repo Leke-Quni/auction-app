@@ -17,7 +17,7 @@ export default async function ShippingPage({ params }: { params: Promise<{ id: s
   if (res.status === 404) notFound();
   if (!res.ok) throw new Error(`API /orders/${id} failed: ${res.status}`);
   const order: OrderView = await res.json();
-  if (order.viewer !== "buyer" || order.status !== "AWAITING_PAYMENT") redirect(`/orders/${id}`);
+  if (order.viewer !== "buyer" || order.status !== "AWAITING_PAYMENT" || order.sellerSuspended) redirect(`/orders/${id}`);
   if (!optionsRes.ok) throw new Error(`API /orders/${id}/shipping/options failed: ${optionsRes.status}`);
   const options: ShippingOption[] = await optionsRes.json();
   // Until the buyer has chosen an address for this order, start from the address saved in their account. Every field can be changed here.

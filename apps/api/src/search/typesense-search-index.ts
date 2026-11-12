@@ -31,6 +31,9 @@ const SORT_BY: Record<SearchSort, string> = {
   priceDesc: "price_cents:desc",
 };
 
+// Best match with no words to match has nothing to rank by, so it lists the most active auctions first (most bids, then soonest ending).
+const sortWithoutText = (params: SearchParams): SearchSort => (params.sort === "relevance" && !normalizeQuery(params.q) ? "mostBids" : params.sort);
+
 // Typesense allows at most 2 typos in a word, so "jjjjeans" (three extra letters) can never match "jeans". Three or more of
 // the same letter in a row are cut to two ("jjeans"), which is one typo away. Real words almost never repeat a letter 3 times.
 export function normalizeQuery(q: string) {
@@ -120,7 +123,7 @@ export class TypesenseSearchIndex implements SearchIndex {
       min_len_2typo: MIN_LENGTH_FOR_TWO_TYPOS,
       query_by_weights: "3,1",
       filter_by: buildFilter(params),
-      sort_by: SORT_BY[params.sort],
+      sort_by: SORT_BY[sortWithoutText(params)],
       page: String(params.page),
       per_page: String(params.pageSize),
     });

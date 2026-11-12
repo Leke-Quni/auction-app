@@ -30,7 +30,7 @@ Light, near-white sidebar (`side` `#f4f3f0`), indigo accent (`#4f46e5`), amber, 
 - Motion: the `motion` package, inside `MotionConfig reducedMotion="user"`. Used only for toasts sliding in; the countdown bar and hover shadows are CSS. Animate opacity and transform only.
 
 ## Dark mode
-Follows the device setting (`prefers-color-scheme`); there is no switch. The same token names get other values: surface `#151c25` on page `#0e1319`, luminous teal `#2dd4bf` with dark text on it (`on-brand`), and lighter reds, ambers and greens. Admin uses a dark slate set with indigo `#818cf8`. Never write a colour that works in only one theme.
+The storefront follows the device setting (`prefers-color-scheme`) unless the visitor picks Light or Dark with the System / Light / Dark switch in the header (2026-11-12, owner's request, first in the footer and moved up; `apps/web/app/theme-switch.tsx`). Below 400px wide the three buttons become one that steps through the choices, so the header stays on two rows. The choice is kept in this browser's `localStorage` (`theme`; System is no entry), applied as `data-theme` on `<html>` by a small script in the layout's `<head>` before the page paints, and the dark tokens live in two blocks in `globals.css` that a test keeps identical. The admin app has no switch yet and still follows the device. The same token names get other values: surface `#151c25` on page `#0e1319`, luminous teal `#2dd4bf` with dark text on it (`on-brand`), and lighter reds, ambers and greens. Admin uses a dark slate set with indigo `#818cf8`. Never write a colour that works in only one theme.
 
 ## Using shadcn components
 Run the CLI from `packages/ui`. The storefront's `globals.css` maps shadcn's names (`primary`, `background`, `card`, `border`, `destructive`, ...) onto our tokens. Two names are left out on purpose: `muted` is a text colour here and `accent` is the admin's indigo, so check any component that uses `bg-muted` or `bg-accent`.
@@ -42,5 +42,5 @@ Run the CLI from `packages/ui`. The storefront's `globals.css` maps shadcn's nam
 
 ## Not done yet
 - Admin layout density (it only has B's colours, fonts and corners).
-- A dark-mode switch, and checking dark mode on every signed-in page.
+- A theme switch in the admin app, and checking dark mode on every signed-in page.
 - Charts for the admin (no chart library chosen).

@@ -36,6 +36,11 @@ export async function authedApiFetch(path: string, init: RequestInit = {}) {
   if (!token) redirect("/sign-in");
   const res = await apiFetch(path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token}` } });
   // A banned account is refused on every call, so wherever one meets that, the person is sent to the page that says why.
-  if (res.status === 403 && (await res.clone().json().catch(() => null))?.code === "BANNED") redirect("/suspended");
+  if (res.status === 403) {
+    const code = (await res.clone().json().catch(() => null))?.code;
+    if (code === "BANNED") redirect("/suspended");
+    // An account its owner asked to delete can only look at that and restore it, so every other page sends it there.
+    if (code === "ACCOUNT_CLOSING") redirect("/account/closing");
+  }
   return res;
 }

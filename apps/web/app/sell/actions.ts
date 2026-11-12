@@ -22,6 +22,8 @@ async function deleteRemovedPhotos(res: Response) {
 export interface SellFormState {
   error?: string;
   ok?: string;
+  // Where the form takes the seller next; the form waits a moment first so the save can be seen.
+  redirectTo?: string;
 }
 
 const PRICE_HELP = "Enter an amount like 25 or 25.50";
@@ -48,6 +50,8 @@ export async function saveListingAction(_: SellFormState, formData: FormData): P
     if (raw !== "" && cents === null) return { error: `Reserve price: ${PRICE_HELP}, or leave it empty` };
     input.reservePriceCents = cents;
   }
+
+  if (formData.has("photos") && readPhotoUrls(formData.get("photos")).length === 0) return { error: "The listing must contain at least 1 photo." };
 
   const parsed = (id ? updateListingSchema : createListingSchema).safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0].message };
@@ -77,6 +81,11 @@ export async function saveListingAction(_: SellFormState, formData: FormData): P
     if (saved.error) return { error: `Your changes were saved, but the photos were not: ${saved.error}` };
   }
   revalidatePath(`/sell/${id}/edit`);
+  // A published listing's form sends only the description and photos: once they are saved, the seller is done and goes back to the listing.
+  if (!formData.has("title")) {
+    revalidatePath(`/listings/${id}`);
+    return { ok: "Saved.", redirectTo: `/listings/${id}` };
+  }
   return { ok: "Saved." };
 }
 

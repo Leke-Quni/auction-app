@@ -11,7 +11,10 @@ export function PickupAddressSetting({ address }: { address: ShippingAddress | n
   const [editing, setEditing] = useState(false);
   const [state, formAction, pending] = useActionState(savePickupAddressAction, {});
   const formRef = useRef<HTMLFormElement>(null);
-  useUnsavedChanges(formRef, editing);
+  const [dirty, setDirty] = useState(false);
+  useUnsavedChanges(formRef, editing, undefined, setDirty);
+  // A saved address has nothing to save until it is edited; a first address can always be saved.
+  const locked = !!address && !dirty;
 
   useEffect(() => {
     if (state.ok) setEditing(false);
@@ -34,7 +37,7 @@ export function PickupAddressSetting({ address }: { address: ShippingAddress | n
         <AddressFields defaults={address} required nameLabel="Contact name" />
         {editing && state.error && <p className="text-urgent">{state.error}</p>}
         <div className="flex gap-2">
-          <button disabled={pending} className="cursor-pointer bg-brand px-3 py-1 font-bold text-on-brand hover:bg-brand-dark disabled:opacity-60">
+          <button disabled={pending || locked} className="cursor-pointer bg-brand px-3 py-1 font-bold text-on-brand hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60">
             {pending ? "..." : "Save"}
           </button>
           <button

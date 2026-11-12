@@ -1,3 +1,4 @@
+import type { DeletionBlocker } from "@auction/shared";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
@@ -6,6 +7,7 @@ import {
   updateProfileAction,
   updateUsernameAction,
 } from "@/app/actions";
+import { DeleteAccount } from "@/app/delete-account";
 import { PayoutAccountSetting } from "@/app/payout-account-setting";
 import { PickupAddressSetting } from "@/app/pickup-address-setting";
 import { SettingRow } from "@/app/setting-row";
@@ -16,16 +18,19 @@ export default async function AccountSettingsPage({ searchParams }: { searchPara
   const { payouts } = await searchParams;
   if (!(await auth())) redirect("/sign-in");
   // Coming back from the payment provider, the account is asked about live; if it cannot be, the row is left out.
-  const [res, pickupRes, payoutRes] = await Promise.all([
+  const [res, pickupRes, payoutRes, deletionRes] = await Promise.all([
     authedApiFetch("/me"),
     authedApiFetch("/me/pickup-address"),
     authedApiFetch("/me/payout-account").catch(() => null),
+    authedApiFetch("/me/deletion").catch(() => null),
   ]);
   if (res.status === 401) redirect("/sign-in");
   if (!res.ok) throw new Error(`API /me failed: ${res.status}`);
   const me = await res.json();
   const pickupAddress = pickupRes.ok ? (await pickupRes.json()).pickupAddress : null;
   const payoutStatus = payoutRes?.ok ? (await payoutRes.json()).status : null;
+  // What still stops the account being deleted; if it cannot be asked, the form is shown and the server decides.
+  const blockers: DeletionBlocker[] = deletionRes?.ok ? (await deletionRes.json()).blockers : [];
   return (
     <div className="mx-auto max-w-sm space-y-2">
       <div className="flex items-baseline justify-between">
@@ -76,6 +81,7 @@ export default async function AccountSettingsPage({ searchParams }: { searchPara
         />
         <PickupAddressSetting address={pickupAddress} />
         <PayoutAccountSetting status={payoutStatus} returned={payouts} />
+        <DeleteAccount blockers={blockers} />
       </div>
     </div>
   );

@@ -33,7 +33,7 @@ export default async function WatchlistPage({ searchParams }: { searchParams: Pr
             key={f.key}
             href={f.key === "all" ? "/watchlist" : `/watchlist?show=${f.key}`}
             aria-current={filter === f.key ? "page" : undefined}
-            className={`border px-3 py-1 ${filter === f.key ? "border-brand bg-brand text-on-brand" : "border-line bg-surface text-brand hover:border-brand"}`}
+            className={`rounded-[var(--radius-card)] border px-2.5 py-1 text-center ${filter === f.key ? "border-brand bg-brand font-bold text-on-brand" : "border-line bg-surface text-brand hover:bg-head"}`}
           >
             {f.label} ({counts[f.key]})
           </Link>

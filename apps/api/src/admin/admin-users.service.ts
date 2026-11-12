@@ -1,4 +1,7 @@
 import { ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { PAYMENT_WINDOW_HOURS, SUSPENDED_ORDER_DAYS } from "@auction/shared";
+import { AdminListingsService } from "./admin-listings.service";
+import { queueMail } from "../email/mail-outbox";
 import { giveAdminStrike } from "./admin-strikes";
 import { supportEmail } from "../config";
 import { PRISMA, type Prisma } from "../db/db.module";
@@ -28,6 +31,7 @@ export class AdminUsersService {
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
     private readonly gateway: RealtimeGateway,
+    private readonly listings: AdminListingsService,
     @Inject(MAIL_SENDER) private readonly mail: MailSender,
   ) {}
 
@@ -69,7 +73,12 @@ export class AdminUsersService {
   async ban(adminId: string, id: string, reason: string) {
     const done = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.user.updateMany({ where: { id, bannedAt: null, role: { not: "ADMIN" } }, data: { bannedAt: new Date(), banReason: reason } });
-      if (updated.count > 0) await tx.adminAction.create({ data: { adminId, action: "BAN_USER", targetId: id, reason } });
+      if (updated.count > 0) {
+        await tx.adminAction.create({ data: { adminId, action: "BAN_USER", targetId: id, reason } });
+        // Buyers who were asked to pay this seller are told their order is paused, in the same transaction as the ban.
+        const waiting = await tx.order.findMany({ where: { sellerId: id, status: "AWAITING_PAYMENT" }, select: { buyerId: true, listingId: true } });
+        for (const { buyerId, listingId } of waiting) await queueMail(tx, { userId: buyerId, listingId, kind: "SELLER_SUSPENDED" });
+      }
       return updated;
     });
     if (done.count === 0) {
@@ -84,9 +93,25 @@ export class AdminUsersService {
       // The ban is saved and every request is refused already; only the live hang-up failed.
       this.log.error(`Could not disconnect banned user ${id}: ${(error as Error).message}`);
     }
+    await this.endAuctions(adminId, id);
     // Not awaited: a slow mail provider must not hold the admin's request; emailBan never throws.
     void this.emailBan(id, reason);
     return this.get(id);
+  }
+
+  // Banning a seller ends every live and upcoming auction of theirs, with no sale, the way an admin removes a listing (bidders
+  // are told, the listing leaves search). Their orders are not touched: while the seller is banned an order that waits for
+  // payment or for its payout is paused (see `isSellerSuspended`), and unbanning releases it. A listing that cannot be ended now (it
+  // has just run out and is closing) is left to its normal close.
+  private async endAuctions(adminId: string, sellerId: string) {
+    const open = await this.prisma.listing.findMany({ where: { sellerId, status: "PUBLISHED", closedAt: null, endsAt: { gt: new Date() } }, select: { id: true } });
+    for (const { id } of open) {
+      try {
+        await this.listings.remove(adminId, id, "The seller's account was suspended.");
+      } catch (error) {
+        this.log.warn(`Could not end listing ${id} of banned seller ${sellerId}: ${(error as Error).message}`);
+      }
+    }
   }
 
   // Tells the person why. Best effort and sent straight away: the ban stands whether or not the email goes.
@@ -99,7 +124,9 @@ export class AdminUsersService {
         "",
         `Reason: ${reason}`,
         "",
-        `Your existing listings, bids and orders are not changed. If you think this is a mistake, ${supportEmail() ? `write to ${supportEmail()}` : "reply to this email"}.`,
+        `Your live and scheduled auctions have been ended with no sale. Orders from your sales that are waiting for payment or for their payout are paused, not cancelled: they go ahead if the suspension is lifted. An order still waiting for payment after ${SUSPENDED_ORDER_DAYS} days is cancelled.`,
+        "",
+        `If you think this is a mistake, ${supportEmail() ? `write to ${supportEmail()}` : "reply to this email"}.`,
       ].join("\n"));
     } catch (error) {
       this.log.error(`Could not email the ban notice to ${id}: ${(error as Error).message}`);
@@ -110,7 +137,15 @@ export class AdminUsersService {
   async unban(adminId: string, id: string, reason: string) {
     const done = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.user.updateMany({ where: { id, bannedAt: { not: null } }, data: { bannedAt: null, banReason: null } });
-      if (updated.count > 0) await tx.adminAction.create({ data: { adminId, action: "UNBAN_USER", targetId: id, reason } });
+      if (updated.count > 0) {
+        await tx.adminAction.create({ data: { adminId, action: "UNBAN_USER", targetId: id, reason } });
+        // Orders that waited for payment during the ban were paused: their buyers get the full window again (and the reminder
+        // again), never less than they had left.
+        await tx.$executeRaw`
+          UPDATE "Order" SET "payBy" = GREATEST("payBy", clock_timestamp() + ${PAYMENT_WINDOW_HOURS} * interval '1 hour'),
+            "payReminderSentAt" = NULL, "payReminderClaimedAt" = NULL, "updatedAt" = clock_timestamp()
+          WHERE "sellerId" = ${id} AND "status" = 'AWAITING_PAYMENT'`;
+      }
       return updated;
     });
     if (done.count === 0) {
