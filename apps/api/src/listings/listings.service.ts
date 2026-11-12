@@ -200,7 +200,7 @@ export class ListingsService implements OnModuleInit, OnModuleDestroy {
         ? [{ startsAt: "asc" as const }, { id: "asc" as const }]
         : section === "endingSoon"
           ? [{ endsAt: "asc" as const }, { id: "asc" as const }]
-          : [{ publishedAt: "desc" as const }, { id: "desc" as const }];
+          : [{ bidCount: "desc" as const }, { endsAt: "asc" as const }, { id: "asc" as const }];
     const [items, total] = await Promise.all([
       this.prisma.listing.findMany({
         where,

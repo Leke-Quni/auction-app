@@ -600,7 +600,7 @@ describe("listings", () => {
   });
 
   describe("lists", () => {
-    it("shows only live and upcoming published listings, newest first, in pages", async () => {
+    it("shows only live and upcoming published listings, most active then soonest ending first, in pages", async () => {
       await prisma.listing.deleteMany({ where: { sellerId } });
       const a = await createPublished({ title: "Listing number one" });
       const b = await createPublished({ title: "Listing number two" });
@@ -611,7 +611,11 @@ describe("listings", () => {
 
       const all = await api().get("/listings?pageSize=50").expect(200);
       const mine = all.body.items.filter((l: { seller: { id: string } }) => l.seller.id === sellerId);
-      expect(mine.map((l: { id: string }) => l.id)).toEqual([c.id, b.id, a.id]);
+      // The most bids come first, then the soonest ending: all three run for the same length of time, so the one published first ends first.
+      expect(mine.map((l: { id: string }) => l.id)).toEqual([a.id, b.id, c.id]);
+      await prisma.listing.update({ where: { id: c.id }, data: { bidCount: 3, currentBidCents: 2000, highBidderId: sellerId } });
+      const busy = await api().get("/listings?pageSize=50").expect(200);
+      expect(busy.body.items.filter((l: { seller: { id: string } }) => l.seller.id === sellerId).map((l: { id: string }) => l.id)).toEqual([c.id, a.id, b.id]);
 
       const page1 = await api().get("/listings?pageSize=2").expect(200);
       expect(page1.body).toMatchObject({ page: 1, pageSize: 2 });

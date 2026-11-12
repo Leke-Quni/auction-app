@@ -57,10 +57,10 @@ describe("searchQuerySchema", () => {
 });
 
 describe("resolveSearchSort", () => {
-  it("uses best match for text and newest without text, unless a sort is chosen", () => {
+  it("uses best match unless a sort is chosen, with or without text", () => {
     expect(resolveSearchSort({ q: "watch" })).toBe("relevance");
-    expect(resolveSearchSort({ q: "" })).toBe("newest");
-    expect(resolveSearchSort({ q: "", sort: "relevance" })).toBe("newest");
+    expect(resolveSearchSort({ q: "" })).toBe("relevance");
+    expect(resolveSearchSort({ q: "", sort: "relevance" })).toBe("relevance");
     expect(resolveSearchSort({ q: "watch", sort: "priceDesc" })).toBe("priceDesc");
     expect(resolveSearchSort({ q: "", sort: "endingSoon" })).toBe("endingSoon");
   });

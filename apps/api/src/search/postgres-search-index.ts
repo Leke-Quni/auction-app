@@ -109,7 +109,8 @@ export class PostgresSearchIndex implements SearchIndex {
     const titleHits = terms.length > 0 ? Sql.join(terms.map((term, i) => Sql.sql`(CASE WHEN ${this.termMatches(Sql.sql`l."title"`, term, i === terms.length - 1)} THEN 1 ELSE 0 END)`), " + ") : Sql.sql`0`;
     const matched = required < terms.length ? Sql.sql`(${this.matchedCount(terms)}) DESC, ` : Sql.empty;
     const orderBy: Record<SearchSort, ReturnType<typeof Sql.sql>> = {
-      relevance: Sql.sql`${matched}(${titleHits}) DESC, l."endsAt" ASC`,
+      // With no words to match, best match lists the most active auctions first (most bids, then soonest ending).
+      relevance: terms.length > 0 ? Sql.sql`${matched}(${titleHits}) DESC, l."endsAt" ASC` : Sql.sql`l."bidCount" DESC, l."endsAt" ASC`,
       endingSoon: Sql.sql`l."endsAt" ASC`,
       endingLatest: Sql.sql`l."endsAt" DESC`,
       newest: Sql.sql`l."publishedAt" DESC`,

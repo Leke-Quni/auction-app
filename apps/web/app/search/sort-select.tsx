@@ -3,8 +3,9 @@
 import { SEARCH_SORTS, SEARCH_SORT_LABELS, type SearchSort } from "@auction/shared";
 import { useRouter, useSearchParams } from "next/navigation";
 
-// Picking a sort applies it straight away to the search as it stands in the address bar. Filters that were changed
-// in the form but not applied are left alone.
+// Picking a sort applies it straight away, together with everything else in the filter form (the conditions ticked, the
+// price, "ending soon"), so the results always match what the sidebar shows. Outside a form it sorts the search as it
+// stands in the address bar.
 export function SortSelect({ defaultValue, className }: { defaultValue: SearchSort; className?: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -15,6 +16,8 @@ export function SortSelect({ defaultValue, className }: { defaultValue: SearchSo
       defaultValue={defaultValue}
       className={className}
       onChange={(e) => {
+        const form = e.currentTarget.form;
+        if (form) return form.requestSubmit();
         const next = new URLSearchParams(searchParams);
         next.set("sort", e.currentTarget.value);
         next.delete("page");

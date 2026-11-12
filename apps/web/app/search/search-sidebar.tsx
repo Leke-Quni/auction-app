@@ -34,6 +34,8 @@ export function SearchSidebar({
   maxEuros: number;
 }) {
   const selectedConditions = conditionList(params.condition);
+  // The boxes are uncontrolled, so they are keyed by what the address holds: when a filter is removed (the chips under the
+  // search box), the page renders again and the box is unticked instead of keeping its old tick.
   return (
     <aside
       className="space-y-2 text-xs [@media(min-width:900px)_and_(min-height:760px)]:sticky [@media(min-width:900px)_and_(min-height:760px)]:top-[calc(var(--header-height,4.5rem)_+_0.5rem)]"
@@ -62,7 +64,7 @@ export function SearchSidebar({
         <h2 className="col-span-2 font-bold min-[900px]:col-span-1">Filters</h2>
         {params.category && <input type="hidden" name="category" value={params.category} />}
         {params.q && <input type="hidden" name="q" value={params.q} />}
-        <fieldset className="space-y-0.5">
+        <fieldset key={`conditions:${selectedConditions.join(",")}`} className="space-y-0.5">
           <legend className={label}>Condition</legend>
           {LISTING_CONDITIONS.map((c) => (
             <label key={c} className="flex items-center gap-1.5 py-0.5">
@@ -73,12 +75,12 @@ export function SearchSidebar({
         </fieldset>
         <label className="block">
           <span className={label}>Sort by</span>
-          <SortSelect defaultValue={sort} className={input} />
+          <SortSelect key={`sort:${sort}`} defaultValue={sort} className={input} />
         </label>
         <div className="col-span-2 min-[900px]:col-span-1">
           <PriceSlider maxEuros={maxEuros} initialMin={params.minPrice} initialMax={params.maxPrice} />
         </div>
-        <label className={`col-span-2 flex items-center gap-1.5 min-[900px]:col-span-1`}>
+        <label key={`endingSoon:${params.endingSoon ?? ""}`} className={`col-span-2 flex items-center gap-1.5 min-[900px]:col-span-1`}>
           <input type="checkbox" name="endingSoon" value="true" defaultChecked={params.endingSoon === "true"} />
           Ending within 24 hours
         </label>
