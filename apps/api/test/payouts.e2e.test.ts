@@ -164,6 +164,20 @@ describe("seller payouts", () => {
     expect(await prisma.payout.count({ where: { orderId: { in: [early.id, inTransit.id] } } })).toBe(0);
   });
 
+  it("holds a banned seller's payout, and pays it once the ban is lifted", async () => {
+    const [seller, buyer] = [await makePerson(), await makePerson()];
+    await setUp(seller);
+    const order = await paidOrder(buyer, seller, DELIVERY_DAYS_AGO(4));
+    await prisma.user.update({ where: { id: seller.id }, data: { bannedAt: new Date(), banReason: "Fraud" } });
+    expect(await payouts.release(order.id)).toBe(false);
+    expect(await payouts.sweep()).toBe(0);
+    expect(await prisma.payout.count({ where: { orderId: order.id } })).toBe(0);
+    expect((await api().get(`/orders/${order.id}`).set(as(buyer)).expect(200)).body.sellerSuspended).toBe(true);
+    await prisma.user.update({ where: { id: seller.id }, data: { bannedAt: null, banReason: null } });
+    expect((await api().get(`/orders/${order.id}`).set(as(buyer)).expect(200)).body.sellerSuspended).toBeUndefined();
+    expect(await payouts.release(order.id)).toBe(true);
+  });
+
   it("has no early release: there is no way for the buyer to trigger a payout", async () => {
     const [seller, buyer] = [await makePerson(), await makePerson()];
     await setUp(seller);

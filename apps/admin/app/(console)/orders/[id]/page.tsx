@@ -16,6 +16,7 @@ interface Party {
 interface Order {
   id: string;
   status: keyof typeof STATUS_LABEL;
+  sellerSuspended?: boolean;
   round: number;
   listing: { id: string; title: string };
   buyer: Party;
@@ -105,6 +106,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
     <div className="max-w-3xl space-y-3">
       <h1 className="text-lg font-bold">
         {o.listing.title} <span className={`ml-1 rounded px-1.5 py-0.5 text-xs font-semibold ${STATUS_PILL[o.status]}`}>{STATUS_LABEL[o.status]}</span>
+        {o.sellerSuspended && <span className="ml-1 rounded bg-warn-soft px-1.5 py-0.5 text-xs font-semibold text-warn" title="The seller is banned: this order is paused, and cannot be paid or paid out until the ban is lifted (an unpaid one is cancelled after 7 days)">Seller suspended</span>}
       </h1>
       <p className="text-muted">
         Order {o.id}

@@ -388,6 +388,9 @@ enum EndEmailKind {
   DELIVERED
   // The seller's share has been paid out.
   PAYOUT
+  // A banned seller's unpaid order is paused (the buyer is told), and later cancelled if the ban lasts 7 days (the buyer is told).
+  SELLER_SUSPENDED
+  ORDER_CANCELLED
   // A watched auction ends in about 24 hours.
   ENDING_SOON
   // The seller's notice that a moderator ended their auction.

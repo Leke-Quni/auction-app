@@ -1,6 +1,6 @@
 import type { Prisma as PrismaNamespace } from "@auction/db";
 
-export type OutboxKind = "LOST" | "WON" | "PAID" | "SOLD" | "EXPIRED" | "NOT_PAID" | "SHIPPED" | "IN_TRANSIT" | "DELIVERED" | "PAYOUT" | "ENDING_SOON" | "REMOVED";
+export type OutboxKind = "LOST" | "WON" | "PAID" | "SOLD" | "EXPIRED" | "NOT_PAID" | "SHIPPED" | "IN_TRANSIT" | "DELIVERED" | "PAYOUT" | "ENDING_SOON" | "REMOVED" | "SELLER_SUSPENDED" | "ORDER_CANCELLED";
 
 // What queueing an email does when a row for the same person, listing and kind is still waiting. "reschedule" makes it due
 // again with fresh tries (a later round, or a changed time, must be told too); "keep" leaves the waiting row alone.
@@ -13,6 +13,9 @@ const WHEN_ALREADY_QUEUED: Record<OutboxKind, "keep" | "reschedule"> = {
   IN_TRANSIT: "keep",
   DELIVERED: "keep",
   PAYOUT: "keep",
+  ORDER_CANCELLED: "keep",
+  // Banned, restored and banned again: the new pause is told too.
+  SELLER_SUSPENDED: "reschedule",
   WON: "reschedule",
   EXPIRED: "reschedule",
   NOT_PAID: "reschedule",

@@ -13,7 +13,7 @@ export default async function TestCheckoutPage({ params }: { params: Promise<{ i
   if (res.status === 404) notFound();
   if (!res.ok) throw new Error(`API /orders/${id} failed: ${res.status}`);
   const order: OrderView = await res.json();
-  if (order.viewer !== "buyer" || order.status !== "AWAITING_PAYMENT") redirect(`/orders/${id}`);
+  if (order.viewer !== "buyer" || order.status !== "AWAITING_PAYMENT" || order.sellerSuspended) redirect(`/orders/${id}`);
 
   return (
     <div className="mx-auto max-w-sm space-y-3 border border-line bg-surface p-4">

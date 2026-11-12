@@ -1,4 +1,4 @@
-import { MAX_PAYMENT_ROUNDS, MAX_STRIKES } from "@auction/shared";
+import { MAX_PAYMENT_ROUNDS, MAX_STRIKES, SUSPENDED_ORDER_DAYS } from "@auction/shared";
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { AuctionEvents } from "../bids/auction-events";
 import { PRISMA, type Prisma } from "../db/db.module";
@@ -56,7 +56,7 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Returns what happened if this call expired the order, or null if it did nothing (not due, not waiting, already
-  // expired, or paid after all).
+  // expired, paid after all, or paused because the seller is banned: the buyer is not struck for that).
   async expire(orderId: string): Promise<ExpiryResult | null> {
     // A payment that was taken but not yet reported must not cost the buyer a strike. If the provider cannot be asked
     // right now, throw so the sweep backs off and tries again later, rather than punishing on a guess (until the
@@ -75,7 +75,8 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
     // the deadline is long past, when a payment that still lands is refunded instead).
     const due = await this.prisma.$queryRaw<{ paymentRef: string | null; paymentRefs: string[] }[]>`
       SELECT "paymentRef", "paymentRefs" FROM "Order"
-      WHERE "id" = ${orderId} AND "status" = 'AWAITING_PAYMENT' AND "payBy" <= clock_timestamp()`;
+      WHERE "id" = ${orderId} AND "status" = 'AWAITING_PAYMENT' AND "payBy" <= clock_timestamp()
+        AND NOT EXISTS (SELECT 1 FROM "User" u WHERE u."id" = "Order"."sellerId" AND u."bannedAt" IS NOT NULL)`;
     if (due.length === 0) return null;
     for (const ref of new Set([...(due[0]!.paymentRef ? [due[0]!.paymentRef] : []), ...due[0]!.paymentRefs])) {
       try {
@@ -91,7 +92,8 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
       // Judged by the database's clock, like the close and the bids, so several machines agree on the deadline.
       const marked = await tx.$executeRaw`
         UPDATE "Order" SET "status" = 'EXPIRED', "updatedAt" = clock_timestamp()
-        WHERE "id" = ${orderId} AND "status" = 'AWAITING_PAYMENT' AND "payBy" <= clock_timestamp()`;
+        WHERE "id" = ${orderId} AND "status" = 'AWAITING_PAYMENT' AND "payBy" <= clock_timestamp()
+          AND NOT EXISTS (SELECT 1 FROM "User" u WHERE u."id" = "Order"."sellerId" AND u."bannedAt" IS NOT NULL)`;
       if (marked === 0) return null;
       const [{ now }] = await tx.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS "now"`;
       const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { listingId: true, buyerId: true, sellerId: true, round: true } });
@@ -137,6 +139,51 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
     return summary;
   }
 
+  // An unpaid order whose seller has been banned for SUSPENDED_ORDER_DAYS is cancelled, not deleted: the buyer is told by email (queued
+  // in the same transaction), is not struck and is not charged, and the listing ends without a sale. Returns false when it did nothing
+  // (already paid, no longer old enough, or the ban was lifted). A payment taken but not yet reported is settled first, and open checkout
+  // pages are closed, so nothing can be paid for a cancelled order; if either cannot be done now it throws and the sweep tries later.
+  async cancelForSuspension(orderId: string): Promise<boolean> {
+    if (await this.orders.settleIfPaid(orderId)) return false;
+    const due = await this.prisma.$queryRaw<{ paymentRef: string | null; paymentRefs: string[] }[]>`
+      SELECT "paymentRef", "paymentRefs" FROM "Order"
+      WHERE "id" = ${orderId} AND "status" = 'AWAITING_PAYMENT'
+        AND EXISTS (SELECT 1 FROM "User" u WHERE u."id" = "Order"."sellerId" AND u."bannedAt" <= clock_timestamp() - ${SUSPENDED_ORDER_DAYS} * interval '1 day')`;
+    if (due.length === 0) return false;
+    for (const ref of new Set([...(due[0]!.paymentRef ? [due[0]!.paymentRef] : []), ...due[0]!.paymentRefs])) await this.payments.expireCheckout(ref);
+    return this.prisma.$transaction(async (tx) => {
+      const marked = await tx.$executeRaw`
+        UPDATE "Order" SET "status" = 'CANCELLED', "updatedAt" = clock_timestamp()
+        WHERE "id" = ${orderId} AND "status" = 'AWAITING_PAYMENT'
+          AND EXISTS (SELECT 1 FROM "User" u WHERE u."id" = "Order"."sellerId" AND u."bannedAt" <= clock_timestamp() - ${SUSPENDED_ORDER_DAYS} * interval '1 day')`;
+      if (marked === 0) return false;
+      const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { listingId: true, buyerId: true } });
+      await tx.notification.deleteMany({ where: { userId: order.buyerId, key: notificationKey.won(order.listingId) } });
+      await tx.listing.update({ where: { id: order.listingId }, data: { outcome: "NO_SALE", winnerId: null, finalPriceCents: null } });
+      await queueMail(tx, { userId: order.buyerId, listingId: order.listingId, kind: "ORDER_CANCELLED" });
+      return true;
+    });
+  }
+
+  private async cancelSuspendedOrders(): Promise<number> {
+    const due = await this.prisma.order.findMany({
+      where: { status: "AWAITING_PAYMENT", seller: { bannedAt: { lte: new Date(Date.now() - SUSPENDED_ORDER_DAYS * 86_400_000) } }, id: { notIn: this.failed.skipping() } },
+      orderBy: { createdAt: "asc" },
+      take: SWEEP_BATCH,
+      select: { id: true },
+    });
+    let cancelled = 0;
+    for (const { id } of due) {
+      try {
+        if (await this.cancelForSuspension(id)) cancelled++;
+      } catch (error) {
+        this.failed.fail(id);
+        this.log.error(`Could not cancel order ${id} of a suspended seller: ${(error as Error).message}`);
+      }
+    }
+    return cancelled;
+  }
+
   private async longOverdue(orderId: string) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId }, select: { payBy: true } });
     return !!order && Date.now() - order.payBy.getTime() >= GIVE_UP_CHECKING_AFTER_MS;
@@ -149,7 +196,7 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
     let expired = 0;
     try {
       const due = await this.prisma.order.findMany({
-        where: { status: "AWAITING_PAYMENT", payBy: { lte: new Date() }, id: { notIn: this.failed.skipping() } },
+        where: { status: "AWAITING_PAYMENT", payBy: { lte: new Date() }, seller: { bannedAt: null }, id: { notIn: this.failed.skipping() } },
         orderBy: { payBy: "asc" },
         take: SWEEP_BATCH,
         select: { id: true },
@@ -163,6 +210,8 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
         }
       }
       if (expired > 0) this.log.log(`Expired ${expired} unpaid order${expired === 1 ? "" : "s"}`);
+      const cancelled = await this.cancelSuspendedOrders();
+      if (cancelled > 0) this.log.log(`Cancelled ${cancelled} unpaid order${cancelled === 1 ? "" : "s"} of suspended sellers`);
     } catch (error) {
       this.log.error(`Order expiry sweep failed: ${(error as Error).message}`);
     } finally {

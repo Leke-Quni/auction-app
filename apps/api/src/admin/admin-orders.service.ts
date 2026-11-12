@@ -1,3 +1,4 @@
+import { isSellerSuspended } from "../orders/orders.service";
 import { ORDER_NOTE_MAX, ORDER_RESEND_COOLDOWN_MINUTES, type OrderAttentionKind, type OrderResendKind, type ShippingAddress } from "@auction/shared";
 import { ConflictException, HttpException, HttpStatus, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
@@ -43,7 +44,7 @@ export class AdminOrdersService {
       },
       orderBy: [{ createdAt: "desc" }, { id: "asc" }],
       take: limit,
-      include: { listing: { select: { id: true, title: true } }, buyer: { select: { id: true, username: true } }, seller: { select: { id: true, username: true } }, payout: { select: { id: true } } },
+      include: { listing: { select: { id: true, title: true } }, buyer: { select: { id: true, username: true } }, seller: { select: { id: true, username: true, bannedAt: true } }, payout: { select: { id: true } } },
     });
     const noteCounts = new Map(
       (await this.prisma.orderNote.groupBy({ by: ["orderId"], where: { orderId: { in: orders.map((o) => o.id) } }, _count: { _all: true } })).map((n) => [n.orderId, n._count._all]),
@@ -56,7 +57,8 @@ export class AdminOrdersService {
         round: o.round,
         listing: o.listing,
         buyer: o.buyer,
-        seller: o.seller,
+        seller: { id: o.seller.id, username: o.seller.username },
+        sellerSuspended: isSellerSuspended(o),
         amountCents: o.amountCents,
         totalCents: o.totalCents,
         invoiceNumber: o.invoiceNumber,
@@ -150,7 +152,7 @@ export class AdminOrdersService {
   async get(id: string, adminId: string) {
     const o = await this.prisma.order.findUnique({
       where: { id },
-      include: { listing: { select: { id: true, title: true } }, buyer: person, seller: { select: { ...person.select, payoutAccountId: true } }, payout: true, rating: true },
+      include: { listing: { select: { id: true, title: true } }, buyer: person, seller: { select: { ...person.select, payoutAccountId: true, bannedAt: true } }, payout: true, rating: true },
     });
     if (!o) throw new NotFoundException();
     await this.prisma.adminAction.create({ data: { adminId, action: "VIEW_ORDER", targetId: id } });
@@ -162,6 +164,8 @@ export class AdminOrdersService {
       notes,
       resendable: this.resendOptions(o).map(({ kind, to, label }) => ({ kind, to, label })),
       status: o.status,
+      // True while the seller is banned and the order waits for payment or its payout: it cannot be paid or paid out until the ban is lifted.
+      sellerSuspended: isSellerSuspended(o),
       round: o.round,
       listing: o.listing,
       buyer: who(o.buyer),

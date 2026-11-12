@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { authSecret } from "../src/config";
 import { PRISMA, type Prisma } from "../src/db/db.module";
+import { MailOutbox } from "../src/email/mail-outbox.service";
 import { MAIL_SENDER } from "../src/email/mail-sender";
 import { RealtimeAdapter } from "../src/realtime/realtime.adapter";
 import { NoopSearchIndex, SEARCH_INDEX } from "../src/search/search-index";
@@ -111,6 +112,68 @@ describe("admin accounts: ban, unban and strikes", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(sent.filter((m) => m.to === user.email).map((m) => m.subject)).toEqual(["Your account has been suspended", "Your account has been restored"]);
     await request(url).get("/notifications").set(user.auth).expect(200);
+  });
+
+  describe("banning a seller", () => {
+    const makeListing = (sellerId: string, over: Record<string, unknown>) =>
+      prisma.listing.create({
+        data: {
+          sellerId, title: `Ban lamp ${++counter} ${stamp}`, description: "x", categoryId, condition: "GOOD", startingPriceCents: 1000, durationDays: 3, status: "PUBLISHED",
+          startsAt: new Date(Date.now() - DAY), endsAt: new Date(Date.now() + 2 * DAY), publishedAt: new Date(Date.now() - DAY), ...over,
+        },
+      }).then((l) => (listingIds.push(l.id), l));
+
+    it("ends their live and upcoming auctions with no sale, and leaves drafts and ended auctions as they were", async () => {
+      const [admin, seller, bidder] = [await person("ADMIN"), await person(), await person()];
+      const live = await makeListing(seller.id, {});
+      const bidded = await makeListing(seller.id, { currentBidCents: 1500, bidCount: 1, highBidderId: bidder.id });
+      await prisma.bid.create({ data: { listingId: bidded.id, bidderId: bidder.id, amountCents: 1500, idempotencyKey: randomUUID() } });
+      const upcoming = await makeListing(seller.id, { startsAt: new Date(Date.now() + DAY), endsAt: new Date(Date.now() + 4 * DAY) });
+      const draft = await makeListing(seller.id, { status: "DRAFT", startsAt: null, endsAt: null, publishedAt: null });
+      const ended = await makeListing(seller.id, { startsAt: new Date(Date.now() - 4 * DAY), endsAt: new Date(Date.now() - DAY), closedAt: new Date(Date.now() - DAY), outcome: "NO_BIDS" });
+
+      await ban(admin, seller.id).expect(200);
+
+      const row = (id: string) => prisma.listing.findUniqueOrThrow({ where: { id } });
+      expect(await row(live.id)).toMatchObject({ outcome: "NO_BIDS", removedById: admin.id, removalReason: "The seller's account was suspended." });
+      expect((await row(live.id)).closedAt).not.toBeNull();
+      expect(await row(bidded.id)).toMatchObject({ outcome: "NO_SALE", winnerId: null });
+      expect((await row(upcoming.id)).closedAt).not.toBeNull();
+      expect(await row(draft.id)).toMatchObject({ status: "DRAFT", closedAt: null, removedAt: null });
+      expect((await row(ended.id)).removedAt).toBeNull();
+      expect(await prisma.adminAction.count({ where: { adminId: admin.id, action: "REMOVE_LISTING", targetId: { in: [live.id, bidded.id, upcoming.id] } } })).toBe(3);
+      expect(await prisma.order.count({ where: { listingId: { in: [live.id, bidded.id, upcoming.id] } } })).toBe(0);
+      expect(sent.find((m) => m.to === seller.email && m.subject === "Your account has been suspended")!.text).toContain("have been ended with no sale");
+    });
+
+    it("holds the orders from their sales instead of deleting them: nothing can be paid, and unbanning gives the buyer the full time again", async () => {
+      const [admin, seller, buyer] = [await person("ADMIN"), await person(), await person()];
+      const sold = await makeListing(seller.id, { startsAt: new Date(Date.now() - 4 * DAY), endsAt: new Date(Date.now() - 1000), closedAt: new Date(), outcome: "SOLD", winnerId: buyer.id, finalPriceCents: 3000, currentBidCents: 3000, bidCount: 1, highBidderId: buyer.id });
+      const order = await prisma.order.create({ data: { listingId: sold.id, buyerId: buyer.id, sellerId: seller.id, amountCents: 3000, feeCents: 150, sellerNetCents: 2850, payBy: new Date(Date.now() + 3600_000) } });
+      const view = async () => (await request(url).get(`/orders/${order.id}`).set(buyer.auth).expect(200)).body;
+      expect((await view()).sellerSuspended).toBeUndefined();
+
+      await ban(admin, seller.id).expect(200);
+
+      expect((await view()).sellerSuspended).toBe(true);
+      await app.get(MailOutbox).sweep();
+      const told = sent.filter((m) => m.to === buyer.email && m.subject === `Your order for ${sold.title} is paused`);
+      expect(told).toHaveLength(1);
+      expect(told[0]!.text).toContain("you will not be charged");
+      expect(told[0]!.text).toContain(`/orders/${order.id}`);
+      const refused = await request(url).post(`/orders/${order.id}/checkout`).set(buyer.auth);
+      expect(refused.status).toBe(409);
+      expect(refused.body.code).toBe("SELLER_SUSPENDED");
+      expect(await prisma.order.count({ where: { id: order.id } })).toBe(1);
+
+      await unban(admin, seller.id).expect(200);
+
+      expect((await view()).sellerSuspended).toBeUndefined();
+      const after = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+      expect(after.status).toBe("AWAITING_PAYMENT");
+      expect(after.payBy.getTime() - Date.now()).toBeGreaterThan(47 * 3600_000);
+      await prisma.order.deleteMany({ where: { id: order.id } });
+    });
   });
 
   it("refuses to ban an admin, someone already banned, an unknown id or a missing reason, and to unban someone who is not banned", async () => {

@@ -4,6 +4,7 @@ import type { OrderView } from "@auction/shared";
 // (pay, ship, rate), so the list can point it out.
 export function orderStatusLabel(order: OrderView): { label: string; action: boolean } {
   const buyer = order.viewer === "buyer";
+  if (order.status === "AWAITING_PAYMENT" && order.sellerSuspended && buyer) return { label: "Paused: the seller's account was suspended", action: false };
   if (order.status === "AWAITING_PAYMENT") return buyer ? { label: "Pay now", action: true } : { label: "Waiting for the buyer to pay", action: false };
   if (order.status === "EXPIRED") return { label: "Not paid in time", action: false };
   if (order.status === "CANCELLED") return { label: "Cancelled", action: false };

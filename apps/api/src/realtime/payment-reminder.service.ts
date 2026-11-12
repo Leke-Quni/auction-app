@@ -71,6 +71,7 @@ export class PaymentReminderService implements OnModuleInit, OnModuleDestroy {
           AND ("payReminderClaimedAt" IS NULL OR "payReminderClaimedAt" < clock_timestamp() - ${LEASE_MINUTES} * interval '1 minute')
           AND "payBy" > clock_timestamp() AND "payBy" <= clock_timestamp() + ${PAYMENT_REMINDER_HOURS} * interval '1 hour'
           AND NOT EXISTS (SELECT 1 FROM "User" u WHERE u."id" = "Order"."buyerId" AND u."bannedAt" IS NOT NULL)
+          AND NOT EXISTS (SELECT 1 FROM "User" u WHERE u."id" = "Order"."sellerId" AND u."bannedAt" IS NOT NULL)
         ORDER BY "payBy" LIMIT ${BATCH}`;
       for (const { id } of due) {
         try {
@@ -93,6 +94,7 @@ export class PaymentReminderService implements OnModuleInit, OnModuleDestroy {
         AND ("payReminderClaimedAt" IS NULL OR "payReminderClaimedAt" < clock_timestamp() - ${LEASE_MINUTES} * interval '1 minute')
         AND "payBy" > clock_timestamp()
         AND NOT EXISTS (SELECT 1 FROM "User" u WHERE u."id" = "Order"."buyerId" AND u."bannedAt" IS NOT NULL)
+        AND NOT EXISTS (SELECT 1 FROM "User" u WHERE u."id" = "Order"."sellerId" AND u."bannedAt" IS NOT NULL)
       RETURNING "id", "listingId", "buyerId", "amountCents", "payBy"`;
     if (!order) return false;
     try {

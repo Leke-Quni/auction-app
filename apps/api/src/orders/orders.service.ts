@@ -14,6 +14,7 @@ const STATUS: Record<OrderRefusal, HttpStatus> = {
   NOT_FOUND: HttpStatus.NOT_FOUND,
   NOT_BUYER: HttpStatus.FORBIDDEN,
   NOT_PAYABLE: HttpStatus.CONFLICT,
+  SELLER_SUSPENDED: HttpStatus.CONFLICT,
   PAYMENT_WINDOW_CLOSED: HttpStatus.CONFLICT,
   SHIPPING_REQUIRED: HttpStatus.CONFLICT,
   SHIPPING_OPTION_UNAVAILABLE: HttpStatus.CONFLICT,
@@ -25,6 +26,12 @@ const STATUS: Record<OrderRefusal, HttpStatus> = {
 };
 const refuse = (code: OrderRefusal) => new HttpException({ code, message: ORDER_REFUSAL_MESSAGES[code] }, STATUS[code]);
 
+// A banned seller's orders are paused while they wait for payment or for the payout (never deleted): nothing can be paid
+// or paid out and nothing expires until the ban is lifted, and after SUSPENDED_ORDER_DAYS an unpaid one is cancelled. Nothing is
+// stored; the seller's ban is what pauses them.
+export const isSellerSuspended = (order: { status: string; seller: { bannedAt: Date | null }; payout: unknown }) =>
+  !!order.seller.bannedAt && (order.status === "AWAITING_PAYMENT" || (order.status === "PAID" && !order.payout));
+
 // Test payments exist only on a machine that says it is local or a test run; an unnamed or unknown environment (staging,
 // preview) is treated as real.
 const testPaymentsAllowed = () => [undefined, "development", "test"].includes(process.env.NODE_ENV);
@@ -32,7 +39,7 @@ const testPaymentsAllowed = () => [undefined, "development", "test"].includes(pr
 const include = {
   listing: { select: { title: true } },
   buyer: { select: { id: true, username: true, email: true } },
-  seller: { select: { id: true, username: true, payoutAccountId: true } },
+  seller: { select: { id: true, username: true, payoutAccountId: true, bannedAt: true } },
   payout: true,
   rating: true,
 } as const;
@@ -93,6 +100,7 @@ export class OrdersService {
         const order = await this.find(userId, orderId, tx);
         if (order.buyerId !== userId) throw refuse("NOT_BUYER");
         if (order.status !== "AWAITING_PAYMENT") throw refuse("NOT_PAYABLE");
+        if (order.seller.bannedAt) throw refuse("SELLER_SUSPENDED");
         if (order.payBy.getTime() <= Date.now()) throw refuse("PAYMENT_WINDOW_CLOSED");
         const delivery = deliveryOf(order);
         if (!delivery || order.shippingCents === null || order.totalCents === null) throw refuse("SHIPPING_REQUIRED");
@@ -298,6 +306,7 @@ export class OrdersService {
     const order = await this.find(userId, orderId);
     if (order.buyerId !== userId) throw refuse("NOT_BUYER");
     if (order.status !== "AWAITING_PAYMENT") throw refuse("NOT_PAYABLE");
+    if (order.seller.bannedAt) throw refuse("SELLER_SUSPENDED");
     if (order.payBy.getTime() <= Date.now()) throw refuse("PAYMENT_WINDOW_CLOSED");
     return order;
   }
@@ -328,8 +337,9 @@ export class OrdersService {
       payBy: order.payBy.toISOString(),
       paidAt: order.paidAt?.toISOString() ?? null,
       viewer: seller ? "seller" : "buyer",
+      ...(isSellerSuspended(order) ? { sellerSuspended: true } : {}),
       buyer: { id: order.buyer.id, username: order.buyer.username },
-      seller: order.seller,
+      seller: { id: order.seller.id, username: order.seller.username },
       shipping: this.shippingFor(order, seller),
       totalCents: seller ? null : order.totalCents, // what the buyer paid in all is the buyer's business
       invoiceNumber: order.invoiceNumber,

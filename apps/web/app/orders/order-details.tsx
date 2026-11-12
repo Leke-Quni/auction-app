@@ -51,7 +51,9 @@ export function OrderDetails({ order }: { order: OrderView }) {
       order.viewer === "buyer" ? <Link key="sp" href={`/sellers/${order.seller.username}`} className="text-brand underline">{order.seller.username}</Link> : order.buyer.username,
     ],
     ["Status", STATUS_LABELS[order.status]],
-    order.status === "PAID" && order.paidAt ? ["Paid", <LocalTime key="t" iso={order.paidAt} />] : ["Pay by", <LocalTime key="t" iso={order.payBy} />],
+    order.status === "PAID" && order.paidAt ? ["Paid", <LocalTime key="t" iso={order.paidAt} />] : order.sellerSuspended
+      ? ["Pay by", "Paused while the seller's account is suspended"]
+      : ["Pay by", <LocalTime key="t" iso={order.payBy} />],
     ...(order.viewer === "buyer" && order.shipping ? ([["Tracking emails", order.trackingEmails ? "Yes" : "No"]] as [string, React.ReactNode][]) : []),
     ...(order.rating
       ? ([
