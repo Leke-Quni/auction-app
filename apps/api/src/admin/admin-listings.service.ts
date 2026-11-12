@@ -21,8 +21,9 @@ export class AdminListingsService {
     private readonly notify: Notify,
   ) {}
 
-  // Published listings, newest first. `q` matches the id, the title or the seller's username.
-  async list({ q, phase, limit }: { q?: string; phase?: "upcoming" | "live" | "ended" | "removed"; limit: number }) {
+  // Published listings, newest first. `q` matches the id, the title or part of the seller's username; `sellerId` is exactly one
+  // seller. `total` is how many match, whatever the limit.
+  async list({ q, sellerId, phase, limit }: { q?: string; sellerId?: string; phase?: "upcoming" | "live" | "ended" | "removed"; limit: number }) {
     const term = q?.trim();
     const now = new Date();
     const phaseWhere =
@@ -31,17 +32,23 @@ export class AdminListingsService {
       : phase === "ended" ? { endsAt: { lte: now } }
       : phase === "removed" ? { removedAt: { not: null } }
       : {};
-    const rows = await this.prisma.listing.findMany({
-      where: {
-        status: "PUBLISHED",
-        ...phaseWhere,
-        ...(term ? { OR: [{ id: term }, { title: { contains: term, mode: "insensitive" } }, { seller: { username: { contains: term, mode: "insensitive" } } }] } : {}),
-      },
-      orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
-      take: limit,
-      select: { id: true, title: true, status: true, startsAt: true, endsAt: true, bidCount: true, currentBidCents: true, startingPriceCents: true, outcome: true, removedAt: true, seller: { select: { id: true, username: true } } },
-    });
+    const where = {
+      status: "PUBLISHED" as const,
+      ...phaseWhere,
+      ...(sellerId ? { sellerId } : {}),
+      ...(term ? { OR: [{ id: term }, { title: { contains: term, mode: "insensitive" as const } }, { seller: { username: { contains: term, mode: "insensitive" as const } } }] } : {}),
+    };
+    const [rows, total] = await Promise.all([
+      this.prisma.listing.findMany({
+        where,
+        orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
+        take: limit,
+        select: { id: true, title: true, status: true, startsAt: true, endsAt: true, bidCount: true, currentBidCents: true, startingPriceCents: true, outcome: true, removedAt: true, seller: { select: { id: true, username: true } } },
+      }),
+      this.prisma.listing.count({ where }),
+    ]);
     return {
+      total,
       listings: rows.map((l) => ({
         id: l.id,
         title: l.title,

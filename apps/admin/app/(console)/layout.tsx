@@ -8,11 +8,11 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
   const admin = await requireAdmin();
   const { openReports, openSupport } = await getOverview();
   return (
-    <div className="grid min-h-screen grid-cols-[13rem_1fr]">
-      <aside className="flex flex-col bg-side py-4 text-side-ink">
-        <p className="px-4 pb-4 text-sm font-bold tracking-wide text-side-active">Auctionly Admin</p>
+    <div className="grid min-h-screen grid-cols-1 content-start md:grid-cols-[13rem_1fr]">
+      <aside className="flex flex-col bg-side py-3 text-side-ink md:py-4">
+        <p className="px-4 pb-2 text-sm font-bold tracking-wide text-side-active md:pb-4">Auctionly Admin</p>
         <Nav openReports={openReports} openSupport={openSupport} />
-        <div className="mt-auto space-y-1 border-t border-side-line px-4 pt-3">
+        <div className="mt-auto flex items-center justify-between gap-3 border-t border-side-line px-4 pt-3 md:block md:space-y-1">
           <p className="truncate text-xs" title={admin.email}>
             {admin.email}
           </p>

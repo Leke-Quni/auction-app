@@ -18,6 +18,7 @@ const usersQuerySchema = z.object({
   banned: z.enum(["true", "false"]).optional().transform((v) => v === "true"),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
+const userBidsQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(100).default(20) });
 const ordersQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
   status: z.enum(["AWAITING_PAYMENT", "PAID", "EXPIRED", "CANCELLED"]).optional(),
@@ -35,6 +36,8 @@ const removeListingSchema = z.object({ reason: z.string().trim().min(1).max(500)
 const auditQuerySchema = z.object({ adminId: z.string().min(1).optional(), targetId: z.string().min(1).optional(), q: z.string().trim().max(100).optional(), limit: z.coerce.number().int().min(1).max(200).default(100) });
 const listingsQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
+  // Exactly this seller's listings (the user page), where `q` also matches part of a username.
+  sellerId: z.string().min(1).optional(),
   phase: z.enum(["upcoming", "live", "ended", "removed"]).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
@@ -164,6 +167,12 @@ export class AdminController {
   @Get("users/:id")
   getUser(@Param("id") id: string) {
     return this.users.get(id);
+  }
+
+  // The auctions this person has bid on and where each stands.
+  @Get("users/:id/bids")
+  getUserBids(@Param("id") id: string, @Query(new ZodValidationPipe(userBidsQuerySchema)) query: z.infer<typeof userBidsQuerySchema>) {
+    return this.users.bids(id, query.limit);
   }
 
   // Suspends the account: every request is refused from now on, and any page they have open is told and disconnected.

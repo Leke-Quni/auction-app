@@ -363,4 +363,58 @@ describe("admin accounts: ban, unban and strikes", () => {
     const log = (await request(url).get(`/admin/audit?targetId=${bidder.id}`).set(admin.auth).expect(200)).body.entries;
     expect(log.filter((e: { action: string }) => e.action === "STRIKE_USER")).toHaveLength(2);
   });
+
+  it("lists exactly one seller's listings, and the auctions a person has bid on with where each stands", async () => {
+    const admin = await person("ADMIN");
+    const [seller, other, bidder, rival] = [await person(), await person(), await person(), await person()];
+    const make = async (sellerId: string, title: string, over: Record<string, unknown>) => {
+      const l = await prisma.listing.create({
+        data: { sellerId, title: `${title} ${stamp}`, description: "x", categoryId, condition: "GOOD", startingPriceCents: 1000, durationDays: 3, status: "PUBLISHED", startsAt: new Date(Date.now() - 4 * DAY), endsAt: new Date(Date.now() + 2 * DAY), publishedAt: new Date(Date.now() - 4 * DAY), ...over },
+      });
+      listingIds.push(l.id);
+      return l;
+    };
+    const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000);
+    const bid = (listingId: string, bidderId: string, amountCents: number, createdAt: Date) =>
+      prisma.bid.create({ data: { listingId, bidderId, amountCents, idempotencyKey: randomUUID(), createdAt } });
+
+    const leading = await make(seller.id, "Leading", { currentBidCents: 1500, bidCount: 2, highBidderId: bidder.id });
+    const outbid = await make(seller.id, "Outbid", { currentBidCents: 2600, bidCount: 3, highBidderId: rival.id });
+    const won = await make(other.id, "Won", { endsAt: new Date(Date.now() - DAY), closedAt: new Date(Date.now() - DAY), outcome: "SOLD", winnerId: bidder.id, finalPriceCents: 1800, currentBidCents: 1800, bidCount: 1, highBidderId: bidder.id });
+    const lost = await make(other.id, "Lost", { endsAt: new Date(Date.now() - DAY), closedAt: new Date(Date.now() - DAY), outcome: "SOLD", winnerId: rival.id, finalPriceCents: 2100, currentBidCents: 2100, bidCount: 2, highBidderId: rival.id });
+    await make(other.id, "No bids from them", {});
+    await bid(leading.id, rival.id, 1200, minutesAgo(50));
+    await bid(leading.id, bidder.id, 1500, minutesAgo(40));
+    await bid(outbid.id, bidder.id, 1100, minutesAgo(30));
+    await bid(outbid.id, bidder.id, 2000, minutesAgo(20));
+    await bid(outbid.id, rival.id, 2600, minutesAgo(10));
+    await bid(won.id, bidder.id, 1800, minutesAgo(5000));
+    await bid(lost.id, bidder.id, 1900, minutesAgo(6000));
+    await bid(lost.id, rival.id, 2100, minutesAgo(5900));
+
+    const get = (path: string, who: Who = admin) => request(url).get(path).set(who.auth);
+    await get(`/admin/users/${bidder.id}/bids`, bidder).expect(403);
+    await request(url).get(`/admin/users/${bidder.id}/bids`).expect(401);
+    await get("/admin/users/nope/bids").expect(404);
+
+    const { total, auctions } = (await get(`/admin/users/${bidder.id}/bids`).expect(200)).body;
+    expect(total).toBe(4);
+    // Latest bid first; one row per auction, with their own highest bid and how many they placed.
+    expect(auctions.map((a: { id: string }) => a.id)).toEqual([outbid.id, leading.id, won.id, lost.id]);
+    expect(auctions[0]).toMatchObject({ state: "outbid", phase: "live", yourHighestCents: 2000, yourBids: 2, priceCents: 2600 });
+    expect(auctions[1]).toMatchObject({ state: "leading", yourHighestCents: 1500, yourBids: 1, priceCents: 1500 });
+    expect(auctions[2]).toMatchObject({ state: "won", phase: "ended", outcome: "SOLD", yourHighestCents: 1800 });
+    expect(auctions[3]).toMatchObject({ state: "lost", phase: "ended", yourHighestCents: 1900 });
+    expect((await get(`/admin/users/${bidder.id}/bids?limit=2`).expect(200)).body).toMatchObject({ total: 4, auctions: [{ id: outbid.id }, { id: leading.id }] });
+    expect((await get(`/admin/users/${other.id}/bids`).expect(200)).body).toEqual({ total: 0, auctions: [] });
+
+    const mine = (await get(`/admin/listings?sellerId=${seller.id}`).expect(200)).body;
+    expect(mine.total).toBe(2);
+    expect(mine.listings.map((l: { id: string }) => l.id).sort()).toEqual([leading.id, outbid.id].sort());
+    expect(mine.listings.every((l: { seller: { id: string } }) => l.seller.id === seller.id)).toBe(true);
+    // The count is not cut by the limit.
+    expect((await get(`/admin/listings?sellerId=${other.id}&limit=1`).expect(200)).body).toMatchObject({ total: 3, listings: [expect.anything()] });
+    expect((await get(`/admin/listings?sellerId=${other.id}&phase=ended`).expect(200)).body.total).toBe(2);
+    expect((await get("/admin/listings?sellerId=nobody").expect(200)).body).toEqual({ total: 0, listings: [] });
+  });
 });

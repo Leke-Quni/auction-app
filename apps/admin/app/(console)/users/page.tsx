@@ -31,7 +31,7 @@ export default async function Users({ searchParams }: { searchParams: Promise<{ 
     <div className="space-y-3">
       <h1 className="text-lg font-bold">Users</h1>
       <form className="flex flex-wrap items-center gap-2">
-        <input name="q" defaultValue={q} placeholder="Username, email or id" className="w-72 rounded border border-line bg-panel px-2 py-1" />
+        <input name="q" defaultValue={q} placeholder="Username, email or id" className="w-full max-w-[18rem] rounded border border-line bg-panel px-2 py-1" />
         <label className="flex items-center gap-1">
           <input type="checkbox" name="banned" value="true" defaultChecked={banned === "true"} /> Banned only
         </label>
@@ -40,6 +40,7 @@ export default async function Users({ searchParams }: { searchParams: Promise<{ 
       {users.length === 0 ? (
         <p className="rounded border border-line bg-panel p-4 text-muted">No accounts match.</p>
       ) : (
+        <div className="overflow-x-auto">
         <table className="w-full border-collapse overflow-hidden rounded border border-line bg-panel text-left">
           <thead className="bg-page text-muted">
             <tr>
@@ -71,6 +72,7 @@ export default async function Users({ searchParams }: { searchParams: Promise<{ 
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

@@ -44,6 +44,15 @@ test("an admin signs in to the admin app, bans a user, removes a listing, and bo
   expect(banned.rows[0]!.bannedAt).not.toBeNull();
   expect(banned.rows[0]!.banReason).toBe("Selling fake goods");
 
+  // The seller's page lists their listings (and the auctions they bid on, none here), and the Listings page can show only them.
+  await page.goto(`${ADMIN_URL}/users/${listing.sellerId}`);
+  await expect(page.getByRole("heading", { name: "Listings" })).toBeVisible();
+  await expect(page.getByRole("link", { name: title })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Auctions they bid on" })).toBeVisible();
+  await page.getByRole("link", { name: "Open in the Listings page" }).click();
+  await expect(page.getByText("Showing only the listings of")).toBeVisible();
+  await expect(page.getByRole("link", { name: title })).toBeVisible();
+
   await page.goto(`${ADMIN_URL}/listings?q=${encodeURIComponent(title)}`);
   await page.getByRole("link", { name: title }).click();
   await page.locator('textarea[name="reason"]').fill("Prohibited item");

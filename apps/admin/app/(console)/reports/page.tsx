@@ -63,6 +63,7 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
       {reports.length === 0 ? (
         <p className="rounded border border-line bg-panel p-4 text-muted">{status === "OPEN" ? "No open reports." : "No handled reports. They are removed 30 days after the auction ends."}</p>
       ) : (
+        <div className="overflow-x-auto">
         <table className="w-full border-collapse overflow-hidden rounded border border-line bg-panel text-left">
           <thead className="bg-page text-muted">
             <tr>
@@ -123,6 +124,7 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

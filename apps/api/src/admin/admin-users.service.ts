@@ -1,5 +1,5 @@
 import { ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { PAYMENT_WINDOW_HOURS, SUSPENDED_ORDER_DAYS } from "@auction/shared";
+import { listingPhase, PAYMENT_WINDOW_HOURS, SUSPENDED_ORDER_DAYS } from "@auction/shared";
 import { AdminListingsService } from "./admin-listings.service";
 import { queueMail } from "../email/mail-outbox";
 import { giveAdminStrike } from "./admin-strikes";
@@ -47,6 +47,48 @@ export class AdminUsersService {
       select: summary,
     });
     return { users: users.map(toSummary) };
+  }
+
+  // The auctions a person has bid on, the latest bid first, one row per auction: their own highest bid, how many bids they placed
+  // there, and where it stands (leading, won, outbid, lost). `total` is how many auctions, whatever the limit.
+  async bids(id: string, limit: number) {
+    if (!(await this.prisma.user.findUnique({ where: { id }, select: { id: true } }))) throw new NotFoundException();
+    const now = new Date();
+    const [rows, [{ total }]] = await Promise.all([
+      this.prisma.$queryRaw<
+        {
+          id: string; title: string; startsAt: Date | null; endsAt: Date | null; currentBidCents: number | null; highBidderId: string | null; winnerId: string | null;
+          outcome: "SOLD" | "NO_SALE" | "NO_BIDS" | null; removedAt: Date | null; highestCents: number; bids: number; lastBidAt: Date;
+        }[]
+      >`
+        SELECT l."id", l."title", l."startsAt", l."endsAt", l."currentBidCents", l."highBidderId", l."winnerId", l."outcome", l."removedAt",
+               MAX(b."amountCents")::int AS "highestCents", COUNT(*)::int AS "bids", MAX(b."createdAt") AS "lastBidAt"
+        FROM "Bid" b JOIN "Listing" l ON l."id" = b."listingId"
+        WHERE b."bidderId" = ${id}
+        GROUP BY l."id"
+        ORDER BY MAX(b."createdAt") DESC, l."id" ASC
+        LIMIT ${limit}`,
+      this.prisma.$queryRaw<{ total: number }[]>`SELECT COUNT(DISTINCT "listingId")::int AS "total" FROM "Bid" WHERE "bidderId" = ${id}`,
+    ]);
+    return {
+      total,
+      auctions: rows.map((r) => {
+        const phase = listingPhase({ status: "PUBLISHED", startsAt: r.startsAt, endsAt: r.endsAt }, now);
+        const state = r.removedAt ? "removed" : phase !== "ended" ? (r.highBidderId === id ? "leading" : "outbid") : r.winnerId === id ? "won" : "lost";
+        return {
+          id: r.id,
+          title: r.title,
+          phase,
+          state,
+          outcome: r.outcome,
+          yourHighestCents: r.highestCents,
+          yourBids: r.bids,
+          priceCents: r.currentBidCents,
+          endsAt: r.endsAt?.toISOString() ?? null,
+          lastBidAt: r.lastBidAt.toISOString(),
+        };
+      }),
+    };
   }
 
   async get(id: string) {
