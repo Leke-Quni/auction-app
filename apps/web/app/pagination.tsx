@@ -12,6 +12,7 @@ export function pageNumbers(current: number, pages: number) {
   return Array.from({ length: end - start + 1 }, (_, i) => start + i);
 }
 
+// The links get their corners from the global rule for `.border.bg-surface`; the current page has a brand background instead, so it names the same radius itself.
 const box = "border px-2.5 py-1 text-center";
 
 export function Pagination({ page, pages, hrefFor }: { page: number; pages: number; hrefFor: (page: number) => string }) {
@@ -25,7 +26,7 @@ export function Pagination({ page, pages, hrefFor }: { page: number; pages: numb
       )}
       {pageNumbers(page, pages).map((n) =>
         n === page ? (
-          <span key={n} aria-current="page" className={`${box} border-brand bg-brand font-bold text-on-brand`}>
+          <span key={n} aria-current="page" className={`${box} rounded-[var(--radius-card)] border-brand bg-brand font-bold text-on-brand`}>
             {n}
           </span>
         ) : (
