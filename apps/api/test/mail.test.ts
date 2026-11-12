@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMailSender, DEFAULT_MAIL_FROM } from "../src/email/create-mail-sender";
 import { ConsoleMailSender } from "../src/email/mail-sender";
 import { ResendMailSender } from "../src/email/resend-mail-sender";
+import { SmtpMailSender } from "../src/email/smtp-mail-sender";
 
 const KEY = "re_test_super_secret_key";
 
@@ -118,10 +119,39 @@ describe("createMailSender", () => {
   });
 
   it("refuses to start in production without a key, so codes never go to the log", () => {
-    expect(() => createMailSender({ NODE_ENV: "production" })).toThrow(/RESEND_API_KEY is required in production/);
+    expect(() => createMailSender({ NODE_ENV: "production" })).toThrow(/RESEND_API_KEY or SMTP_USER and SMTP_PASS are required in production/);
   });
 
   it("allows production when the key is set", () => {
     expect(createMailSender({ NODE_ENV: "production", RESEND_API_KEY: KEY })).toBeInstanceOf(ResendMailSender);
+  });
+
+  it("uses SMTP (Gmail by default) when SMTP_USER and SMTP_PASS are set, ahead of Resend", () => {
+    const sender = createMailSender({ SMTP_USER: "me@gmail.com", SMTP_PASS: "app-password", RESEND_API_KEY: KEY });
+    expect(sender).toBeInstanceOf(SmtpMailSender);
+    expect((sender as unknown as { from: string }).from).toBe("Auctionly <me@gmail.com>");
+    expect(createMailSender({ NODE_ENV: "production", SMTP_USER: "me@gmail.com", SMTP_PASS: "x" })).toBeInstanceOf(SmtpMailSender);
+  });
+});
+
+describe("SmtpMailSender", () => {
+  const config = { host: "smtp.gmail.com", port: 465, user: "me@gmail.com", pass: "x" };
+
+  it("sends the email through the transport", async () => {
+    const sendMail = vi.fn(async () => ({}));
+    await new SmtpMailSender(config, "Auctionly <me@gmail.com>", { sendMail } as never).send("ana@example.com", "Hi", "Body");
+    expect(sendMail).toHaveBeenCalledWith({ from: "Auctionly <me@gmail.com>", to: "ana@example.com", subject: "Hi", text: "Body", attachments: [] });
+  });
+
+  it("skips sample addresses and turns a failure into a 503", async () => {
+    const sendMail = vi.fn(async () => {
+      throw new Error("Invalid login");
+    });
+    vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const sender = new SmtpMailSender(config, "x", { sendMail } as never);
+    await expect(sender.send("a@seed.local", "s", "t")).resolves.toBeUndefined();
+    expect(sendMail).not.toHaveBeenCalled();
+    await expect(sender.send("ana@example.com", "s", "t")).rejects.toBeInstanceOf(ServiceUnavailableException);
+    vi.restoreAllMocks();
   });
 });

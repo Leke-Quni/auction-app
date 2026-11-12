@@ -5,6 +5,8 @@ export type Delivery = OrderShipping & { priceCents: number };
 
 export interface InvoiceData {
   invoiceNumber: string;
+  // The order's id, as in the address of its page, so a person and support can point at the same order.
+  orderId: string;
   paidAt: Date;
   title: string;
   amountCents: number;
@@ -26,6 +28,7 @@ export function deliveryOf(order: { shippingAddress: unknown; shippingOption: un
 }
 
 interface InvoiceOrder {
+  id: string;
   status: string;
   invoiceNumber: string | null;
   paidAt: Date | null;
@@ -44,7 +47,7 @@ interface InvoiceOrder {
 export function invoiceDataOf(order: InvoiceOrder, viewer: "buyer" | "seller"): InvoiceData | null {
   const shipping = deliveryOf(order);
   if (order.status !== "PAID" || !order.invoiceNumber || !order.paidAt || !shipping || order.totalCents === null) return null;
-  return { invoiceNumber: order.invoiceNumber, paidAt: order.paidAt, title: order.listing.title, amountCents: order.amountCents, shipping, totalCents: order.totalCents, feeCents: order.feeCents, sellerNetCents: order.sellerNetCents, buyerUsername: order.buyer.username, sellerUsername: order.seller.username, viewer };
+  return { invoiceNumber: order.invoiceNumber, orderId: order.id, paidAt: order.paidAt, title: order.listing.title, amountCents: order.amountCents, shipping, totalCents: order.totalCents, feeCents: order.feeCents, sellerNetCents: order.sellerNetCents, buyerUsername: order.buyer.username, sellerUsername: order.seller.username, viewer };
 }
 
 const utcDate = (d: Date) => `${d.toISOString().slice(0, 10)} UTC`;
@@ -84,6 +87,9 @@ export function invoiceRows(data: InvoiceData): InvoiceRow[] {
   ];
 }
 
+// The lines under the title: the invoice number, the order it is for, and when it was paid.
+export const invoiceHeaderLines = (data: InvoiceData) => [`Invoice number: ${data.invoiceNumber}`, `Order: ${data.orderId}`, `Paid: ${utcDate(data.paidAt)}`];
+
 // A receipt-style invoice for a paid order, as a PDF (the seller gets a sale statement). It is not a tax invoice (the project does no tax work).
 export function renderInvoice(data: InvoiceData): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -94,7 +100,9 @@ export function renderInvoice(data: InvoiceData): Promise<Buffer> {
     doc.on("error", reject);
 
     doc.fontSize(22).text(invoiceTitle(data.viewer), { align: "left" });
-    doc.moveDown(0.3).fontSize(11).fillColor("#555").text(`Invoice number: ${data.invoiceNumber}`).text(`Paid: ${utcDate(data.paidAt)}`).fillColor("#000");
+    doc.moveDown(0.3).fontSize(11).fillColor("#555");
+    for (const line of invoiceHeaderLines(data)) doc.text(line);
+    doc.fillColor("#000");
     doc.moveDown();
     doc.fontSize(11).text(`Seller: ${data.sellerUsername}`).text(`Buyer: ${data.buyerUsername}`);
     doc.moveDown().fontSize(12).text(data.viewer === "buyer" ? "Deliver to" : "Delivered to", { underline: true });

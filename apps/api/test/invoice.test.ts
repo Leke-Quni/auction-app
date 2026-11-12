@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { invoiceRows, invoiceTitle, renderInvoice, type InvoiceData } from "../src/orders/invoice";
+import { invoiceHeaderLines, invoiceRows, invoiceTitle, renderInvoice, type InvoiceData } from "../src/orders/invoice";
 
 const data = (viewer: "buyer" | "seller"): InvoiceData => ({
   invoiceNumber: "INV-2026-000007",
+  orderId: "cmwd1order0000id",
   paidAt: new Date("2026-11-04T10:00:00Z"),
   title: "Brass lamp",
   amountCents: 2000,
@@ -34,6 +35,12 @@ describe("invoice rows", () => {
       ["You receive (EUR)", "€19.00"],
     ]);
     expect(JSON.stringify(rows)).not.toMatch(/€29\.00|€9\.00|Delivery/);
+  });
+
+  it("puts the order id under the invoice number, on the buyer's invoice and the seller's statement", () => {
+    for (const viewer of ["buyer", "seller"] as const) {
+      expect(invoiceHeaderLines(data(viewer))).toEqual(["Invoice number: INV-2026-000007", "Order: cmwd1order0000id", "Paid: 2026-11-04 UTC"]);
+    }
   });
 
   it("renders both as PDFs", async () => {

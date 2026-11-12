@@ -105,10 +105,16 @@ describe("shipments", () => {
     await prisma.bid.create({ data: { listingId: listing.id, bidderId: buyer.id, amountCents: 3150, idempotencyKey: `k-${listing.id}` } });
     await closer.close(listing.id);
     const found = await prisma.order.findFirstOrThrow({ where: { listingId: listing.id } });
-    return prisma.order.update({
+    const paid = await prisma.order.update({
       where: { id: found.id },
       data: { status: "PAID", paidAt: new Date(), invoiceNumber: `INV-TEST-${stamp}-${counter}`, shippingAddress: address, shippingOption: option, shippingCents: 300, totalCents: 3450, trackingEmails },
     });
+    // Closing starts a background mail sweep at once. If it read the order before it was marked paid, it sent the buyer's
+    // "pay now" email, which links to the same order page the tests count mail by. Let any sweep in progress finish, send
+    // what is left (the pay-now email is skipped now that the order is paid), then forget that email.
+    await emails.sweep();
+    for (let i = sent.length - 1; i >= 0; i--) if (sent[i].to === buyer.email && sent[i].subject.endsWith(": pay now")) sent.splice(i, 1);
+    return paid;
   };
 
   it("lets the seller mark a paid order shipped, once, and tells the buyer", async () => {
