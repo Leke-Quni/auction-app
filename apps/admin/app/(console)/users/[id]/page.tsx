@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { MAX_STRIKES } from "@auction/shared";
+import { formatEur, MAX_STRIKES } from "@auction/shared";
 import { adminApiFetch } from "@/lib/api";
 import { requireAdmin } from "@/lib/require-admin";
 import { BanForm, ClearStrikeForm, RoleForm, StrikeForm, UnbanForm } from "./forms";
@@ -22,27 +22,61 @@ interface User {
   strikes: { id: string; createdAt: string; orderId: string | null; reason: string | null; givenByAdmin: boolean; listing: { id: string; title: string } | null }[];
 }
 
+interface ListingRow {
+  id: string;
+  title: string;
+  phase: "upcoming" | "live" | "ended";
+  bidCount: number;
+  priceCents: number;
+  endsAt: string | null;
+  outcome: "SOLD" | "NO_SALE" | "NO_BIDS" | null;
+  removed: boolean;
+}
+
+interface BidRow {
+  id: string;
+  title: string;
+  state: "leading" | "outbid" | "won" | "lost" | "removed";
+  yourHighestCents: number;
+  yourBids: number;
+  priceCents: number | null;
+  endsAt: string | null;
+}
+
+const SHOWN = 20;
+const PHASE_PILL = { live: "bg-ok-soft text-ok", upcoming: "bg-warn-soft text-warn", ended: "bg-page text-muted" } as const;
+const STATE_PILL = { leading: "bg-ok-soft text-ok", won: "bg-ok-soft text-ok", outbid: "bg-warn-soft text-warn", lost: "bg-page text-muted", removed: "bg-danger-soft text-danger" } as const;
+
 const when = (iso: string) => new Date(iso).toISOString().replace("T", " ").slice(0, 16) + " UTC";
 
 export default async function UserPage({ params }: { params: Promise<{ id: string }> }) {
   const me = await requireAdmin();
   const { id } = await params;
-  const res = await adminApiFetch(`/admin/users/${encodeURIComponent(id)}`);
+  const key = encodeURIComponent(id);
+  const [res, listingsRes, bidsRes] = await Promise.all([
+    adminApiFetch(`/admin/users/${key}`),
+    adminApiFetch(`/admin/listings?sellerId=${key}&limit=${SHOWN}`),
+    adminApiFetch(`/admin/users/${key}/bids?limit=${SHOWN}`),
+  ]);
   if (res.status === 404) notFound();
   if (!res.ok) throw new Error(`API /admin/users failed: ${res.status}`);
+  if (!listingsRes.ok) throw new Error(`API /admin/listings failed: ${listingsRes.status}`);
+  if (!bidsRes.ok) throw new Error(`API /admin/users/bids failed: ${bidsRes.status}`);
   const u = (await res.json()) as User;
+  const { listings, total: listingTotal } = (await listingsRes.json()) as { listings: ListingRow[]; total: number };
+  const { auctions, total: auctionTotal } = (await bidsRes.json()) as { auctions: BidRow[]; total: number };
   const rows: [string, React.ReactNode][] = [
     ["Name", u.name],
     ["Email", `${u.email}${u.emailVerified ? "" : " (not verified)"}`],
     ["Role", u.isSuperAdmin ? "SUPER ADMIN" : u.role],
     ["Joined", when(u.createdAt)],
-    ["Listings", String(u.listingCount)],
+    ["Listings", `${u.listingCount} (drafts included)`],
     ["Bids", String(u.bidCount)],
     ["Strikes", `${u.strikeCount} (bidding is blocked at ${MAX_STRIKES})`],
     ["Orders", <Link key="o" href={`/orders?q=${encodeURIComponent(u.username)}`} className="text-accent underline">Orders as buyer or seller</Link>],
   ];
   return (
-    <div className="max-w-2xl space-y-3">
+    <div className="max-w-4xl space-y-3">
       <h1 className="text-lg font-bold">
         @{u.username} {u.bannedAt && <span className="ml-1 rounded bg-danger-soft px-1.5 py-0.5 text-xs font-semibold text-danger">banned</span>}
       </h1>
@@ -56,6 +90,97 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
           ))}
         </tbody>
       </table>
+
+      <div className="space-y-2 rounded border border-line bg-panel p-4">
+        <h2 className="font-bold">Listings</h2>
+        {listings.length === 0 ? (
+          <p className="text-muted">No published listings. Drafts are private and not shown.</p>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-left">
+                <thead className="text-muted">
+                  <tr>
+                    <th className="py-1 pr-3 font-normal">Item</th>
+                    <th className="py-1 pr-3 font-normal">State</th>
+                    <th className="py-1 pr-3 font-normal">Price</th>
+                    <th className="py-1 pr-3 font-normal">Bids</th>
+                    <th className="py-1 font-normal">Ends</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {listings.map((l) => (
+                    <tr key={l.id} className="border-t border-line align-top">
+                      <td className="py-1.5 pr-3">
+                        <Link href={`/listings/${l.id}`} className="text-accent underline">
+                          {l.title}
+                        </Link>
+                      </td>
+                      <td className="whitespace-nowrap py-1.5 pr-3">
+                        <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${PHASE_PILL[l.phase]}`}>{l.phase}</span>
+                        {l.removed && <span className="ml-1 rounded bg-danger-soft px-1.5 py-0.5 text-xs font-semibold text-danger">removed</span>}
+                        {l.phase === "ended" && !l.removed && l.outcome && <span className="ml-1 text-xs text-muted">{l.outcome.replace("_", " ").toLowerCase()}</span>}
+                      </td>
+                      <td className="whitespace-nowrap py-1.5 pr-3">{formatEur(l.priceCents)}</td>
+                      <td className="py-1.5 pr-3">{l.bidCount}</td>
+                      <td className="whitespace-nowrap py-1.5 text-muted">{l.endsAt ? when(l.endsAt) : ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-muted">
+              {listingTotal > listings.length ? `Latest ${listings.length} of ${listingTotal}. ` : ""}
+              <Link href={`/listings?sellerId=${key}`} className="text-accent underline">
+                Open in the Listings page
+              </Link>
+            </p>
+          </>
+        )}
+      </div>
+
+      <div className="space-y-2 rounded border border-line bg-panel p-4">
+        <h2 className="font-bold">Auctions they bid on</h2>
+        {auctions.length === 0 ? (
+          <p className="text-muted">No bids.</p>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-left">
+                <thead className="text-muted">
+                  <tr>
+                    <th className="py-1 pr-3 font-normal">Item</th>
+                    <th className="py-1 pr-3 font-normal">Standing</th>
+                    <th className="py-1 pr-3 font-normal">Their highest bid</th>
+                    <th className="py-1 pr-3 font-normal">Price</th>
+                    <th className="py-1 pr-3 font-normal">Their bids</th>
+                    <th className="py-1 font-normal">Ends</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auctions.map((a) => (
+                    <tr key={a.id} className="border-t border-line align-top">
+                      <td className="py-1.5 pr-3">
+                        <Link href={`/listings/${a.id}`} className="text-accent underline">
+                          {a.title}
+                        </Link>
+                      </td>
+                      <td className="whitespace-nowrap py-1.5 pr-3">
+                        <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${STATE_PILL[a.state]}`}>{a.state}</span>
+                      </td>
+                      <td className="whitespace-nowrap py-1.5 pr-3">{formatEur(a.yourHighestCents)}</td>
+                      <td className="whitespace-nowrap py-1.5 pr-3">{a.priceCents === null ? "" : formatEur(a.priceCents)}</td>
+                      <td className="py-1.5 pr-3">{a.yourBids}</td>
+                      <td className="whitespace-nowrap py-1.5 text-muted">{a.endsAt ? when(a.endsAt) : ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {auctionTotal > auctions.length && <p className="text-muted">Latest {auctions.length} of {auctionTotal} auctions.</p>}
+          </>
+        )}
+      </div>
 
       <div className="space-y-2 rounded border border-line bg-panel p-4">
         <h2 className="font-bold">Strikes</h2>

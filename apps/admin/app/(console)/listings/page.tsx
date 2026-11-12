@@ -19,11 +19,12 @@ const PHASES = ["live", "upcoming", "ended", "removed"] as const;
 const PILL = { live: "bg-ok-soft text-ok", upcoming: "bg-warn-soft text-warn", ended: "bg-page text-muted" } as const;
 const when = (iso: string) => new Date(iso).toISOString().replace("T", " ").slice(0, 16) + " UTC";
 
-export default async function Listings({ searchParams }: { searchParams: Promise<{ q?: string; phase?: string }> }) {
+export default async function Listings({ searchParams }: { searchParams: Promise<{ q?: string; phase?: string; sellerId?: string }> }) {
   await requireAdmin();
-  const { q = "", phase = "" } = await searchParams;
+  const { q = "", phase = "", sellerId = "" } = await searchParams;
   const query = new URLSearchParams();
   if (q.trim()) query.set("q", q.trim());
+  if (sellerId.trim()) query.set("sellerId", sellerId.trim());
   if ((PHASES as readonly string[]).includes(phase)) query.set("phase", phase);
   const res = await adminApiFetch(`/admin/listings?${query}`);
   if (!res.ok) throw new Error(`API /admin/listings failed: ${res.status}`);
@@ -32,6 +33,7 @@ export default async function Listings({ searchParams }: { searchParams: Promise
     <div className="space-y-3">
       <h1 className="text-lg font-bold">Listings</h1>
       <form className="flex flex-wrap items-center gap-2">
+        {sellerId && <input type="hidden" name="sellerId" value={sellerId} />}
         <input name="q" defaultValue={q} placeholder="Listing id, title or seller" className="w-full max-w-[20rem] rounded border border-line bg-panel px-2 py-1" />
         <select name="phase" defaultValue={phase} className="rounded border border-line bg-panel px-2 py-1">
           <option value="">Any state</option>
@@ -43,6 +45,22 @@ export default async function Listings({ searchParams }: { searchParams: Promise
         </select>
         <button className="cursor-pointer rounded bg-accent px-3 py-1 font-semibold text-on-brand hover:bg-accent-dark">Search</button>
       </form>
+      {sellerId && (
+        <p>
+          Showing only the listings of{" "}
+          {listings[0] ? (
+            <Link href={`/users/${sellerId}`} className="text-accent underline">
+              @{listings[0].seller.username}
+            </Link>
+          ) : (
+            "one seller"
+          )}
+          .{" "}
+          <Link href="/listings" className="text-accent underline">
+            Show all
+          </Link>
+        </p>
+      )}
       {listings.length === 0 ? (
         <p className="rounded border border-line bg-panel p-4 text-muted">No listings match. Drafts are not shown.</p>
       ) : (
