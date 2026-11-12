@@ -54,6 +54,7 @@ model User {
   purchases           Order[]              @relation("OrderBuyer")
   sales               Order[]              @relation("OrderSeller")
   bids                Bid[]
+  autoBids            AutoBid[]
   notifications       Notification[]
   watches             Watch[]
   ratingsGiven        Rating[]             @relation("RatingBuyer")
@@ -173,6 +174,7 @@ model Listing {
   updatedAt          DateTime         @updatedAt
   images             ListingImage[]
   bids               Bid[]
+  autoBids           AutoBid[]
   notifications      Notification[]
   questions          Question[]
   orders             Order[]
@@ -318,20 +320,55 @@ model ListingImage {
   @@unique([listingId, position])
 }
 
-// Every accepted bid. The unique key makes a retry harmless: the same bidder and key never place two bids.
+// BID: the row a request produced. AUTO: a row the system placed for the leader when a challenger met their maximum. RAISE: the
+// leader raising their own maximum, hidden (it changes no price) and kept so a retry is recognised.
+enum BidKind {
+  BID
+  AUTO
+  RAISE
+}
+
+// What a request meant for the person who made it.
+enum ProxyOutcome {
+  LEADING
+  OUTBID_BY_PROXY
+  MAX_RAISED
+}
+
+// Every accepted bid. The unique key makes a retry harmless: the same bidder and key never place two bids. `amountCents` is the
+// price this row set; `maxCents` is the maximum the bidder typed in the request (null on AUTO rows). `seq` orders rows strictly,
+// because the rows of one request share a time and can share an amount.
 model Bid {
-  id             String   @id @default(cuid())
+  id             String        @id @default(cuid())
   listingId      String
-  listing        Listing  @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  listing        Listing       @relation(fields: [listingId], references: [id], onDelete: Restrict)
   bidderId       String
-  bidder         User     @relation(fields: [bidderId], references: [id], onDelete: Restrict)
+  bidder         User          @relation(fields: [bidderId], references: [id], onDelete: Restrict)
   amountCents    Int
   idempotencyKey String
   ip             String?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime      @default(now())
+  kind           BidKind       @default(BID)
+  maxCents       Int?
+  outcome        ProxyOutcome?
+  seq            Int           @default(autoincrement())
 
   @@unique([bidderId, idempotencyKey])
   @@index([listingId, amountCents(sort: Desc)])
+  @@index([bidderId])
+}
+
+// A bidder's current maximum on an auction: only ever raised. It is read only by the bid transaction and by its owner, and is
+// never sent to anyone else. It goes with its listing or account (which cannot be deleted once they have bids anyway).
+model AutoBid {
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  bidderId  String
+  bidder    User     @relation(fields: [bidderId], references: [id], onDelete: Cascade)
+  maxCents  Int
+  updatedAt DateTime @updatedAt
+
+  @@id([listingId, bidderId])
   @@index([bidderId])
 }
 
