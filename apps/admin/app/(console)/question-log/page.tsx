@@ -53,7 +53,7 @@ export default async function QuestionLog({ searchParams }: { searchParams: Prom
     <div className="space-y-3">
       <h1 className="text-lg font-bold">Question log</h1>
       <form className="flex flex-wrap items-center gap-2">
-        <input name="q" defaultValue={q} placeholder="Username, email, listing title or id" className="w-96 rounded border border-line bg-panel px-2 py-1" />
+        <input name="q" defaultValue={q} placeholder="Username, email, listing title or id" className="w-full max-w-[24rem] rounded border border-line bg-panel px-2 py-1" />
         <button className="cursor-pointer rounded bg-accent px-3 py-1 font-semibold text-on-brand hover:bg-accent-dark">Search</button>
       </form>
       <p className="text-muted">
@@ -87,7 +87,7 @@ export default async function QuestionLog({ searchParams }: { searchParams: Prom
               {[...g.threads.entries()].map(([questionId, thread]) => (
                 <ol key={questionId} className="space-y-2 p-3">
                   {thread.map((e) => (
-                    <li key={e.id} className="grid grid-cols-[11rem_1fr] gap-3">
+                    <li key={e.id} className="grid grid-cols-1 gap-1 sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-3">
                       <span className="text-xs text-muted">{when(e.createdAt)}</span>
                       <div className={e.target === "ANSWER" ? "ml-6" : ""}>
                         <p className="text-xs text-muted">

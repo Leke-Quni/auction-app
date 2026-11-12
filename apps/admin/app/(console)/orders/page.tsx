@@ -37,7 +37,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<{
     <div className="space-y-3">
       <h1 className="text-lg font-bold">Orders</h1>
       <form className="flex flex-wrap items-center gap-2">
-        <input name="q" defaultValue={q} placeholder="Order id, listing, invoice, buyer or seller" className="w-80 rounded border border-line bg-panel px-2 py-1" />
+        <input name="q" defaultValue={q} placeholder="Order id, listing, invoice, buyer or seller" className="w-full max-w-[20rem] rounded border border-line bg-panel px-2 py-1" />
         <select name="status" defaultValue={status} className="rounded border border-line bg-panel px-2 py-1">
           <option value="">Any status</option>
           {(Object.keys(STATUS_LABEL) as Status[]).map((s) => (
@@ -60,6 +60,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<{
       {orders.length === 0 ? (
         <p className="rounded border border-line bg-panel p-4 text-muted">No orders match.</p>
       ) : (
+        <div className="overflow-x-auto">
         <table className="w-full border-collapse overflow-hidden rounded border border-line bg-panel text-left">
           <thead className="bg-page text-muted">
             <tr>
@@ -100,6 +101,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<{
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

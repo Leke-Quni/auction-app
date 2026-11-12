@@ -32,7 +32,7 @@ export default async function Listings({ searchParams }: { searchParams: Promise
     <div className="space-y-3">
       <h1 className="text-lg font-bold">Listings</h1>
       <form className="flex flex-wrap items-center gap-2">
-        <input name="q" defaultValue={q} placeholder="Listing id, title or seller" className="w-80 rounded border border-line bg-panel px-2 py-1" />
+        <input name="q" defaultValue={q} placeholder="Listing id, title or seller" className="w-full max-w-[20rem] rounded border border-line bg-panel px-2 py-1" />
         <select name="phase" defaultValue={phase} className="rounded border border-line bg-panel px-2 py-1">
           <option value="">Any state</option>
           {PHASES.map((p) => (
@@ -46,6 +46,7 @@ export default async function Listings({ searchParams }: { searchParams: Promise
       {listings.length === 0 ? (
         <p className="rounded border border-line bg-panel p-4 text-muted">No listings match. Drafts are not shown.</p>
       ) : (
+        <div className="overflow-x-auto">
         <table className="w-full border-collapse overflow-hidden rounded border border-line bg-panel text-left">
           <thead className="bg-page text-muted">
             <tr>
@@ -82,6 +83,7 @@ export default async function Listings({ searchParams }: { searchParams: Promise
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

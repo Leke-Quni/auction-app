@@ -18,7 +18,7 @@ const ITEMS = [
 export function Nav({ openReports, openSupport }: { openReports: number; openSupport: number }) {
   const pathname = usePathname();
   return (
-    <nav aria-label="Admin sections" className="flex flex-col">
+    <nav aria-label="Admin sections" className="flex flex-wrap pb-2 md:flex-col md:pb-0">
       {ITEMS.map((item) => {
         const on = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
         return (
