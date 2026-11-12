@@ -39,7 +39,7 @@ Today a bid is a price. With proxy bidding the number a bidder types is a hidden
 - [x] T6: Idempotency and replay for multi-row bids
 - [x] T7: Reserve lift
 - [x] T8: Anti-sniping on price changes
-- [ ] T9: Ineligible leaders (banned, closing, two strikes) (T4 to T8 were built together in one transaction, because they all go through the one resolver call)
+- [x] T9: Ineligible leaders (banned, closing, two strikes)
 
 ### Checkpoint B: the API places proxy bids correctly
 

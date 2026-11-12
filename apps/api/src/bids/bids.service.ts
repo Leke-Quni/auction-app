@@ -160,7 +160,16 @@ export class BidsService {
           let leader: { bidderId: string; maxCents: number } | null = null;
           if (listing.highBidderId && price !== null) {
             const held = await tx.autoBid.findUnique({ where: { listingId_bidderId: { listingId, bidderId: listing.highBidderId } }, select: { maxCents: true } });
-            leader = { bidderId: listing.highBidderId, maxCents: Math.max(held?.maxCents ?? price, price) };
+            let maxCents = Math.max(held?.maxCents ?? price, price);
+            // A leader who may no longer bid (banned, asked to delete their account, or two strikes) must not keep bidding by
+            // themselves: they count as a plain bid at the price they reached. Only asked when there is a maximum to defend with.
+            if (maxCents > price) {
+              const [{ blocked }] = await tx.$queryRaw<{ blocked: boolean }[]>`
+                SELECT (u."bannedAt" IS NOT NULL OR u."deletionRequestedAt" IS NOT NULL OR (SELECT COUNT(*) FROM "Strike" s WHERE s."userId" = u."id") >= ${MAX_STRIKES}) AS "blocked"
+                FROM "User" u WHERE u."id" = ${listing.highBidderId}`;
+              if (blocked) maxCents = price;
+            }
+            leader = { bidderId: listing.highBidderId, maxCents };
           }
           const resolved = resolveProxyBid({
             startingPriceCents: listing.startingPriceCents,

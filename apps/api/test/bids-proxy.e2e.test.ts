@@ -75,6 +75,7 @@ describe("proxy bidding", () => {
     await prisma.pendingEndEmail.deleteMany({ where: { listingId: { in: listingIds } } });
     await prisma.bid.deleteMany({ where: { listing: { seller: mine } } });
     await prisma.listing.deleteMany({ where: { seller: mine } });
+    await prisma.strike.deleteMany({ where: { userId: { startsWith: `pxy_${stamp}_` } } });
     await prisma.user.deleteMany({ where: mine });
     await app.close();
   });
@@ -257,6 +258,63 @@ describe("proxy bidding", () => {
       await bid(a, listing.id, 5000).expect(201);
       expect((await bid(b, listing.id, 2000).expect(201)).body).toMatchObject({ outcome: "OUTBID_BY_PROXY", extended: false });
       expect((await stored(listing.id)).extensionCount).toBe(0);
+    });
+  });
+
+  // A leader who may no longer bid must not keep bidding by themselves: their maximum stops defending and they count as a plain bid
+  // at the price they reached (what they typed stays on record).
+  describe("a leader who may not defend", () => {
+    // A leads at €10.00 with a hidden maximum of €50.00; B then types €20.00, which a defending leader would beat at once.
+    const setup = async () => {
+      const [a, b] = await makePeople(2);
+      const listing = await makeListing();
+      await bid(a, listing.id, 5000).expect(201);
+      return { a, b, listing };
+    };
+    const takenOver = async (listingId: string, a: Person, b: Person) => {
+      const res = (await bid(b, listingId, 2000).expect(201)).body;
+      // B takes the lead one step above A's price (not above A's maximum), and A is the one who was outbid.
+      expect(res).toMatchObject({ outcome: "LEADING", previousHighBidderId: a.id, listing: { currentBidCents: 1100, bidCount: 2, highBidderId: b.id } });
+      expect(await rowsOf(listingId)).toEqual([
+        { who: a.username, kind: "BID", amount: 1000, max: 5000, outcome: "LEADING" },
+        { who: b.username, kind: "BID", amount: 1100, max: 2000, outcome: "LEADING" },
+      ]);
+      // What A typed stays on record; it just is not used.
+      expect((await prisma.autoBid.findUniqueOrThrow({ where: { listingId_bidderId: { listingId, bidderId: a.id } } })).maxCents).toBe(5000);
+    };
+
+    it("stops defending once banned", async () => {
+      const { a, b, listing } = await setup();
+      await prisma.user.update({ where: { id: a.id }, data: { bannedAt: new Date(), banReason: "Test" } });
+      await takenOver(listing.id, a, b);
+    });
+
+    it("stops defending once they have asked to delete their account", async () => {
+      const { a, b, listing } = await setup();
+      await prisma.user.update({ where: { id: a.id }, data: { deletionRequestedAt: new Date() } });
+      await takenOver(listing.id, a, b);
+    });
+
+    it("stops defending at two strikes", async () => {
+      const { a, b, listing } = await setup();
+      for (const n of [1, 2]) await prisma.strike.create({ data: { userId: a.id, listingId: `gone_${stamp}_${counter}_${n}`, orderId: `order_${stamp}_${counter}_${n}` } });
+      await takenOver(listing.id, a, b);
+    });
+
+    it("still defends with one strike, and when nothing is wrong", async () => {
+      const { a, b, listing } = await setup();
+      await prisma.strike.create({ data: { userId: a.id, listingId: `gone_${stamp}_${counter}_x`, orderId: `order_${stamp}_${counter}_x` } });
+      const res = (await bid(b, listing.id, 2000).expect(201)).body;
+      expect(res).toMatchObject({ outcome: "OUTBID_BY_PROXY", previousHighBidderId: null, listing: { currentBidCents: 2100, highBidderId: a.id } });
+    });
+
+    it("does not touch a leader whose maximum is only their price, however they stand", async () => {
+      const [a, b] = await makePeople(2);
+      const listing = await makeListing();
+      await bid(a, listing.id, 1000).expect(201); // maximum = price: nothing to defend with
+      await prisma.user.update({ where: { id: a.id }, data: { bannedAt: new Date(), banReason: "Test" } });
+      const res = (await bid(b, listing.id, 2000).expect(201)).body;
+      expect(res).toMatchObject({ outcome: "LEADING", previousHighBidderId: a.id, listing: { currentBidCents: 1100, highBidderId: b.id } });
     });
   });
 });
