@@ -1,7 +1,8 @@
 "use client";
 
 import { MAX_SCHEDULE_AHEAD_DAYS } from "@auction/shared";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
+import { LISTING_FORM_ID, LISTING_FORM_STATUS_ID, flagIncompleteForPublish } from "./listing-form";
 import { deleteListingAction, publishListingAction } from "./actions";
 
 const toLocalInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
@@ -12,8 +13,12 @@ export function PublishPanel({ listingId, photoCount, durationDays, unsaved = fa
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
 
+  // Any edit to the form makes the last publish message out of date (it may have been about fields since filled in).
+  useEffect(() => setError(""), [unsaved]);
+
   const publish = () => {
     setError("");
+    if (flagIncompleteForPublish()) return setError("Fill in the highlighted fields to publish.");
     if (when === "later" && !startsAt) return setError("Choose a start time");
     startTransition(async () => {
       const result = await publishListingAction(listingId, when === "later" ? new Date(startsAt).toISOString() : undefined);
@@ -55,12 +60,21 @@ export function PublishPanel({ listingId, photoCount, durationDays, unsaved = fa
       )}
       {unsaved && (
         <p role="status" className="border border-l-4 border-time-warn border-l-time-warn bg-warn-soft p-2 font-bold">
-          You have unsaved changes, including photos. Press Save above before publishing.
+          You have unsaved changes. Press Save before publishing.
         </p>
       )}
       {photoCount === 0 && !unsaved && <p className="text-xs text-muted">Add at least one photo to publish.</p>}
       {error && <p className="text-urgent">{error}</p>}
+      <div id={LISTING_FORM_STATUS_ID} />
       <div className="flex gap-2">
+        <button
+          type="submit"
+          form={LISTING_FORM_ID}
+          disabled={pending || !unsaved}
+          className="cursor-pointer bg-brand px-3 py-1 font-bold text-on-brand hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {unsaved ? "Save" : "Saved"}
+        </button>
         <button
           onClick={publish}
           disabled={pending || photoCount === 0 || unsaved}

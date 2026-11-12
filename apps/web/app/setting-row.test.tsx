@@ -43,6 +43,18 @@ describe("SettingRow", () => {
     expect(input().value).toBe("ana_k");
   });
 
+  it("cannot be saved until something differs from the stored value", () => {
+    const { edit, input } = setup();
+    edit();
+    const field = input();
+    const save = () => screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    expect(save().disabled).toBe(true);
+    fireEvent.change(field, { target: { value: "other" } });
+    expect(save().disabled).toBe(false);
+    fireEvent.change(field, { target: { value: "ana_k" } });
+    expect(save().disabled).toBe(true);
+  });
+
   it("submits the visible and hidden fields, then closes and shows the success message", async () => {
     const action = vi.fn<(s: FormState, f: FormData) => Promise<FormState>>(async () => ({ ok: "Username changed." }));
     const { edit, input } = setup(action);
@@ -59,8 +71,9 @@ describe("SettingRow", () => {
   });
 
   it("stays open and shows the error when the save fails", async () => {
-    const { edit } = setup(async () => ({ error: "That username is already taken." }));
+    const { edit, input } = setup(async () => ({ error: "That username is already taken." }));
     edit();
+    fireEvent.change(input(), { target: { value: "taken_name" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(screen.getByText("That username is already taken.")).toBeTruthy());
     expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();

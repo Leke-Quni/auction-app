@@ -23,7 +23,10 @@ export function SettingRow({
   const [editing, setEditing] = useState(false);
   const [state, formAction, pending] = useActionState(action, {});
   const formRef = useRef<HTMLFormElement>(null);
-  useUnsavedChanges(formRef, editing);
+  const [dirty, setDirty] = useState(false);
+  useUnsavedChanges(formRef, editing, undefined, setDirty);
+  // Nothing to save until something in the form differs from what is stored.
+  const locked = !dirty;
 
   useEffect(() => {
     if (state.ok) setEditing(false);
@@ -60,8 +63,8 @@ export function SettingRow({
         {editing && state.error && <p className="text-urgent">{state.error}</p>}
         <div className="flex gap-2">
           <button
-            disabled={pending}
-            className="cursor-pointer bg-brand px-3 py-1 font-bold text-on-brand hover:bg-brand-dark disabled:opacity-60"
+            disabled={pending || locked}
+            className="cursor-pointer bg-brand px-3 py-1 font-bold text-on-brand hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60"
           >
             {pending ? "..." : "Save"}
           </button>

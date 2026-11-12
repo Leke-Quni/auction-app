@@ -33,11 +33,6 @@ export default async function EditListingPage({
           View listing
         </Link>
       </div>
-      {listing.status === "DRAFT" && (
-        <p role="status" className="border border-l-4 border-time-warn border-l-time-warn bg-warn-soft p-2 font-bold">
-          This is a draft of your listing. Confirm the information you provided is correct, then publish.
-        </p>
-      )}
       {photosFailed && (
         <p className="border border-urgent bg-surface p-2 text-urgent">
           Your draft was created, but the photos could not be saved. Add them again below.

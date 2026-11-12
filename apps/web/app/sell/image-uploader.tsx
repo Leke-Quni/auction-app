@@ -2,11 +2,12 @@
 
 import { IMAGE_TYPES, MAX_IMAGES, MAX_IMAGE_BYTES } from "@auction/shared";
 import { uploadPresigned } from "@vercel/blob/client";
+import { GripHorizontal, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { DISCARD_EVENT } from "../use-unsaved-changes";
 
 const EXTENSIONS: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
-const small = "cursor-pointer border border-field bg-surface px-1.5 text-xs disabled:opacity-40";
+
 
 // Photos upload to Blob as they are picked but only travel along in the form, as a hidden JSON field, and are attached
 // when the form is saved. If the visitor leaves without saving, the photos uploaded meanwhile are deleted again.
@@ -90,10 +91,18 @@ export function ImageUploader({ userId, initial }: { userId: string; initial: st
     setUrls(next);
   };
 
+  // Drag a photo onto another one to put it in that place; the photos in between shift by one.
+  const [dragging, setDragging] = useState<number | null>(null);
+  const [over, setOver] = useState<number | null>(null);
   const move = (from: number, to: number) => {
+    if (from === to) return;
     const next = [...urls];
-    [next[from], next[to]] = [next[to], next[from]];
+    next.splice(to, 0, ...next.splice(from, 1));
     return change(next);
+  };
+  const endDrag = () => {
+    setDragging(null);
+    setOver(null);
   };
 
   return (
@@ -107,7 +116,7 @@ export function ImageUploader({ userId, initial }: { userId: string; initial: st
         </span>
       </div>
       <p className="text-xs text-muted">
-        JPG, PNG, or WebP, up to 5 MB each. The first photo is the cover.
+        JPG, PNG, or WebP, up to 5 MB each. The first photo is the cover; drag photos to change the order.
         {" Photos upload as you pick them and are kept when you press Save; leave without saving and they are discarded."}
       </p>
       <input type="hidden" name="photos" value={JSON.stringify(urls)} />
@@ -115,22 +124,46 @@ export function ImageUploader({ userId, initial }: { userId: string; initial: st
       {urls.length > 0 && (
         <ul className="grid grid-cols-4 gap-2">
           {urls.map((url, i) => (
-            <li key={url} className="space-y-1">
+            <li
+              key={url}
+              draggable={!busy}
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", String(i));
+                setDragging(i);
+              }}
+              onDragOver={(e) => {
+                if (dragging === null) return;
+                e.preventDefault();
+                setOver(i);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragging !== null) move(dragging, i);
+                endDrag();
+              }}
+              onDragEnd={endDrag}
+              className={`space-y-1 ${busy ? "" : "cursor-grab"} ${dragging === i ? "opacity-40" : ""} ${over === i && dragging !== i ? "outline outline-2 outline-brand" : ""}`}
+            >
               <div className="relative">
-                <img src={url} alt={`Photo ${i + 1}`} className="aspect-square w-full bg-sunken object-cover" />
+                <img src={url} alt={`Photo ${i + 1}`} draggable={false} className="aspect-square w-full bg-sunken object-cover" />
                 {i === 0 && <span className="absolute left-0 top-0 bg-brand px-1 text-xs text-on-brand">Cover</span>}
+                <button
+                  type="button"
+                  aria-label={`Remove photo ${i + 1}`}
+                  title="Remove photo"
+                  disabled={busy}
+                  onClick={() => change(urls.filter((_, j) => j !== i))}
+                  className="absolute right-1 top-1 cursor-pointer rounded bg-black/60 p-1 text-white hover:bg-black/80 disabled:opacity-40"
+                >
+                  <X size={16} />
+                </button>
               </div>
-              <div className="flex gap-1">
-                <button type="button" aria-label={`Move photo ${i + 1} earlier`} disabled={busy || i === 0} onClick={() => move(i, i - 1)} className={small}>
-                  ◀
-                </button>
-                <button type="button" aria-label={`Move photo ${i + 1} later`} disabled={busy || i === urls.length - 1} onClick={() => move(i, i + 1)} className={small}>
-                  ▶
-                </button>
-                <button type="button" aria-label={`Remove photo ${i + 1}`} disabled={busy} onClick={() => change(urls.filter((_, j) => j !== i))} className={small}>
-                  Remove
-                </button>
-              </div>
+              {urls.length > 1 && !busy && (
+                <span aria-hidden="true" title="Drag to reorder" className="flex justify-center py-0.5 text-muted">
+                  <GripHorizontal size={14} />
+                </span>
+              )}
             </li>
           ))}
         </ul>

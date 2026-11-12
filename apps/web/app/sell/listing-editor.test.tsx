@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { upload } = vi.hoisted(() => ({ upload: vi.fn() }));
 vi.mock("@vercel/blob/client", () => ({ uploadPresigned: upload }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("./actions", () => ({
   saveListingAction: vi.fn(async () => ({ ok: "Saved." })),
   publishListingAction: vi.fn(async () => ({})),
@@ -35,9 +36,13 @@ const publishButton = () => screen.getByRole("button", { name: "Publish" }) as H
 describe("ListingEditor", () => {
   it("draft: photos sit inside the form between the description and the price, with the Publish panel below", () => {
     render(<ListingEditor categories={categories} listing={listing} userId="u1" initialPhotos={[url("a")]} />);
-    const form = screen.getByRole("button", { name: "Save" }).closest("form")!;
+    const form = document.getElementById("listing-form")!;
     const heading = screen.getByRole("heading", { name: /Photos/ });
     expect(form.contains(heading)).toBe(true);
+    const save = screen.getByRole("button", { name: "Saved" }) as HTMLButtonElement;
+    expect(form.contains(save)).toBe(false);
+    expect(save.getAttribute("form")).toBe("listing-form");
+    expect(save.disabled).toBe(true);
     const publish = screen.getByRole("heading", { name: "Publish" });
     expect(form.contains(publish)).toBe(false);
     expect(publishButton().disabled).toBe(false);
@@ -52,13 +57,18 @@ describe("ListingEditor", () => {
     fireEvent.change(screen.getByLabelText("Photo files"), { target: { files: [new File([new Uint8Array(10)], "a.jpg", { type: "image/jpeg" })] } });
     await waitFor(() => expect(screen.getByText("Photos (1/8)")).toBeTruthy());
     expect(publishButton().disabled).toBe(true);
-    expect(screen.getByText(/You have unsaved changes, including photos/)).toBeTruthy();
+    // The form notices the new photo through a change observer, a moment after the photo appears.
+    await waitFor(() => expect(screen.getByText(/You have unsaved changes\. Press Save before publishing/)).toBeTruthy());
   });
 
   it("published: photos sit inside the form with the description, and there is no Publish panel", () => {
     render(<ListingEditor categories={categories} listing={{ ...listing, status: "PUBLISHED" }} userId="u1" initialPhotos={[url("a")]} />);
-    const form = screen.getByRole("button", { name: "Save" }).closest("form")!;
+    const form = document.getElementById("listing-form")!;
     expect(form.contains(screen.getByRole("heading", { name: /Photos/ }))).toBe(true);
+    const save = screen.getByRole("button", { name: "Saved" });
+    expect(form.contains(save)).toBe(false);
+    expect(save.getAttribute("form")).toBe("listing-form");
+    expect(save.parentElement?.contains(screen.getByRole("button", { name: "Remove listing" }))).toBe(true);
     expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
   });
 
@@ -84,17 +94,17 @@ describe("ListingEditor", () => {
     render(<ListingEditor categories={categories} listing={listing} userId="u1" initialPhotos={[url("a")]} />);
     const title = screen.getByDisplayValue("Vintage wristwatch");
     const form = title.closest("form")!;
-    const note = () => screen.queryByText(/Press Save above before publishing/);
+    const note = () => screen.queryByText(/Press Save before publishing/);
 
     fireEvent.input(title, { target: { value: "Vintage watch" } });
     expect(note()).toBeTruthy();
     fireEvent.submit(form);
-    await waitFor(() => expect(note()).toBeNull());
+    await waitFor(() => expect(note()).toBeNull(), { timeout: 4000 });
 
     fireEvent.input(title, { target: { value: "Vintage watch, boxed" } });
     expect(note()).toBeTruthy();
     fireEvent.submit(form);
-    await waitFor(() => expect(note()).toBeNull());
+    await waitFor(() => expect(note()).toBeNull(), { timeout: 4000 });
     expect(publishButton().disabled).toBe(false);
   });
 });

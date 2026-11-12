@@ -3,11 +3,11 @@
 import { useState, useTransition } from "react";
 import { deleteListingAction } from "./actions";
 import { ImageUploader } from "./image-uploader";
-import { ListingForm, type FormListing } from "./listing-form";
+import { LISTING_FORM_ID, LISTING_FORM_STATUS_ID, ListingForm, type FormListing } from "./listing-form";
 import { PickupAddressEditor } from "./pickup-address-editor";
 import { PublishPanel } from "./publish-panel";
 
-function RemoveListing({ listingId }: { listingId: string }) {
+function RemoveListing({ listingId, unsaved }: { listingId: string; unsaved: boolean }) {
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
   const remove = () => {
@@ -19,12 +19,22 @@ function RemoveListing({ listingId }: { listingId: string }) {
     });
   };
   return (
-    <div className="space-y-2 border border-line bg-surface p-3">
-      <h2 className="text-sm font-bold">Remove listing</h2>
+    <div className="space-y-2">
       {error && <p className="text-urgent">{error}</p>}
-      <button onClick={remove} disabled={pending} className="cursor-pointer border border-field bg-surface px-3 py-1">
-        {pending ? "..." : "Remove listing"}
-      </button>
+      <div id={LISTING_FORM_STATUS_ID} />
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          form={LISTING_FORM_ID}
+          disabled={pending || !unsaved}
+          className="cursor-pointer bg-brand px-3 py-1 font-bold text-on-brand hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {unsaved ? "Save" : "Saved"}
+        </button>
+        <button onClick={remove} disabled={pending} className="cursor-pointer border border-field bg-surface px-3 py-1">
+          {pending ? "..." : "Remove listing"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -64,12 +74,17 @@ export function ListingEditor({
 
   return (
     <>
-      <ListingForm categories={categories} listing={listing} photos={uploader} defaultPickup={defaultPickup} onUnsavedChange={setUnsaved} />
+      <ListingForm categories={categories} listing={listing} photos={uploader} defaultPickup={defaultPickup} onUnsavedChange={setUnsaved} externalSave />
       {!draft && <PickupAddressEditor listingId={listing.id} address={listing.pickupAddress ?? null} />}
+      {draft && (
+        <p role="status" className="border border-l-4 border-time-warn border-l-time-warn bg-warn-soft p-2 font-bold">
+          This is a draft of your listing. Confirm the information you provided is correct, then publish.
+        </p>
+      )}
       {draft ? (
         <PublishPanel listingId={listing.id} photoCount={initialPhotos.length} unsaved={unsaved} durationDays={listing.durationDays} />
       ) : (
-        <RemoveListing listingId={listing.id} />
+        <RemoveListing listingId={listing.id} unsaved={unsaved} />
       )}
     </>
   );
