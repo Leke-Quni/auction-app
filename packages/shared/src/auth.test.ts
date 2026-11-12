@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  DELETED_USERNAME_PREFIX,
   changePasswordSchema,
+  displayUsername,
+  isDeletedUsername,
   confirmEmailChangeSchema,
   loginCodeSchema,
   resetPasswordSchema,
@@ -9,6 +12,7 @@ import {
   startEmailChangeSchema,
   updateProfileSchema,
   updateUsernameSchema,
+  usernameField,
 } from "./auth";
 
 const validSignUp = {
@@ -109,5 +113,19 @@ describe("other account schemas", () => {
     expect(startEmailChangeSchema.safeParse({ newEmail: "nope", password: "x" }).success).toBe(false);
     expect(confirmEmailChangeSchema.safeParse({ code: "12345" }).success).toBe(false);
     expect(confirmEmailChangeSchema.safeParse({ code: "123456" }).success).toBe(true);
+  });
+});
+
+describe("deleted usernames", () => {
+  it("shows an anonymised account as 'Deleted user' and any other name as it is", () => {
+    expect(isDeletedUsername(`${DELETED_USERNAME_PREFIX}ab12cd34`)).toBe(true);
+    expect(displayUsername("deleted_ab12cd34")).toBe("Deleted user");
+    expect(displayUsername("sam")).toBe("sam");
+    expect(displayUsername("not_deleted_here")).toBe("not_deleted_here");
+  });
+
+  it("cannot be chosen as a username", () => {
+    expect(usernameField.safeParse("deleted_sam").success).toBe(false);
+    expect(usernameField.safeParse("deleted").success).toBe(true);
   });
 });

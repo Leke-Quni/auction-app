@@ -1,3 +1,4 @@
+import { displayUsername } from "@auction/shared";
 import type { SellerProfile } from "@auction/shared";
 import { notFound } from "next/navigation";
 import { LocalTime } from "@/app/local-time";
@@ -55,7 +56,7 @@ export default async function SellerPage({ params }: { params: Promise<{ usernam
             {profile.ratings.map((r) => (
               <li key={r.id} className="space-y-0.5 p-3">
                 <p>
-                  <Stars value={r.stars} /> <span className="text-muted">by {r.buyer.username} · </span>
+                  <Stars value={r.stars} /> <span className="text-muted">by {displayUsername(r.buyer.username)} · </span>
                   <span className="text-muted">
                     <LocalTime iso={r.createdAt} />
                   </span>

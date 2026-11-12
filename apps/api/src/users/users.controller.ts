@@ -1,21 +1,26 @@
 import {
   changePasswordSchema,
   pickupAddressSchema,
+  confirmAccountDeletionSchema,
   confirmEmailChangeSchema,
+  startAccountDeletionSchema,
   startEmailChangeSchema,
   updateProfileSchema,
   updateUsernameSchema,
   type ChangePasswordInput,
+  type ConfirmAccountDeletionInput,
   type ConfirmEmailChangeInput,
+  type StartAccountDeletionInput,
   type PickupAddress,
   type StartEmailChangeInput,
   type UpdateProfileInput,
   type UpdateUsernameInput,
 } from "@auction/shared";
 import { Body, Controller, Get, HttpCode, Inject, Patch, Post, Put, Req, UnauthorizedException, UseGuards } from "@nestjs/common";
-import { JwtAuthGuard, type AuthUser } from "../auth/jwt-auth.guard";
+import { AllowClosing, JwtAuthGuard, type AuthUser } from "../auth/jwt-auth.guard";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { PRISMA, type Prisma } from "../db/db.module";
+import { AccountDeletionService } from "./account-deletion.service";
 import { AccountService } from "./account.service";
 
 type AuthedRequest = { user: AuthUser };
@@ -26,6 +31,7 @@ export class UsersController {
   constructor(
     @Inject(PRISMA) private readonly prisma: Prisma,
     private readonly account: AccountService,
+    private readonly deletion: AccountDeletionService,
   ) {}
 
   @Get()
@@ -87,5 +93,32 @@ export class UsersController {
     @Body(new ZodValidationPipe(confirmEmailChangeSchema)) body: ConfirmEmailChangeInput,
   ) {
     return this.account.confirmEmailChange(req.user.id, body);
+  }
+
+  // Deleting the account: what still stops it, asking for the confirmation code, confirming (which closes the account), and
+  // restoring a closed account. Only looking and restoring work once the account is closed.
+  @Get("deletion")
+  @AllowClosing()
+  deletionStatus(@Req() req: AuthedRequest) {
+    return this.deletion.status(req.user.id);
+  }
+
+  @Post("deletion/code")
+  @HttpCode(204)
+  async sendDeletionCode(@Req() req: AuthedRequest, @Body(new ZodValidationPipe(startAccountDeletionSchema)) body: StartAccountDeletionInput) {
+    await this.deletion.sendCode(req.user.id, body);
+  }
+
+  @Post("deletion")
+  @HttpCode(200)
+  confirmDeletion(@Req() req: AuthedRequest, @Body(new ZodValidationPipe(confirmAccountDeletionSchema)) body: ConfirmAccountDeletionInput) {
+    return this.deletion.confirm(req.user.id, body);
+  }
+
+  @Post("deletion/restore")
+  @HttpCode(200)
+  @AllowClosing()
+  restoreAccount(@Req() req: AuthedRequest) {
+    return this.deletion.restore(req.user.id);
   }
 }

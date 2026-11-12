@@ -1,4 +1,4 @@
-import { formatEur, type OrderView, type ShippingAddress } from "@auction/shared";
+import { formatEur, type OrderView, type ShippingAddress, displayUsername, isDeletedUsername } from "@auction/shared";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
@@ -40,7 +40,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
         </p>
       )}
       <OrderDetails order={order} />
-      {order.viewer === "buyer" && order.status === "PAID" && (
+      {order.viewer === "buyer" && order.status === "PAID" && !isDeletedUsername(order.seller.username) && (
         <p>
           <Link href={`/sellers/${order.seller.username}`} className="text-brand underline">
             See {order.seller.username}&apos;s profile, ratings and other listings
@@ -57,7 +57,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
         </div>
       )}
       {order.viewer === "buyer" && order.shipment?.status === "DELIVERED" && !order.rating && (
-        <RatingForm orderId={order.id} sellerName={order.seller.username} />
+        <RatingForm orderId={order.id} sellerName={displayUsername(order.seller.username)} />
       )}
       {order.viewer === "seller" && order.payout?.status === "WAITING_FOR_ACCOUNT" && (
         <div className="space-y-2 border border-line bg-surface p-3">

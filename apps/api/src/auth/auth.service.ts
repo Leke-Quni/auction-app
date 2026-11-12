@@ -1,3 +1,4 @@
+import { inheritStrikes } from "../users/email-fingerprint";
 import {
   FORGOT_PASSWORD_IP_RATE_LIMIT,
   FORGOT_PASSWORD_RATE_LIMIT,
@@ -159,6 +160,7 @@ export class AuthService {
 
     if (!user.emailVerified) {
       await this.prisma.user.update({ where: { id: user.id }, data: { emailVerified: new Date() } });
+      await inheritStrikes(this.prisma, user.id, user.email);
     }
     return { id: user.id, email: user.email, name: user.username, role: user.role, sessionVersion: user.sessionVersion };
   }
@@ -210,5 +212,6 @@ export class AuthService {
       this.prisma.passwordResetToken.deleteMany({ where: { userId: user.id } }),
       this.prisma.loginCode.deleteMany({ where: { userId: user.id } }),
     ]);
+    if (!user.emailVerified) await inheritStrikes(this.prisma, user.id, user.email);
   }
 }

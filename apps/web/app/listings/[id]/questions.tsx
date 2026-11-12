@@ -1,6 +1,6 @@
 "use client";
 
-import { ANSWER_MAX_LENGTH, POLICY_LINKS, QUESTION_MAX_LENGTH, REPORT_REASON_LABELS, REPORT_REASONS, type QuestionItem, type ReportReason, type VoteSummary, type VoteTarget, type VoteValue } from "@auction/shared";
+import { ANSWER_MAX_LENGTH, POLICY_LINKS, QUESTION_MAX_LENGTH, REPORT_REASON_LABELS, REPORT_REASONS, type QuestionItem, type ReportReason, type VoteSummary, type VoteTarget, type VoteValue, displayUsername } from "@auction/shared";
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { LocalTime } from "@/app/local-time";
@@ -293,7 +293,7 @@ function Row({ question, listingId, viewerId, isSeller, open }: { question: Ques
       <div className="flex items-center justify-between gap-3 pr-2">
         <div className="min-w-0 flex-1 space-y-1.5">
           <p className="text-xs text-muted">
-            {question.asker ? <b className="text-ink">{question.asker.username}</b> : <i>&lt;deleted user&gt;</i>}
+            {question.asker ? <b className="text-ink">{displayUsername(question.asker.username)}</b> : <i>&lt;deleted user&gt;</i>}
             {mine && " (you)"} · <LocalTime iso={question.createdAt} />
             {question.editedAt && " (edited)"}
           </p>

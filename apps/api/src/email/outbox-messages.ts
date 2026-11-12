@@ -13,6 +13,8 @@ const sortedKeys = (value: unknown) => Object.fromEntries(Object.entries((value 
 
 // Returns normally when the email was sent or is no longer needed; throws when it should be tried again.
 export async function sendOutboxMail(ctx: Ctx, userId: string, listingId: string, kind: OutboxKind) {
+  // Nothing is sent to an account that is being deleted or is gone (the row is dropped as no longer needed).
+  if (await ctx.prisma.user.findFirst({ where: { id: userId, OR: [{ deletionRequestedAt: { not: null } }, { deletedAt: { not: null } }] }, select: { id: true } })) return;
   if (kind === "PAID" || kind === "SOLD") return sendPaid(ctx, userId, listingId, kind);
   if (kind === "EXPIRED" || kind === "NOT_PAID") return sendExpired(ctx, userId, listingId, kind);
   if (kind === "PAYOUT") return sendPayout(ctx, userId, listingId);

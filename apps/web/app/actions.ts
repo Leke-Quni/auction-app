@@ -2,6 +2,7 @@
 
 import {
   changePasswordSchema,
+  confirmAccountDeletionSchema,
   confirmEmailChangeSchema,
   forgotPasswordSchema,
   loginCodeSchema,
@@ -9,6 +10,7 @@ import {
   resetPasswordSchema,
   signInSchema,
   signUpSchema,
+  startAccountDeletionSchema,
   startEmailChangeSchema,
   updateProfileSchema,
   updateUsernameSchema,
@@ -17,9 +19,10 @@ import type { ZodError } from "zod";
 import { AuthError } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { signIn, signOut, unstable_update } from "@/auth";
+import { auth, signIn, signOut, unstable_update } from "@/auth";
 import { apiFetch, authedApiFetch } from "@/lib/api";
 import { readAddress } from "@/lib/address";
+import { deleteOwnBlobs } from "@/lib/blob";
 import { apiErrorMessage } from "@/lib/api-error";
 import { viewerIpHeaders } from "@/lib/viewer-ip";
 
@@ -168,4 +171,39 @@ export async function confirmEmailChangeAction(_: FormState, formData: FormData)
   await unstable_update({ user: { email } });
   revalidatePath("/", "layout");
   redirect("/account/settings");
+}
+
+// Deleting the account: first a code is emailed (the password asks for it), then the password and the code confirm.
+export async function sendAccountDeletionCodeAction(_: FormState, formData: FormData): Promise<FormState> {
+  const parsed = startAccountDeletionSchema.safeParse({ password: formData.get("password") });
+  if (!parsed.success) return { error: firstIssue(parsed.error) };
+  const res = await authedApiFetch("/me/deletion/code", { method: "POST", body: JSON.stringify(parsed.data) });
+  if (res.status === 403) return { error: "Your password is incorrect." };
+  if (res.status === 409) return { error: "Some things have to finish before this account can be deleted. Reload this page to see them." };
+  if (res.status === 429) return { error: await apiErrorMessage(res) };
+  if (!res.ok) return { error: SOMETHING_WENT_WRONG };
+  return { ok: "We emailed you a 6-digit code. Enter it below to delete your account." };
+}
+
+export async function deleteAccountAction(_: FormState, formData: FormData): Promise<FormState> {
+  const parsed = confirmAccountDeletionSchema.safeParse({ password: formData.get("password"), code: formData.get("code") });
+  if (!parsed.success) return { error: firstIssue(parsed.error) };
+  const res = await authedApiFetch("/me/deletion", { method: "POST", body: JSON.stringify(parsed.data) });
+  if (res.status === 403) return { error: "Your password is incorrect." };
+  if (res.status === 401) return { error: "That code is invalid or has expired." };
+  if (res.status === 409) return { error: "Some things have to finish before this account can be deleted. Reload this page to see them." };
+  if (!res.ok) return { error: SOMETHING_WENT_WRONG };
+  // The drafts were deleted with the account; the API has no access to the image store, so their photos are deleted here.
+  const { removedImageUrls } = (await res.json().catch(() => ({}))) as { removedImageUrls?: string[] };
+  const session = await auth();
+  if (session && Array.isArray(removedImageUrls)) await deleteOwnBlobs(removedImageUrls.filter((u) => typeof u === "string"), session.user.id);
+  redirect("/account/closing");
+}
+
+// Brings back an account that is waiting to be deleted.
+export async function restoreAccountAction() {
+  const res = await authedApiFetch("/me/deletion/restore", { method: "POST" });
+  if (!res.ok && res.status !== 409) throw new Error(`API /me/deletion/restore failed: ${res.status}`);
+  revalidatePath("/", "layout");
+  redirect("/account");
 }

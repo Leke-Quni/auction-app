@@ -9,8 +9,9 @@ export class ProfilesService {
   constructor(@Inject(PRISMA) private readonly prisma: Prisma) {}
 
   async get(username: string): Promise<SellerProfile> {
-    const user = await this.prisma.user.findUnique({ where: { username: username.toLowerCase() }, select: { id: true, username: true, createdAt: true } });
-    if (!user) throw new NotFoundException();
+    const user = await this.prisma.user.findUnique({ where: { username: username.toLowerCase() }, select: { id: true, username: true, createdAt: true, deletionRequestedAt: true, deletedAt: true } });
+    // An account that is being deleted, or is gone, has no public page.
+    if (!user || user.deletionRequestedAt || user.deletedAt) throw new NotFoundException();
     const now = new Date();
     const [stats, ratings, listings] = await Promise.all([
       this.prisma.rating.aggregate({ where: { sellerId: user.id }, _avg: { stars: true }, _count: true }),
