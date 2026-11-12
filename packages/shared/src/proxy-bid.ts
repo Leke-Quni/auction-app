@@ -79,8 +79,9 @@ export function resolveProxyBid(input: ProxyBidInput): ProxyResult {
       rows.push({ bidderId, amountCents: priceNow, kind: "BID" });
       result = { ok: true, outcome: "LEADING", rows, priceCents: priceNow, leaderId: bidderId, leaderMaxCents: maxCents, leaderChanged: true, priceChanged: true };
     } else {
-      // The leader defends: a tie goes to the earlier maximum (the leader's), otherwise one step above the challenger.
-      const priceNow = maxCents === rival ? rival : Math.min(rival, stepFrom(maxCents));
+      // The leader defends: one step above the challenger, but never above the leader's own maximum. A tie falls out of that: the
+      // step above the challenger is past the leader's equal maximum, so the earlier maximum wins at that amount.
+      const priceNow = Math.min(rival, stepFrom(maxCents));
       result = {
         ok: true, outcome: "OUTBID_BY_PROXY",
         rows: [{ bidderId, amountCents: maxCents, kind: "BID" }, { bidderId: leader.bidderId, amountCents: priceNow, kind: "AUTO" }],
