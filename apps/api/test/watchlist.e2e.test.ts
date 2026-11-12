@@ -252,4 +252,41 @@ describe("watchlist", () => {
     expect((await api().get("/watchlist").set(as(other)).expect(200)).body.total).toBe(1);
     await api().get("/watchlist").expect(401);
   });
+
+  describe("old ended auctions", () => {
+    const ended = (daysAgo: number, over: Record<string, unknown> = {}) =>
+      listing(sellerOf, { startsAt: new Date(Date.now() - (daysAgo + 7) * DAY), endsAt: new Date(Date.now() - daysAgo * DAY), closedAt: new Date(Date.now() - daysAgo * DAY), outcome: "NO_BIDS", ...over });
+    let sellerOf: Person;
+    beforeAll(async () => {
+      sellerOf = await makePerson();
+    });
+
+    it("drops an auction from the watchlist 7 days after it ended, and keeps it until then", async () => {
+      const w = await makePerson();
+      const recent = await ended(6);
+      const old = await ended(8);
+      await prisma.watch.createMany({ data: [recent, old].map((l) => ({ userId: w.id, listingId: l.id })) });
+      const items = (await api().get("/watchlist").set(as(w)).expect(200)).body.items as { id: string }[];
+      expect(items.map((i) => i.id)).toEqual([recent.id]);
+    });
+
+    it("closes the listing page 30 days after the end to everyone but the people it concerned", async () => {
+      const [stranger, bidder, buyer, winner] = [await makePerson(), await makePerson(), await makePerson(), await makePerson()];
+      const old = await ended(31, { outcome: "SOLD", winnerId: winner.id, finalPriceCents: 2000, currentBidCents: 2000, bidCount: 1, highBidderId: winner.id });
+      await prisma.bid.create({ data: { listingId: old.id, bidderId: bidder.id, amountCents: 1500, idempotencyKey: `k-${old.id}-b` } });
+      await prisma.order.create({ data: { listingId: old.id, buyerId: buyer.id, sellerId: sellerOf.id, amountCents: 2000, feeCents: 100, sellerNetCents: 1900, payBy: new Date(Date.now() - 20 * DAY), status: "EXPIRED" } });
+      const page = (p?: Person) => (p ? api().get(`/listings/${old.id}`).set(as(p)) : api().get(`/listings/${old.id}`));
+      await page().expect(404);
+      await page(stranger).expect(404);
+      await api().get(`/listings/${old.id}/questions`).expect(404);
+      for (const who of [sellerOf, winner, bidder, buyer]) await page(who).expect(200);
+      await api().get(`/listings/${old.id}/questions`).set(as(bidder)).expect(200);
+
+      const recent = await ended(29);
+      await api().get(`/listings/${recent.id}`).expect(200);
+      await api().get(`/listings/${recent.id}/questions`).expect(200);
+      await prisma.order.deleteMany({ where: { listingId: old.id } });
+      await prisma.bid.deleteMany({ where: { listingId: old.id } });
+    });
+  });
 });

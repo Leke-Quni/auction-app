@@ -1,3 +1,4 @@
+import { hasStake, pageExpired } from "../listings/listing-retention";
 import { containsContactDetails, QUESTION_RATE_LIMIT, QUESTION_REFUSAL_MESSAGES, REPORT_RATE_LIMIT, type QuestionItem, type QuestionRefusal, type VoteSummary, type ReportReason, type VoteTarget, type VoteValue } from "@auction/shared";
 import { HttpException, HttpStatus, Inject, Injectable } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
@@ -65,8 +66,10 @@ export class QuestionsService {
   ) {}
 
   async list(listingId: string, limit: number, viewerId?: string) {
-    const listing = await this.prisma.listing.findUnique({ where: { id: listingId }, select: { status: true } });
+    const listing = await this.prisma.listing.findUnique({ where: { id: listingId }, select: { id: true, status: true, sellerId: true, winnerId: true, endsAt: true } });
     if (!listing || listing.status !== "PUBLISHED") throw refuse("NOT_FOUND");
+    // The page is gone for everyone but the people it concerned once the auction ended long ago, and so are its questions.
+    if (pageExpired(listing.endsAt) && !(await hasStake(this.prisma, listing, viewerId))) throw refuse("NOT_FOUND");
     const [rows, total] = await Promise.all([
       this.prisma.question.findMany({ where: { listingId, deletedAt: null }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: limit, include }),
       this.prisma.question.count({ where: { listingId, deletedAt: null } }),
