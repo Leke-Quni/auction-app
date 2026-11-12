@@ -12,10 +12,10 @@ Status: design agreed with the owner in a grilling session on 2026-10-30. This f
 ## 2. Auction rules
 
 - Timed English auctions with an optional reserve price. Durations: 1, 3, 5, 7, or 30 days.
-- Bids are manual and binding. No proxy/max bidding in v1 (it complicates bid logic a lot).
+- Proxy bidding (decided 2026-11-12, owner's request; before, v1 had none): the amount a bidder types is a hidden **maximum**. The system bids for them, one increment at a time, only as far as needed to stay ahead, and they pay the price, never the maximum. A maximum is binding: it can be raised, never lowered or withdrawn. Rules, examples and the decisions behind them are in `docs/decisions/bidding.md`.
 - Minimum next bid = `current + max(€1, 5% of current)`, the 5% rounded up to a whole cent; the first bid only needs to meet the starting price. The user types any amount at or above it; the UI shows the minimum as a hint and the API enforces it. The 5% is config. The rule lives in `packages/shared` so web and API agree. Examples: €10 → €11; €100 → €105; €1,000 → €1,050. Why: the owner rejected fixed tiers and wanted free-entry bids, but not +1 cent nudges.
 - Anti-sniping (decided 2026-11-02): a bid in the last 2 minutes sets the end to 2 minutes after that bid, every time, so a bidding war keeps going. The only limit is a ceiling: the end can never pass 24 hours after the original end (start plus duration). The ceiling is not stored (`extensionCeiling`); `Listing.extensionCount` only counts extensions; "final chance" is the state where the end has reached the ceiling. Parameters are `ANTI_SNIPING` in `packages/shared`.
-- Sellers cannot bid on their own items (shill bidding is the main fraud risk). The current high bidder cannot raise their own bid (`ALREADY_HIGHEST`).
+- Sellers cannot bid on their own items (shill bidding is the main fraud risk). The current high bidder can raise their own maximum but not lower it (`MAX_NOT_HIGHER`).
 - Bids are rate-limited and audit-logged (see section 7). Bidding requires a verified email only, no saved payment method. Two strikes block bidding.
 
 ## 3. Close and payment
@@ -35,13 +35,13 @@ Status: design agreed with the owner in a grilling session on 2026-10-30. This f
 - **Bidding on the listing page:** current bid, bid count, high bidder, minimum next bid, reserve status and the latest 5 bids, updated live over WebSocket. Every bid needs a second click and carries an idempotency key. Signed-out visitors, the seller, the high bidder and non-live auctions see a note instead of the box. Details: `docs/decisions/bidding.md`.
 - **Main page:** "Ending soon" (live, ending within 24 hours) and "Upcoming" sections of 4 cards above the full list on page 1; empty sections are hidden.
 - **Accounts:** names, a unique public username (real names stay private), sign-in by email with a code, settings for names, username, email, password and pickup address, forgot-password by emailed link. Details: `docs/decisions/accounts.md`.
-- **Notifications:** outbid email plus a live toast with a one-click bid; a late bid that extends an auction shows a countdown jump, a banner and toasts, and the extension that reaches the ceiling is "Final chance to bid". No email goes to all bidders, to keep email volume low. Details: `docs/decisions/bidding.md`.
+- **Notifications:** outbid email plus a live toast that links to the listing so the bidder can raise their maximum; a late bid that extends an auction shows a countdown jump, a banner and toasts, and the extension that reaches the ceiling is "Final chance to bid". No email goes to all bidders, to keep email volume low. Details: `docs/decisions/bidding.md`.
 - **Emails** (Resend): outbid, won/pay-now, auction ended, payment confirmation, expiry, Q&A, and later ending-soon and shipping updates. Moving sends onto QStash was dropped (see section 7).
 - **Contacting the seller:** public Q&A on the listing only. Private messages and an inbox are out of scope.
 - Watchlist with "ending soon" emails; seller profiles with post-sale buyer ratings (slice 6).
 - Report button on listings; admin app for moderation and the reports queue (slice 7).
 
-Out of scope for v1: proxy bidding, buy-it-now, offers, private messages, push/SMS, nested categories, automated content moderation, real shipping carriers, multiple currencies or languages.
+Out of scope for v1: buy-it-now, offers, private messages, push/SMS, nested categories, automated content moderation, real shipping carriers, multiple currencies or languages.
 
 ## 5. Architecture
 
