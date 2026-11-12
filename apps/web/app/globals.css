@@ -140,8 +140,11 @@
   .border.bg-surface, .border.bg-warn-soft, .border.bg-brand-soft, .border.bg-brand-tint, .border.bg-danger-faint, .border.bg-head:not(td):not(th) {
     border-radius: var(--radius-card);
   }
-  .border.bg-surface:has(> .bg-head) {
-    overflow: hidden;
+  /* A card with a header row rounds the header's top corners itself. It must not clip (overflow: hidden): a menu that opens
+     from a row near the bottom, like the question actions, would be cut off at the card's edge. */
+  .border.bg-surface:has(> .bg-head:first-child) > .bg-head:first-child {
+    border-top-left-radius: calc(var(--radius-card) - 1px);
+    border-top-right-radius: calc(var(--radius-card) - 1px);
   }
   button.border.bg-surface, a.border.bg-surface.px-3 {
     border-radius: var(--radius-control);
