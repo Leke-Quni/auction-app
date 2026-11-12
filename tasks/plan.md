@@ -29,7 +29,7 @@ Today a bid is a price. With proxy bidding the number a bidder types is a hidden
 ### Phase 1: Foundation
 - [x] T1: The resolver (`resolveProxyBid`) with table and invariant tests
 - [x] T2: Database migration and schema (`AutoBid`, new `Bid` columns, backfill)
-- [ ] T3: Seed and bot bidder keep working and gain a proxy scenario
+- [x] T3: Seed and bot bidder keep working and gain a proxy scenario
 
 ### Checkpoint A: foundation
 
