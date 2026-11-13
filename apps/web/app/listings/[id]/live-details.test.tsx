@@ -31,6 +31,7 @@ const snapshot: LiveSnapshot = {
   endsAt: "2026-11-01T10:00:00.000Z",
   extensionCount: 0,
   serverTime: "2026-11-02T10:00:00.000Z",
+  viewerMaxCents: null,
   bids: [],
 };
 

@@ -121,6 +121,7 @@ describe("listings", () => {
 
   // The tests reuse the same photo URLs; real uploads are unique, and a photo another listing still uses is not reported as removed.
   const clearListings = async () => {
+    await prisma.autoBid.deleteMany({ where: { listing: { sellerId } } });
     await prisma.bid.deleteMany({ where: { listing: { sellerId } } });
     await prisma.listing.deleteMany({ where: { sellerId } });
   };
@@ -267,6 +268,28 @@ describe("listings", () => {
     it("cannot be changed by someone else", async () => {
       const draft = await createDraft();
       await api().put(`/listings/${draft.id}/images`).set(as(other)).send({ images: [image(otherId, 1)] }).expect(404);
+    });
+  });
+
+  describe("the viewer's own maximum bid", () => {
+    it("is shown to the person who set it and to nobody else", async () => {
+      const listing = await createPublished();
+      await prisma.autoBid.create({ data: { listingId: listing.id, bidderId: otherId, maxCents: 54321 } });
+      const mine = (await api().get(`/listings/${listing.id}`).set(as(other)).expect(200)).body;
+      expect(mine.viewerMaxCents).toBe(54321);
+      const sellers = (await api().get(`/listings/${listing.id}`).set(as(seller)).expect(200)).body;
+      const visitor = (await api().get(`/listings/${listing.id}`).expect(200)).body;
+      for (const body of [sellers, visitor]) {
+        expect(body).not.toHaveProperty("viewerMaxCents");
+        expect(JSON.stringify(body)).not.toContain("54321");
+      }
+      const page = (await api().get("/listings").expect(200)).body;
+      expect(JSON.stringify(page)).not.toContain("54321");
+    });
+
+    it("is absent for a signed-in viewer who has not bid", async () => {
+      const listing = await createPublished();
+      expect((await api().get(`/listings/${listing.id}`).set(as(other)).expect(200)).body).not.toHaveProperty("viewerMaxCents");
     });
   });
 

@@ -66,6 +66,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
     endsAt: listing.endsAt ?? null,
     extensionCount: listing.extensionCount,
     serverTime: listing.serverTime,
+    viewerMaxCents: listing.viewerMaxCents ?? null,
     bids: history.items,
   };
 

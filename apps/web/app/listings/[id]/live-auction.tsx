@@ -17,8 +17,13 @@ export interface LiveSnapshot {
   endsAt: string | null;
   extensionCount: number;
   serverTime: string;
+  // The signed-in viewer's own hidden maximum on this auction, or null if they have none. Nobody else is ever sent it.
+  viewerMaxCents: number | null;
   bids: BidRow[];
 }
+
+// A maximum only ever rises, so whichever of two copies is higher is the newer one.
+const higher = (a: number | null, b: number | null) => (a === null ? b : b === null ? a : Math.max(a, b));
 
 // The rows an event carries; an older server sends only the top one.
 const rowsOf = (event: BidPlacedEvent) => event.bids ?? [event.bid];
@@ -31,6 +36,7 @@ export function missedBids(heldCount: number, event: BidPlacedEvent): boolean {
 
 export interface LiveState extends LiveSnapshot {
   sync: (snapshot: LiveSnapshot) => void;
+  setViewerMax: (cents: number) => void;
   applyBid: (event: BidPlacedEvent) => void;
   applyExtended: (event: AuctionExtendedEvent) => void;
 }
@@ -41,8 +47,9 @@ export function createLiveStore(initial: LiveSnapshot): StoreApi<LiveState> {
   return createStore<LiveState>((set, get) => ({
     ...initial,
     sync: (snapshot) => {
-      if (snapshot.bidCount >= get().bidCount) set({ ...snapshot });
+      if (snapshot.bidCount >= get().bidCount) set({ ...snapshot, viewerMaxCents: higher(get().viewerMaxCents, snapshot.viewerMaxCents) });
     },
+    setViewerMax: (cents) => set({ viewerMaxCents: higher(get().viewerMaxCents, cents) }),
     applyBid: (event) => {
       const state = get();
       if (event.bidCount <= state.bidCount) return;
@@ -82,7 +89,7 @@ export function LiveAuction({ listingId, snapshot, connect, children }: { listin
 
   useEffect(() => {
     store.getState().sync(snapshot);
-  }, [snapshot.bidCount, snapshot.endsAt, snapshot.extensionCount, snapshot.serverTime]);
+  }, [snapshot.bidCount, snapshot.endsAt, snapshot.extensionCount, snapshot.serverTime, snapshot.viewerMaxCents]);
 
   useEffect(() => {
     if (!connect) return;

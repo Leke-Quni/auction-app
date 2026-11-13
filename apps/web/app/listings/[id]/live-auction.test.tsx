@@ -10,6 +10,7 @@ const snapshot: LiveSnapshot = {
   endsAt: "2026-11-05T10:00:00.000Z",
   extensionCount: 0,
   serverTime: "2026-11-02T10:00:00.000Z",
+  viewerMaxCents: null,
   bids: [{ id: "b1", amountCents: 1000, createdAt: "2026-11-02T09:59:00.000Z", bidder: { id: "u1", username: "anna" } }],
 };
 
@@ -101,6 +102,40 @@ describe("live auction store", () => {
     const old = { ...event(), bids: undefined } as unknown as BidPlacedEvent;
     store.getState().applyBid(old);
     expect(store.getState().bids.map((b) => b.id)).toEqual(["b2", "b1"]);
+  });
+});
+
+describe("the viewer's own maximum", () => {
+  it("starts as the page sent it", () => {
+    expect(createLiveStore({ ...snapshot, viewerMaxCents: 5000 }).getState().viewerMaxCents).toBe(5000);
+    expect(createLiveStore(snapshot).getState().viewerMaxCents).toBeNull();
+  });
+
+  it("is set after the viewer bids, and can be raised but never lowered", () => {
+    const store = createLiveStore(snapshot);
+    store.getState().setViewerMax(3000);
+    expect(store.getState().viewerMaxCents).toBe(3000);
+    store.getState().setViewerMax(8000);
+    expect(store.getState().viewerMaxCents).toBe(8000);
+    store.getState().setViewerMax(2000);
+    expect(store.getState().viewerMaxCents).toBe(8000);
+  });
+
+  it("is not lost to an older copy from the server, and is taken from a newer one", () => {
+    const store = createLiveStore({ ...snapshot, viewerMaxCents: 3000 });
+    store.getState().setViewerMax(8000);
+    store.getState().sync({ ...snapshot, viewerMaxCents: 3000 });
+    expect(store.getState().viewerMaxCents).toBe(8000);
+    store.getState().sync({ ...snapshot, viewerMaxCents: null });
+    expect(store.getState().viewerMaxCents).toBe(8000);
+    store.getState().sync({ ...snapshot, viewerMaxCents: 9000 });
+    expect(store.getState().viewerMaxCents).toBe(9000);
+  });
+
+  it("is untouched by other people's bids", () => {
+    const store = createLiveStore({ ...snapshot, viewerMaxCents: 5000 });
+    store.getState().applyBid(event());
+    expect(store.getState().viewerMaxCents).toBe(5000);
   });
 });
 
