@@ -354,7 +354,7 @@ describe("the whole workflow, through the real API", () => {
       expect((await pay(order.id, "standard")).status).toBe(201);
       failNextMail = 1;
       await emails.sweep(); // the first send fails; its row is leased for 2 minutes
-      await prisma.pendingEndEmail.updateMany({ where: { listingId, kind: { in: ["PAID", "SOLD"] } }, data: { dueAt: new Date() } });
+      await prisma.pendingEndEmail.updateMany({ where: { listingId, kind: { in: ["PAID", "SOLD"] } }, data: { dueAt: new Date(Date.now() - 1000) } });
       await emails.sweep();
       const delivered = sent.slice(before).filter((m) => (m.subject.includes("Payment completed") || m.subject.includes("Sold")) && m.text.includes(`/orders/${order.id}`));
       expect(delivered.map((m) => m.to).sort()).toEqual([emailOf("buyer"), emailOf("seller")]);
