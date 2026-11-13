@@ -32,13 +32,23 @@ describe("placeBidAction", () => {
   it("sends the amount and the key, and refreshes the listing page on success", async () => {
     authedApiFetch.mockResolvedValue(reply(201, { extended: true, listing: { endsAt: "2026-11-02T12:15:00Z" } }));
     const result = await placeBidAction("L1", 1250, "key-123456");
-    expect(result).toEqual({ ok: true, extended: true, endsAt: "2026-11-02T12:15:00Z" });
+    expect(result).toEqual({ ok: true, extended: true, endsAt: "2026-11-02T12:15:00Z", outcome: "LEADING" });
     expect(authedApiFetch).toHaveBeenCalledWith("/listings/L1/bids", {
       method: "POST",
       headers: {},
       body: JSON.stringify({ amountCents: 1250, idempotencyKey: "key-123456" }),
     });
     expect(revalidatePath).toHaveBeenCalledWith("/listings/L1");
+  });
+
+  it("passes on what the bid meant: the outcome, the bidder's own maximum and the price now", async () => {
+    authedApiFetch.mockResolvedValue(reply(201, { outcome: "OUTBID_BY_PROXY", yourMaxCents: 2000, extended: false, listing: { endsAt: "2026-11-02T12:00:00Z", currentBidCents: 2100 } }));
+    expect(await placeBidAction("L1", 2000, "key-123456")).toEqual({ ok: true, extended: false, endsAt: "2026-11-02T12:00:00Z", outcome: "OUTBID_BY_PROXY", yourMaxCents: 2000, currentBidCents: 2100 });
+  });
+
+  it("treats an answer without an outcome (an older API) as leading", async () => {
+    authedApiFetch.mockResolvedValue(reply(201, { listing: { endsAt: "2026-11-02T12:00:00Z", currentBidCents: 1000 } }));
+    expect(await placeBidAction("L1", 1000, "key-123456")).toMatchObject({ ok: true, outcome: "LEADING", currentBidCents: 1000 });
   });
 
   it("passes the bidder's own address on to the API", async () => {

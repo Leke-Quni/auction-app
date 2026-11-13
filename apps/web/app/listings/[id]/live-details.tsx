@@ -89,6 +89,8 @@ export function LiveDetails({ listing, openMode, viewerId, order }: { listing: D
       endsAt: s.endsAt,
       extensionCount: s.extensionCount,
       serverTime: s.serverTime,
+      viewerMaxCents: s.viewerMaxCents,
+      setViewerMax: s.setViewerMax,
     })),
   );
   const phase = usePhase(listing.phase, listing.startsAt, live.endsAt, live.serverTime);
@@ -171,7 +173,9 @@ export function LiveDetails({ listing, openMode, viewerId, order }: { listing: D
           ))}
         </tbody>
       </table>
-      {bidMode && <BidPanel listingId={listing.id} mode={bidMode} minimumNextBidCents={live.minimumNextBidCents} order={order} />}
+      {bidMode && (
+        <BidPanel listingId={listing.id} mode={bidMode} minimumNextBidCents={live.minimumNextBidCents} viewerMaxCents={live.viewerMaxCents} onMaxChange={live.setViewerMax} order={order} />
+      )}
     </>
   );
 }

@@ -1,6 +1,6 @@
 "use server";
 
-import { BID_REFUSAL_MESSAGES, BID_REFUSALS, formatEur, type BidRefusal } from "@auction/shared";
+import { BID_REFUSAL_MESSAGES, BID_REFUSALS, formatEur, type BidRefusal, type ProxyOutcome } from "@auction/shared";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { authedApiFetch } from "@/lib/api";
@@ -15,6 +15,10 @@ export interface BidActionResult {
   retry?: boolean;
   extended?: boolean;
   endsAt?: string;
+  // What the bid meant for the bidder (an older API says nothing, which is the same as leading), their own maximum now, and the price now.
+  outcome?: ProxyOutcome;
+  yourMaxCents?: number;
+  currentBidCents?: number;
 }
 
 const isRefusal = (code: unknown): code is BidRefusal => (BID_REFUSALS as readonly string[]).includes(code as string);
@@ -37,7 +41,14 @@ export async function placeBidAction(listingId: string, amountCents: number, ide
 
   if (res.ok) {
     revalidatePath(`/listings/${listingId}`);
-    return { ok: true, extended: Boolean(body?.extended), endsAt: body?.listing?.endsAt };
+    return {
+      ok: true,
+      extended: Boolean(body?.extended),
+      endsAt: body?.listing?.endsAt,
+      outcome: (body?.outcome as ProxyOutcome | undefined) ?? "LEADING",
+      yourMaxCents: typeof body?.yourMaxCents === "number" ? body.yourMaxCents : undefined,
+      currentBidCents: typeof body?.listing?.currentBidCents === "number" ? body.listing.currentBidCents : undefined,
+    };
   }
   if (res.status === 401) return { error: "Your session has expired. Sign in again to bid." };
   if (res.status >= 500) {

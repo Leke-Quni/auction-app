@@ -155,3 +155,28 @@ describe("an upcoming auction reaching its start", () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 });
+
+describe("the bid panel on the live page", () => {
+  const live = listing({ phase: "live", outcome: null });
+  const upcomingEnd = { ...snapshot, endsAt: "2026-11-05T10:00:00.000Z" };
+
+  it("shows the person in front their own maximum and a box to raise it", () => {
+    render(
+      <LiveAuction listingId="L1" snapshot={{ ...upcomingEnd, viewerMaxCents: 5000 }} connect={false}>
+        <LiveDetails listing={live} openMode="highest" viewerId="ben" />
+      </LiveAuction>,
+    );
+    expect(screen.getByText("You are the highest bidder.")).toBeTruthy();
+    expect(screen.getByText(/Your maximum: €50\.00/)).toBeTruthy();
+    expect((screen.getByLabelText("Raise your maximum (€)") as HTMLInputElement).value).toBe("52.50");
+  });
+
+  it("follows the minimum next bid of the live store for someone who is not in front", () => {
+    render(
+      <LiveAuction listingId="L1" snapshot={upcomingEnd} connect={false}>
+        <LiveDetails listing={live} openMode="live" viewerId="cara" />
+      </LiveAuction>,
+    );
+    expect((screen.getByLabelText("Your maximum bid (€)") as HTMLInputElement).value).toBe("26.25");
+  });
+});

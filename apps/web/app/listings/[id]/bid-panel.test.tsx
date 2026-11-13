@@ -18,7 +18,11 @@ afterEach(() => {
 });
 
 const panel = (mode: BidMode = "live", minimumNextBidCents = 1100) => <BidPanel listingId="L1" mode={mode} minimumNextBidCents={minimumNextBidCents} />;
-const box = () => screen.getByLabelText("Your bid (€)") as HTMLInputElement;
+const leader = (viewerMaxCents: number | null, onMaxChange?: (cents: number) => void) => (
+  <BidPanel listingId="L1" mode="highest" minimumNextBidCents={1100} viewerMaxCents={viewerMaxCents} onMaxChange={onMaxChange} />
+);
+const raiseBox = () => screen.getByLabelText("Raise your maximum (€)") as HTMLInputElement;
+const box = () => screen.getByLabelText("Your maximum bid (€)") as HTMLInputElement;
 const place = () => fireEvent.click(screen.getByRole("button", { name: /^place bid$/i }));
 const confirmBid = async () => fireEvent.click(await screen.findByRole("button", { name: /^confirm bid of/i }));
 
@@ -88,6 +92,13 @@ describe("BidPanel when you can bid", () => {
     expect(screen.getByText(/Minimum bid: €11\.00/)).toBeTruthy();
   });
 
+  it("explains that the number is a maximum, that we bid for them, and that it cannot be lowered or withdrawn", () => {
+    render(panel("live", 1100));
+    expect(screen.getByText(/We bid for you, one step at a time, up to this amount/)).toBeTruthy();
+    expect(screen.getByText(/only pay what is needed to stay ahead/)).toBeTruthy();
+    expect(screen.getByText(/cannot be lowered or withdrawn/)).toBeTruthy();
+  });
+
   it("places a bid in cents with a bid key, then refreshes the page", async () => {
     placeBidAction.mockResolvedValue({ ok: true });
     render(panel("live", 1100));
@@ -116,8 +127,8 @@ describe("BidPanel when you can bid", () => {
     placeBidAction.mockResolvedValue({ ok: true });
     render(panel("live", 1100));
     place();
-    expect(screen.getByText(/You are about to bid/).textContent).toContain("€11.00");
-    expect(screen.getByText(/A bid cannot be withdrawn/)).toBeTruthy();
+    expect(screen.getByText(/You are about to bid up to/).textContent).toContain("€11.00");
+    expect(screen.getByText(/You cannot lower or withdraw it/)).toBeTruthy();
     expect(placeBidAction).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: /^place bid$/i })).toBeNull();
     await confirmBid();
@@ -198,15 +209,93 @@ describe("BidPanel when you can bid", () => {
     expect(screen.getByText(/Minimum bid: €13\.00/)).toBeTruthy();
   });
 
-  it("confirms a placed bid, and says when it extended the auction", async () => {
-    placeBidAction.mockResolvedValue({ ok: true, extended: true, endsAt: "2026-11-02T12:15:00Z" });
+  it("tells the bidder who now leads what the price is, and says when the bid extended the auction", async () => {
+    placeBidAction.mockResolvedValue({ ok: true, outcome: "LEADING", currentBidCents: 1200, yourMaxCents: 5000, extended: true, endsAt: "2026-11-02T12:15:00Z" });
     const { rerender } = render(panel("live", 1100));
     place();
     await confirmBid();
     await waitFor(() => expect(refresh).toHaveBeenCalled());
-    rerender(panel("highest", 1200));
+    rerender(panel("highest", 1260));
     expect(screen.getByText("You are the highest bidder.")).toBeTruthy();
-    expect(screen.getByText(/Your bid was placed/)).toBeTruthy();
+    expect(screen.getByText(/You are the highest bidder at €12\.00/)).toBeTruthy();
     expect(screen.getByText(/extended and now ends/)).toBeTruthy();
+  });
+
+  it("tells a bidder beaten at once that someone has a higher maximum, what the price is now, and offers to raise", async () => {
+    placeBidAction.mockResolvedValue({ ok: true, outcome: "OUTBID_BY_PROXY", currentBidCents: 2100, yourMaxCents: 2000 });
+    render(panel("live", 1100));
+    place();
+    await confirmBid();
+    await waitFor(() => expect(screen.getByText(/Someone has a higher maximum\. The price is now €21\.00/)).toBeTruthy());
+    expect(screen.queryByText(/You are the highest bidder/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Raise your maximum" }));
+    expect(document.activeElement).toBe(box());
+  });
+
+  it("tells a leader who raised their maximum what it is now", async () => {
+    placeBidAction.mockResolvedValue({ ok: true, outcome: "MAX_RAISED", currentBidCents: 1200, yourMaxCents: 8000 });
+    const { rerender } = render(panel("live", 1100));
+    place();
+    await confirmBid();
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    rerender(panel("highest", 1260));
+    expect(screen.getByText(/Your maximum is now €80\.00/)).toBeTruthy();
+  });
+});
+
+describe("BidPanel for the person in front", () => {
+  it("shows their own maximum and a box to raise it that starts one step above it", () => {
+    render(leader(5000));
+    expect(screen.getByText("You are the highest bidder.")).toBeTruthy();
+    expect(screen.getByText(/Your maximum: €50\.00/)).toBeTruthy();
+    expect(raiseBox().value).toBe("52.50");
+    expect(screen.queryByLabelText("Your maximum bid (€)")).toBeNull();
+  });
+
+  it("shows no raise box when the maximum is not known (an API that does not send it)", () => {
+    render(leader(null));
+    expect(screen.getByText("You are the highest bidder.")).toBeTruthy();
+    expect(screen.queryByLabelText("Raise your maximum (€)")).toBeNull();
+    expect(screen.queryByText(/Your maximum:/)).toBeNull();
+  });
+
+  it("refuses, before sending, a new maximum that is not higher than the current one", () => {
+    render(leader(5000));
+    for (const value of ["50", "49.99", "lots"]) {
+      fireEvent.change(raiseBox(), { target: { value } });
+      fireEvent.click(screen.getByRole("button", { name: /^raise maximum$/i }));
+      expect(screen.getByRole("alert").textContent).toMatch(value === "lots" ? /Enter an amount/ : /must be higher than €50\.00/);
+    }
+    expect(placeBidAction).not.toHaveBeenCalled();
+  });
+
+  it("asks for a second click naming the new maximum, then sends it and reports the new maximum", async () => {
+    placeBidAction.mockResolvedValue({ ok: true, outcome: "MAX_RAISED", currentBidCents: 1200, yourMaxCents: 8000 });
+    const changed = vi.fn();
+    render(leader(5000, changed));
+    fireEvent.change(raiseBox(), { target: { value: "80" } });
+    fireEvent.click(screen.getByRole("button", { name: /^raise maximum$/i }));
+    expect(screen.getByText(/You are about to raise your maximum to/).textContent).toContain("€80.00");
+    expect(placeBidAction).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: /^confirm new maximum of €80\.00$/i }));
+    await waitFor(() => expect(placeBidAction).toHaveBeenCalledWith("L1", 8000, expect.any(String)));
+    await waitFor(() => expect(screen.getByText(/Your maximum is now €80\.00/)).toBeTruthy());
+    expect(changed).toHaveBeenCalledWith(8000);
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it("shows a refusal from the server in words", async () => {
+    placeBidAction.mockResolvedValue({ error: "Your new maximum must be higher than your current maximum." });
+    render(leader(5000));
+    fireEvent.click(screen.getByRole("button", { name: /^raise maximum$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^confirm new maximum of/i }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Your new maximum must be higher than your current maximum."));
+  });
+
+  it("follows the maximum when it changes elsewhere", () => {
+    const { rerender } = render(leader(5000));
+    rerender(leader(8000));
+    expect(screen.getByText(/Your maximum: €80\.00/)).toBeTruthy();
+    expect(raiseBox().value).toBe("84.00");
   });
 });
