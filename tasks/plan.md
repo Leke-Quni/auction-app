@@ -1,6 +1,6 @@
 # Implementation Plan: Proxy bidding
 
-Planned 2026-11-12. Source: `docs/PROXY-BIDDING-PLAN.md` (the design: rules, data model, failure modes, test plan), treated here as the task. Task details, acceptance criteria and verification live in `tasks/todo.md`; this file holds the order, the decisions and the risks. Nothing is built yet.
+Planned 2026-11-12. Source: `docs/PROXY-BIDDING-PLAN.md` (the design: rules, data model, failure modes, test plan), treated here as the task. Task details, acceptance criteria and verification live in `tasks/todo.md`; this file holds the order, the decisions and the risks. Built 2026-11-12 to 2026-11-13; kept for the record (what was built is in `docs/decisions/bidding.md`).
 
 ## Overview
 
@@ -8,7 +8,7 @@ Today a bid is a price. With proxy bidding the number a bidder types is a hidden
 
 ## Project rules that apply (CLAUDE.md, memory)
 
-- `DESIGN.md` lists proxy bidding as out of scope: **T0 (owner decisions) comes before any code.**
+- `DESIGN.md` listed proxy bidding as out of scope when this was planned, so **T0 (owner decisions) came before any code.**
 - Build one slice at a time and stop after each checkpoint so the owner can test, change or remove it.
 - Run the relevant tests after each task and report failures honestly. Never commit or push unless asked.
 - Match surrounding style; keep changes minimal; record decisions in `docs/decisions/bidding.md`.
@@ -44,25 +44,25 @@ Today a bid is a price. With proxy bidding the number a bidder types is a hidden
 ### Checkpoint B: the API places proxy bids correctly
 
 ### Phase 3: Events and notifications
-- [ ] T10: Realtime: several rows per event, live store, no leaks
-- [ ] T11: Notifications go to the right person
+- [x] T10: Realtime: several rows per event, live store, no leaks
+- [x] T11: Notifications go to the right person
 
 ### Phase 4: Everything else that reads bids
-- [ ] T12: Runner-up, history, admin bid lists and counts
+- [x] T12: Runner-up, history, admin bid lists and counts
 
 ### Checkpoint C: backend complete
 
 ### Phase 5: UI
-- [ ] T13: The viewer's own maximum reaches the listing page
-- [ ] T14: Bid panel: maximum wording, raise form, outcome messages
-- [ ] T15: Toasts, bell and emails
+- [x] T13: The viewer's own maximum reaches the listing page
+- [x] T14: Bid panel: maximum wording, raise form, outcome messages
+- [x] T15: Toasts, bell and emails
 
 ### Checkpoint D: usable by hand in the browser
 
 ### Phase 6: Hardening and release
-- [ ] T16: Concurrency tests redefined, plus the no-leak and invariant checks
-- [ ] T17: Playwright specs, bot and seed scenarios
-- [ ] T18: Docs final, full suite, deploy notes
+- [x] T16: Concurrency tests redefined, plus the no-leak and invariant checks
+- [x] T17: Playwright specs, bot and seed scenarios
+- [x] T18: Docs final, full suite, deploy notes
 
 ### Checkpoint E: ready for a PR
 

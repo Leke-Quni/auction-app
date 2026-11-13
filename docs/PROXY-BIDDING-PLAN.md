@@ -1,6 +1,6 @@
 # Proxy bidding: implementation plan
 
-Status: draft for the owner, written 2026-11-12. Nothing in this plan is built yet. `docs/DESIGN.md` currently lists proxy bidding as out of scope, so slice 0 (the owner's decisions, recorded in `docs/decisions/bidding.md`) comes before any code.
+Status: built 2026-11-12 to 2026-11-13 and kept for the record; what was actually built, and the owner's decisions, are in `docs/decisions/bidding.md` and `docs/DESIGN.md`, which are the source of truth. This is the plan as written on 2026-11-12, before any code. At that time `docs/DESIGN.md` still listed proxy bidding as out of scope, so slice 0 (the owner's decisions) came before any code; that has been changed.
 
 Built from a read of: `apps/api/src/bids/*`, `packages/shared/src/bids.ts` and `realtime.ts`, `auction-close.service.ts`, `order-expiry.service.ts`, `realtime/notifications.service.ts` and `realtime.gateway.ts`, `search-sync.service.ts`, `account-deletion.service.ts`, `admin-listings.service.ts`, `listing-retention.ts`, the bid migrations, the seed code, and the web files `bid-panel.tsx`, `live-auction.tsx`, `bid-actions.ts`, `notifications.tsx`. Files I did not open (e.g. `listings/[id]/page.tsx`, `listings.service.ts` view fields, the e2e specs) are marked "check" below.
 
