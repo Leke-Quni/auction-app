@@ -27,10 +27,11 @@ test("a person with a strike appeals it from the support page, and an admin clea
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByText("Your appeal was sent. We will answer by email.")).toBeVisible();
 
-  // A second appeal for the same strike is refused while the first waits.
+  // A second appeal for the same strike is not possible while the first waits: the appeal option is off, the page says why, and Send is off.
   await page.reload();
-  await page.getByRole("radio", { name: "Appeal a strike" }).check();
-  await expect(page.locator('select[name="strikeId"] option')).toContainText("appeal sent");
+  await expect(page.getByRole("radio", { name: "Appeal a strike" })).toBeDisabled();
+  await expect(page.getByText("(your appeal was sent, we will answer by email)")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
 
   const adminContext = await browser.newContext();
   const adminPage = await adminContext.newPage();
