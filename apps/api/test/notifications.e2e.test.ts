@@ -280,6 +280,52 @@ describe("bid notifications", () => {
     expect(got).toHaveLength(1);
   });
 
+  describe("proxy bidding", () => {
+    it("drops the requester's waiting outbid email even when they are beaten at once", async () => {
+      const [anna, ben] = await makePeople(2);
+      const listing = await makeListing();
+      await bid(anna, listing.id, 1000).expect(201);
+      await bid(ben, listing.id, 3000).expect(201); // ben leads at €11 and anna is outbid
+      await settle();
+      expect(await pending(anna.id, listing.id)).not.toBeNull();
+
+      // Anna bids again with a maximum below ben's: ben defends, but anna is here, so she needs no email.
+      const answer = await bid(anna, listing.id, 2000).expect(201);
+      expect(answer.body.outcome).toBe("OUTBID_BY_PROXY");
+      await settle();
+      expect(await pending(anna.id, listing.id)).toBeNull();
+    });
+
+    it("on a late defended bid, toasts the other bidders but not the requester who was beaten at once, and calls nobody outbid", async () => {
+      const [anna, ben, cara] = await makePeople(3);
+      const listing = await makeListing({ endsAt: new Date(Date.now() + DAY) });
+      await bid(cara, listing.id, 1000).expect(201);
+      await bid(anna, listing.id, 5000).expect(201); // anna leads at €11 with a hidden €50
+      await prisma.listing.update({ where: { id: listing.id }, data: { endsAt: new Date(Date.now() + 90_000) } });
+
+      const [annaSocket, benSocket, caraSocket] = await Promise.all([open(anna), open(ben), open(cara)]);
+      const caraExtended = collect(caraSocket, SOCKET_EVENTS.extendedNotice);
+      const quiet = [
+        collect(benSocket, SOCKET_EVENTS.extendedNotice),
+        collect(benSocket, SOCKET_EVENTS.outbid),
+        collect(annaSocket, SOCKET_EVENTS.extendedNotice),
+        collect(annaSocket, SOCKET_EVENTS.outbid),
+        collect(caraSocket, SOCKET_EVENTS.outbid),
+      ];
+      sent.length = 0;
+
+      const answer = await bid(ben, listing.id, 2000).expect(201);
+      expect(answer.body).toMatchObject({ outcome: "OUTBID_BY_PROXY", extended: true });
+      await settle();
+      await flushEmails();
+
+      expect(caraExtended).toHaveLength(1);
+      expect(quiet.every((got) => got.length === 0)).toBe(true);
+      // The only email is cara's, for being outbid by anna during the setup; ben and anna get none.
+      expect(sent.map((m) => m.to)).toEqual([cara.email]);
+    });
+  });
+
   describe("the outbid email wait", () => {
     it("is dropped when the person bids again before it is due", async () => {
       const [anna, ben] = await makePeople(2);
