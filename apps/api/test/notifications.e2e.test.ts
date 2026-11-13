@@ -197,6 +197,12 @@ describe("bid notifications", () => {
     expect(sent[0].text).toContain("€11.00");
     expect(sent[0].text).toContain("€12.00");
     expect(sent[0].text).toContain(`/listings/${listing.id}`);
+    // Worded for a maximum: someone's is higher, the price is shown, and the way back in is a new, higher maximum.
+    expect(sent[0].text).toContain("Someone's maximum bid is higher than yours");
+    expect(sent[0].text).toContain("Current price: €11.00");
+    expect(sent[0].text).toContain("Set a new maximum of at least €12.00");
+    expect(sent[0].text).toContain("you only pay what is needed to stay ahead");
+    expect(sent[0].text).not.toContain("Minimum next bid");
   });
 
   it("sends nothing for the first bid, a refused bid, or a replay", async () => {

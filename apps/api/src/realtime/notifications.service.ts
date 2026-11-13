@@ -197,11 +197,12 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
 
     const current = listing.currentBidCents ?? listing.startingPriceCents;
     const lines = [
-      `You've been outbid on "${listing.title}".`,
+      `You've been outbid on "${listing.title}". Someone's maximum bid is higher than yours.`,
       "",
-      `Current bid: ${formatEur(current)}`,
-      `Minimum next bid: ${formatEur(minimumFor(listing))}`,
+      `Current price: ${formatEur(current)}`,
       `Ends: ${utc(listing.endsAt)}`,
+      "",
+      `Set a new maximum of at least ${formatEur(minimumFor(listing))} to bid again. We bid for you only as far as needed, so you only pay what is needed to stay ahead.`,
     ];
     lines.push("", `${webUrl()}/listings/${listingId}`);
     try {

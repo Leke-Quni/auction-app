@@ -59,7 +59,7 @@ describe("NotificationBell", () => {
     render(<NotificationBell initial={list([outbid(), extended(true)])} />);
     fireEvent.click(screen.getByRole("button", { name: /Notifications/ }));
     expect(screen.getByText("You've been outbid")).toBeTruthy();
-    expect(screen.getByText("Old watch is now at €12.00.")).toBeTruthy();
+    expect(screen.getByText("Someone's maximum is higher than yours on Old watch. The price is now €12.00.")).toBeTruthy();
     expect(screen.getByText("Final chance to bid")).toBeTruthy();
     expect(screen.getAllByRole("menuitem").map((a) => a.getAttribute("href"))).toEqual(["/listings/l1", "/listings/l2"]);
     expect(loadNotificationsAction).not.toHaveBeenCalled();
