@@ -244,6 +244,26 @@ describe("BidPanel when you can bid", () => {
     rerender(panel("highest", 1260));
     expect(screen.getByText(/Your maximum is now €80\.00/)).toBeTruthy();
   });
+
+  it("announces what a bid meant as a status, for screen readers", async () => {
+    placeBidAction.mockResolvedValue({ ok: true, outcome: "OUTBID_BY_PROXY", currentBidCents: 2100, yourMaxCents: 2000 });
+    render(panel("live", 1100));
+    place();
+    await confirmBid();
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Someone has a higher maximum"));
+  });
+
+  it("drops the note about a raised maximum once the bidder is no longer in front", async () => {
+    placeBidAction.mockResolvedValue({ ok: true, outcome: "MAX_RAISED", currentBidCents: 1200, yourMaxCents: 8000 });
+    const { rerender } = render(panel("live", 1100));
+    place();
+    await confirmBid();
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    rerender(panel("highest", 1260));
+    expect(screen.getByText(/Your maximum is now €80\.00/)).toBeTruthy();
+    rerender(panel("live", 8400));
+    expect(screen.queryByText(/Your maximum is now/)).toBeNull();
+  });
 });
 
 describe("BidPanel for the person in front", () => {

@@ -96,6 +96,14 @@ describe("Notifications", () => {
     expect(screen.getByRole("link", { name: "Raise your maximum" }).getAttribute("href")).toBe("/listings/l1");
   });
 
+  it("has no link to raise the maximum on the listing's own page, where the bid box is already in view", () => {
+    pathname = "/listings/l1";
+    render(<Notifications />);
+    push("notice:outbid", outbid);
+    expect(screen.getByRole("alert").textContent).toContain("Someone's maximum is higher than yours");
+    expect(screen.queryByRole("link", { name: "Raise your maximum" })).toBeNull();
+  });
+
   it("offers no one-click bid: a minimum bid is an easily beaten maximum, so raising is done on the listing page", () => {
     render(<Notifications />);
     push("notice:outbid", outbid);

@@ -51,6 +51,11 @@ describe("placeBidAction", () => {
     expect(await placeBidAction("L1", 1000, "key-123456")).toMatchObject({ ok: true, outcome: "LEADING", currentBidCents: 1000 });
   });
 
+  it("treats an outcome it does not know as leading", async () => {
+    authedApiFetch.mockResolvedValue(reply(201, { outcome: "SOMETHING_NEW", listing: { endsAt: "2026-11-02T12:00:00Z", currentBidCents: 1000 } }));
+    expect(await placeBidAction("L1", 1000, "key-123456")).toMatchObject({ ok: true, outcome: "LEADING" });
+  });
+
   it("passes the bidder's own address on to the API", async () => {
     viewerIpHeaders.mockResolvedValue({ "x-viewer-ip": "203.0.113.9", "x-viewer-ip-signature": "sig" });
     authedApiFetch.mockResolvedValue(reply(201, { listing: {} }));

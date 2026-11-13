@@ -96,7 +96,7 @@ export function Notifications() {
                 </span>
               )}
               <div className="min-w-0 flex-1">
-                {toast.kind === "outbid" ? <OutbidBody notice={toast.notice} /> : toast.kind === "extended" ? <ExtendedBody notice={toast.notice} /> : toast.kind === "won" ? <WonBody notice={toast.notice} /> : <QuestionBody kind={toast.kind} notice={toast.notice} />}
+                {toast.kind === "outbid" ? <OutbidBody notice={toast.notice} onThatPage={pathname.startsWith(`/listings/${toast.notice.listingId}`)} /> : toast.kind === "extended" ? <ExtendedBody notice={toast.notice} /> : toast.kind === "won" ? <WonBody notice={toast.notice} /> : <QuestionBody kind={toast.kind} notice={toast.notice} />}
               </div>
             </div>
             <button type="button" aria-label="Dismiss" onClick={() => dismiss(toast.id)} className="absolute right-2 top-1 cursor-pointer text-muted hover:text-ink">
@@ -114,7 +114,8 @@ export function Notifications() {
 
 const link = "font-bold text-brand underline";
 
-function OutbidBody({ notice }: { notice: OutbidNotice }) {
+// On the listing's own page the bid box is already in view, so a link to the page it is on would do nothing.
+function OutbidBody({ notice, onThatPage }: { notice: OutbidNotice; onThatPage: boolean }) {
   return (
     <div className="space-y-1.5">
       <p className="font-bold">You&apos;ve been outbid</p>
@@ -131,9 +132,11 @@ function OutbidBody({ notice }: { notice: OutbidNotice }) {
           </>
         )}
       </p>
-      <Link href={`/listings/${notice.listingId}`} className="block w-full rounded bg-brand px-3 py-1.5 text-center font-bold text-on-brand hover:bg-brand-dark">
-        Raise your maximum
-      </Link>
+      {!onThatPage && (
+        <Link href={`/listings/${notice.listingId}`} className="block w-full rounded bg-brand px-3 py-1.5 text-center font-bold text-on-brand hover:bg-brand-dark">
+          Raise your maximum
+        </Link>
+      )}
     </div>
   );
 }

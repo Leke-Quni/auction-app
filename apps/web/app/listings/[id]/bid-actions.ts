@@ -21,7 +21,10 @@ export interface BidActionResult {
   currentBidCents?: number;
 }
 
-const isRefusal = (code: unknown): code is BidRefusal => (BID_REFUSALS as readonly string[]).includes(code as string);
+const OUTCOMES: readonly string[] = ["LEADING", "OUTBID_BY_PROXY", "MAX_RAISED"] satisfies ProxyOutcome[];
+const outcomeOf = (value: unknown): ProxyOutcome => (OUTCOMES.includes(value as string) ? (value as ProxyOutcome) : "LEADING");
+
+const isRefusal =(code: unknown): code is BidRefusal => (BID_REFUSALS as readonly string[]).includes(code as string);
 
 export async function placeBidAction(listingId: string, amountCents: number, idempotencyKey: string): Promise<BidActionResult> {
   const session = await auth();
@@ -45,7 +48,7 @@ export async function placeBidAction(listingId: string, amountCents: number, ide
       ok: true,
       extended: Boolean(body?.extended),
       endsAt: body?.listing?.endsAt,
-      outcome: (body?.outcome as ProxyOutcome | undefined) ?? "LEADING",
+      outcome: outcomeOf(body?.outcome),
       yourMaxCents: typeof body?.yourMaxCents === "number" ? body.yourMaxCents : undefined,
       currentBidCents: typeof body?.listing?.currentBidCents === "number" ? body.listing.currentBidCents : undefined,
     };
