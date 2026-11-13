@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,7 +9,8 @@ const { refresh, router } = vi.hoisted(() => {
   return { refresh, router: { refresh } };
 });
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
-vi.mock("./bid-actions", () => ({ placeBidAction: vi.fn() }));
+const { placeBidAction } = vi.hoisted(() => ({ placeBidAction: vi.fn() }));
+vi.mock("./bid-actions", () => ({ placeBidAction }));
 
 import { LiveAuction, type LiveSnapshot } from "./live-auction";
 import { LiveDetails, type DetailsListing } from "./live-details";
@@ -31,6 +32,7 @@ const snapshot: LiveSnapshot = {
   endsAt: "2026-11-01T10:00:00.000Z",
   extensionCount: 0,
   serverTime: "2026-11-02T10:00:00.000Z",
+  viewerMaxCents: null,
   bids: [],
 };
 
@@ -152,5 +154,48 @@ describe("an upcoming auction reaching its start", () => {
     act(() => void vi.advanceTimersByTime(6_000));
     expect(screen.getByText("Ended")).toBeTruthy();
     expect(refresh).not.toHaveBeenCalled();
+  });
+});
+
+describe("the bid panel on the live page", () => {
+  const live = listing({ phase: "live", outcome: null });
+  const upcomingEnd = { ...snapshot, endsAt: "2026-11-05T10:00:00.000Z" };
+
+  it("shows the person in front their own maximum and a box to raise it", () => {
+    render(
+      <LiveAuction listingId="L1" snapshot={{ ...upcomingEnd, viewerMaxCents: 5000 }} connect={false}>
+        <LiveDetails listing={live} openMode="highest" viewerId="ben" />
+      </LiveAuction>,
+    );
+    expect(screen.getByText("You are the highest bidder.")).toBeTruthy();
+    expect(screen.getByText(/Your maximum: €50\.00/)).toBeTruthy();
+    expect((screen.getByLabelText("Raise your maximum (€)") as HTMLInputElement).value).toBe("52.50");
+  });
+
+  it("follows the minimum next bid of the live store for someone who is not in front", () => {
+    render(
+      <LiveAuction listingId="L1" snapshot={upcomingEnd} connect={false}>
+        <LiveDetails listing={live} openMode="live" viewerId="cara" />
+      </LiveAuction>,
+    );
+    expect((screen.getByLabelText("Your maximum bid (€)") as HTMLInputElement).value).toBe("26.25");
+  });
+
+  it("drops the 'highest bidder at €X' line after a bid when the live price moves above X", async () => {
+    vi.useRealTimers();
+    placeBidAction.mockResolvedValue({ ok: true, outcome: "LEADING", currentBidCents: 1000, yourMaxCents: 5000 });
+    const mine = { ...upcomingEnd, currentBidCents: 1000, bidCount: 1, highBidder: { id: "ben", username: "ben" }, viewerMaxCents: 5000 };
+    const tree = (snap: LiveSnapshot) => (
+      <LiveAuction listingId="L1" snapshot={snap} connect={false}>
+        <LiveDetails listing={live} openMode="highest" viewerId="ben" />
+      </LiveAuction>
+    );
+    const { rerender } = render(tree(mine));
+    fireEvent.click(screen.getByRole("button", { name: "Raise maximum" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Confirm new maximum of/ }));
+    expect(await screen.findByText(/You are the highest bidder at €10\.00/)).toBeTruthy();
+    // Someone else bids and Ben is defended: the price is now €21 and his note must not still say €10.
+    rerender(tree({ ...mine, currentBidCents: 2100, bidCount: 3, minimumNextBidCents: 2205 }));
+    expect(screen.queryByText(/You are the highest bidder at/)).toBeNull();
   });
 });

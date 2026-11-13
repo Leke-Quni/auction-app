@@ -103,15 +103,16 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
       this.gateway.emitToUsers([outbidId], SOCKET_EVENTS.outbid, notice);
       await this.queueOutbidEmail(outbidId, listingId, endsAt);
     }
-    // Bidding again means they are here, so a waiting email for them is not needed.
-    await this.prisma.pendingOutbidEmail.deleteMany({ where: { userId: newBidderId, listingId } });
+    // Bidding again means they are here, so a waiting email for them is not needed. That is whoever asked, who is not always the
+    // leader: a bidder beaten at once by a higher maximum is still here.
+    await this.prisma.pendingOutbidEmail.deleteMany({ where: { userId: result.requestedBy, listingId } });
 
     if (result.extended) {
       // A cap keeps a very long war from turning one bid into thousands of messages; the most recent bidders come first.
       const bidders = await this.prisma.$queryRaw<{ bidderId: string }[]>`
         SELECT "bidderId" FROM "Bid" WHERE "listingId" = ${listingId}
         GROUP BY "bidderId" ORDER BY MAX("createdAt") DESC LIMIT 500`;
-      const others = bidders.map((b) => b.bidderId).filter((id) => id !== newBidderId && id !== outbidId && id !== listing.sellerId);
+      const others = bidders.map((b) => b.bidderId).filter((id) => id !== newBidderId && id !== outbidId && id !== result.requestedBy && id !== listing.sellerId);
       const notice: ExtendedNotice = {
         listingId,
         title: listing.title,
@@ -196,11 +197,12 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
 
     const current = listing.currentBidCents ?? listing.startingPriceCents;
     const lines = [
-      `You've been outbid on "${listing.title}".`,
+      `You've been outbid on "${listing.title}". Someone's maximum bid is higher than yours.`,
       "",
-      `Current bid: ${formatEur(current)}`,
-      `Minimum next bid: ${formatEur(minimumFor(listing))}`,
+      `Current price: ${formatEur(current)}`,
       `Ends: ${utc(listing.endsAt)}`,
+      "",
+      `Set a new maximum of at least ${formatEur(minimumFor(listing))} to bid again. We bid for you only as far as needed, so you only pay what is needed to stay ahead.`,
     ];
     lines.push("", `${webUrl()}/listings/${listingId}`);
     try {

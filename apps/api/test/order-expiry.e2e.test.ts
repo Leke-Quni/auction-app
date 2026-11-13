@@ -218,6 +218,17 @@ describe("orders that are not paid in time", () => {
   });
 
   describe("who the item is offered to", () => {
+    it("offers the runner-up their highest visible bid, never a hidden raise of their maximum", async () => {
+      const [a, b] = await makePeople(2);
+      const { listing, order } = await sale([[b, 2000], [a, 3000]]);
+      // A hidden raise row is not a bid: even if one carried a higher amount, it must not set the price the runner-up pays.
+      await prisma.bid.create({ data: { listingId: listing.id, bidderId: b.id, amountCents: 2800, maxCents: 9000, kind: "RAISE", outcome: "MAX_RAISED", idempotencyKey: randomUUID() } });
+      await overdue(order.id);
+      const result = await expiry.expire(order.id);
+      expect(result).toMatchObject({ nextBuyerId: b.id, nextAmountCents: 2000 });
+      expect(await orderOf(listing.id, 2)).toMatchObject({ buyerId: b.id, amountCents: 2000 });
+    });
+
     it("ends the auction without a sale when the next bid is below the reserve", async () => {
       const [a, b] = await makePeople(2);
       const { listing, order } = await sale([[b, 1200], [a, 3000]], { reservePriceCents: 2000 });

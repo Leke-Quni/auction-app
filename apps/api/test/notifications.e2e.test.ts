@@ -178,8 +178,9 @@ describe("bid notifications", () => {
     expect(annaGot[0] as OutbidNotice).toMatchObject({
       listingId: listing.id,
       title: "Notice test listing",
-      currentBidCents: 1200,
-      minimumNextBidCents: 1300,
+      // ben typed €12 but takes the lead one step above anna's €10.
+      currentBidCents: 1100,
+      minimumNextBidCents: 1200,
       extended: false,
       extensionCount: 0,
     });
@@ -193,9 +194,15 @@ describe("bid notifications", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0].to).toBe(anna.email);
     expect(sent[0].subject).toContain("outbid");
+    expect(sent[0].text).toContain("€11.00");
     expect(sent[0].text).toContain("€12.00");
-    expect(sent[0].text).toContain("€13.00");
     expect(sent[0].text).toContain(`/listings/${listing.id}`);
+    // Worded for a maximum: someone's is higher, the price is shown, and the way back in is a new, higher maximum.
+    expect(sent[0].text).toContain("Someone's maximum bid is higher than yours");
+    expect(sent[0].text).toContain("Current price: €11.00");
+    expect(sent[0].text).toContain("Set a new maximum of at least €12.00");
+    expect(sent[0].text).toContain("you only pay what is needed to stay ahead");
+    expect(sent[0].text).not.toContain("Minimum next bid");
   });
 
   it("sends nothing for the first bid, a refused bid, or a replay", async () => {
@@ -209,7 +216,7 @@ describe("bid notifications", () => {
     const key = randomUUID();
     await bid(ben, listing.id, 1100, key).expect(201);
     await bid(ben, listing.id, 1100, key).expect(200); // replay
-    await bid(ben, listing.id, 1200).expect(409); // ben already leads
+    await bid(ben, listing.id, 1100).expect(409); // 11.00 is not above ben's own maximum
     await settle();
     await flushEmails();
 
@@ -277,6 +284,52 @@ describe("bid notifications", () => {
     await bid(cara, listing.id, 1400).expect(201);
     await settle();
     expect(got).toHaveLength(1);
+  });
+
+  describe("proxy bidding", () => {
+    it("drops the requester's waiting outbid email even when they are beaten at once", async () => {
+      const [anna, ben] = await makePeople(2);
+      const listing = await makeListing();
+      await bid(anna, listing.id, 1000).expect(201);
+      await bid(ben, listing.id, 3000).expect(201); // ben leads at €11 and anna is outbid
+      await settle();
+      expect(await pending(anna.id, listing.id)).not.toBeNull();
+
+      // Anna bids again with a maximum below ben's: ben defends, but anna is here, so she needs no email.
+      const answer = await bid(anna, listing.id, 2000).expect(201);
+      expect(answer.body.outcome).toBe("OUTBID_BY_PROXY");
+      await settle();
+      expect(await pending(anna.id, listing.id)).toBeNull();
+    });
+
+    it("on a late defended bid, toasts the other bidders but not the requester who was beaten at once, and calls nobody outbid", async () => {
+      const [anna, ben, cara] = await makePeople(3);
+      const listing = await makeListing({ endsAt: new Date(Date.now() + DAY) });
+      await bid(cara, listing.id, 1000).expect(201);
+      await bid(anna, listing.id, 5000).expect(201); // anna leads at €11 with a hidden €50
+      await prisma.listing.update({ where: { id: listing.id }, data: { endsAt: new Date(Date.now() + 90_000) } });
+
+      const [annaSocket, benSocket, caraSocket] = await Promise.all([open(anna), open(ben), open(cara)]);
+      const caraExtended = collect(caraSocket, SOCKET_EVENTS.extendedNotice);
+      const quiet = [
+        collect(benSocket, SOCKET_EVENTS.extendedNotice),
+        collect(benSocket, SOCKET_EVENTS.outbid),
+        collect(annaSocket, SOCKET_EVENTS.extendedNotice),
+        collect(annaSocket, SOCKET_EVENTS.outbid),
+        collect(caraSocket, SOCKET_EVENTS.outbid),
+      ];
+      sent.length = 0;
+
+      const answer = await bid(ben, listing.id, 2000).expect(201);
+      expect(answer.body).toMatchObject({ outcome: "OUTBID_BY_PROXY", extended: true });
+      await settle();
+      await flushEmails();
+
+      expect(caraExtended).toHaveLength(1);
+      expect(quiet.every((got) => got.length === 0)).toBe(true);
+      // The only email is cara's, for being outbid by anna during the setup; ben and anna get none.
+      expect(sent.map((m) => m.to)).toEqual([cara.email]);
+    });
   });
 
   describe("the outbid email wait", () => {
@@ -372,7 +425,7 @@ describe("bid notifications", () => {
       expect(about).toHaveLength(1); // not one from each
       expect(about[0].to).toBe(anna.email);
       expect(about[0].subject).toContain("has ended");
-      expect(about[0].text).toContain("Final price: €12.00");
+      expect(about[0].text).toContain("Final price: €11.00");
     });
 
     it("sends the winner a won toast when the auction closes in a sale, and nobody else, and nothing when there is no sale", async () => {
@@ -390,7 +443,7 @@ describe("bid notifications", () => {
       for (const l of [sold, noSale]) await app.get(AuctionCloseService).close(l.id);
       await settle();
       const order = await prisma.order.findFirstOrThrow({ where: { listingId: sold.id } });
-      expect(benWon).toEqual([{ listingId: sold.id, title: "Notice test listing", finalPriceCents: 1200, orderId: order.id }]);
+      expect(benWon).toEqual([{ listingId: sold.id, title: "Notice test listing", finalPriceCents: 1100, orderId: order.id }]);
       expect(annaWon).toEqual([]);
     });
 
@@ -407,7 +460,7 @@ describe("bid notifications", () => {
       await settle();
       const won = (person: Person) => request(url).get("/notifications").set("Authorization", `Bearer ${person.token}`).then((r) => (r.body.items as { type: string; listingId: string; data: unknown }[]).filter((n) => n.type === "WON"));
       const order = await prisma.order.findFirstOrThrow({ where: { listingId: sold.id } });
-      expect(await won(ben)).toMatchObject([{ listingId: sold.id, data: { finalPriceCents: 1200, orderId: order.id } }]);
+      expect(await won(ben)).toMatchObject([{ listingId: sold.id, data: { finalPriceCents: 1100, orderId: order.id } }]);
       expect(await won(anna)).toEqual([]);
 
     });
@@ -460,8 +513,13 @@ describe("bid notifications", () => {
         await other.get(NotificationsService).sweep();
         await app.get(NotificationsService).sweep();
         // Sent once, by whichever got there first. (Only mail about this listing: a second app also sends any other
-        // auction-ended email that happens to be waiting in the shared database.)
-        expect(sent.filter((m) => m.text.includes(listing.id)).map((m) => m.to)).toEqual([anna.email]);
+        // auction-ended email that happens to be waiting in the shared database.) A sweep that is already under way, such as the
+        // one a new app starts on its own, makes sweep() return at once, so the mail is waited for, then a moment more in case
+        // a second copy follows.
+        const aboutThis = () => sent.filter((m) => m.text.includes(listing.id)).map((m) => m.to);
+        for (let waited = 0; aboutThis().length === 0 && waited < 3000; waited += 50) await new Promise((resolve) => setTimeout(resolve, 50));
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(aboutThis()).toEqual([anna.email]);
       } finally {
         await other.close();
       }

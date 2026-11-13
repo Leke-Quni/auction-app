@@ -24,7 +24,7 @@ export const notificationHref = (item: NotificationItem) => (item.type === "WON"
 
 export function describe(item: NotificationItem): { heading: string; text: string } {
   if (item.type === "OUTBID") {
-    return { heading: "You've been outbid", text: `${item.title} is now at ${formatEur(item.data.currentBidCents)}.` };
+    return { heading: "You've been outbid", text: `Someone's maximum is higher than yours on ${item.title}. The price is now ${formatEur(item.data.currentBidCents)}.` };
   }
   if (item.type === "WON") {
     if (item.data.reminder) return { heading: "Less than 24 hours left to pay", text: `Pay for ${item.title} (${formatEur(item.data.finalPriceCents)}) or it will be offered to someone else.` };

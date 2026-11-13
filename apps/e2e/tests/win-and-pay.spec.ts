@@ -23,10 +23,10 @@ test("the high bidder wins when the auction ends, chooses delivery, pays with th
   const account = { name: "Pickup Pat", line1: "Rruga Dardania 5", city: "Prizren", postcode: "20000", country: "XK", phone: "+38344765432" };
   await db().query('UPDATE "User" SET "pickupAddress" = $1 WHERE "email" = $2', [JSON.stringify(account), winner.email]);
   await page.goto(`/listings/${listing.listingId}`);
-  await page.getByLabel("Your bid (€)").fill("25");
+  await page.getByLabel("Your maximum bid (€)").fill("25");
   await page.getByRole("button", { name: "Place bid" }).click();
   await page.getByRole("button", { name: "Confirm bid of €25.00" }).click();
-  await expect(page.getByText("Your bid was placed.")).toBeVisible();
+  await expect(page.getByText("You are the highest bidder at €25.00.")).toBeVisible();
 
   // End the auction now; the API's sweep (every 10 seconds) closes it and creates the order.
   await db().query('UPDATE "Listing" SET "endsAt" = now() - interval \'1 second\' WHERE "id" = $1', [listing.listingId]);

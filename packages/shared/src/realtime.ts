@@ -17,6 +17,14 @@ export const SOCKET_EVENTS = {
   unread: "notifications:unread",
 } as const;
 
+// One row of the public bid history. Only prices and names: a bidder's maximum is never in an event.
+export interface BidRowEvent {
+  id: string;
+  amountCents: number;
+  createdAt: string;
+  bidder: { id: string; username: string };
+}
+
 export interface BidPlacedEvent {
   listingId: string;
   currentBidCents: number;
@@ -27,8 +35,10 @@ export interface BidPlacedEvent {
   minimumNextBidCents: number;
   serverTime: string;
   extended: boolean;
-  // The row for the history table.
-  bid: { id: string; amountCents: number; createdAt: string; bidder: { id: string; username: string } };
+  // The row that set the price, for the history table. Kept for clients that read only one row.
+  bid: BidRowEvent;
+  // Every visible row the request created, oldest first (a defended or taking-over bid makes two). Empty for a hidden raise.
+  bids: BidRowEvent[];
 }
 
 export interface AuctionExtendedEvent {

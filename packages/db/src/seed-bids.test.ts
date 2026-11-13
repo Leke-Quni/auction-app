@@ -1,6 +1,6 @@
 import { minimumNextBidCents } from "@auction/shared";
 import { describe, expect, it } from "vitest";
-import { generateBids } from "./seed-bids";
+import { autoBidsOf, generateBids, proxyBids } from "./seed-bids";
 
 function mulberry32(seed: number) {
   let a = seed;
@@ -77,5 +77,66 @@ describe("generateBids", () => {
 
   it("is repeatable for the same random stream", () => {
     expect(generateBids(live, bidders, now, mulberry32(7))).toEqual(generateBids(live, bidders, now, mulberry32(7)));
+  });
+});
+
+describe("bulk bids and their maximums", () => {
+  it("makes every bulk bid a plain one: a maximum equal to its own amount, always one step above the last", () => {
+    for (const { bids } of many()) {
+      for (const bid of bids) expect(bid.maxCents).toBe(bid.amountCents);
+      const held = autoBidsOf(bids);
+      // Each bidder's maximum is their highest bid, so nothing is hidden above the price.
+      for (const a of held) expect(a.maxCents).toBe(Math.max(...bids.filter((b) => b.bidderId === a.bidderId).map((b) => b.amountCents)));
+    }
+  });
+});
+
+describe("autoBidsOf", () => {
+  const row = (bidderId: string, amountCents: number, over: object = {}) => ({ listingId: "L1", bidderId, amountCents, idempotencyKey: `k${bidderId}${amountCents}`, createdAt: new Date(now), ...over });
+
+  it("keeps the highest typed amount per bidder and auction, and counts an automatic row at the amount it reached", () => {
+    const held = autoBidsOf([
+      row("a", 1000, { maxCents: 8000 }),
+      row("b", 2000, { maxCents: 2000 }),
+      row("a", 2100, { kind: "AUTO", maxCents: null }),
+      row("c", 5000, { maxCents: 5000 }),
+      row("a", 5250, { kind: "AUTO", maxCents: null }),
+      { ...row("a", 100), listingId: "L2" },
+    ]);
+    expect(held).toEqual(expect.arrayContaining([
+      { listingId: "L1", bidderId: "a", maxCents: 8000 },
+      { listingId: "L1", bidderId: "b", maxCents: 2000 },
+      { listingId: "L1", bidderId: "c", maxCents: 5000 },
+      { listingId: "L2", bidderId: "a", maxCents: 100 },
+    ]));
+    expect(held).toHaveLength(4);
+  });
+});
+
+describe("proxyBids", () => {
+  const listing = { id: "P1", startingPriceCents: 1000 };
+  const at = (h: number) => new Date(now - h * 3_600_000);
+
+  it("saves what the app would: the leader's counters are named after the request they answer", () => {
+    const result = proxyBids(listing, [
+      { bidderId: "a", maxCents: 8000, at: at(20) },
+      { bidderId: "b", maxCents: 2000, at: at(10) },
+      { bidderId: "c", maxCents: 5000, at: at(3) },
+    ]);
+    expect(result.bids.map((b) => [b.bidderId, b.amountCents, b.kind, b.maxCents, b.idempotencyKey])).toEqual([
+      ["a", 1000, "BID", 8000, "seed-P1-0"],
+      ["b", 2000, "BID", 2000, "seed-P1-1"],
+      ["a", 2100, "AUTO", null, "seed-P1-1-auto0"],
+      ["c", 5000, "BID", 5000, "seed-P1-2"],
+      ["a", 5250, "AUTO", null, "seed-P1-2-auto0"],
+    ]);
+    expect(result).toMatchObject({ currentBidCents: 5250, bidCount: 5, highBidderId: "a" });
+    const times = result.bids.map((b) => b.createdAt.getTime());
+    expect(times).toEqual([...times].sort((x, y) => x - y));
+    expect(new Set(times).size).toBe(times.length);
+  });
+
+  it("throws for a request the app would refuse", () => {
+    expect(() => proxyBids(listing, [{ bidderId: "a", maxCents: 500, at: at(1) }])).toThrow(/refused/);
   });
 });

@@ -2,6 +2,7 @@ export * from "./auth";
 export * from "./listings";
 export * from "./search";
 export * from "./bids";
+export * from "./proxy-bid";
 export * from "./realtime";
 export * from "./questions";
 export * from "./viewer-ip";

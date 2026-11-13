@@ -1,6 +1,6 @@
 import type { BidPlacedEvent } from "@auction/shared";
 import { describe, expect, it } from "vitest";
-import { createLiveStore, type LiveSnapshot } from "./live-auction";
+import { createLiveStore, missedBids, type LiveSnapshot } from "./live-auction";
 
 const snapshot: LiveSnapshot = {
   currentBidCents: 1000,
@@ -10,6 +10,7 @@ const snapshot: LiveSnapshot = {
   endsAt: "2026-11-05T10:00:00.000Z",
   extensionCount: 0,
   serverTime: "2026-11-02T10:00:00.000Z",
+  viewerMaxCents: null,
   bids: [{ id: "b1", amountCents: 1000, createdAt: "2026-11-02T09:59:00.000Z", bidder: { id: "u1", username: "anna" } }],
 };
 
@@ -24,6 +25,7 @@ const event = (over: Partial<BidPlacedEvent> = {}): BidPlacedEvent => ({
   serverTime: "2026-11-02T10:01:00.000Z",
   extended: false,
   bid: { id: "b2", amountCents: 1200, createdAt: "2026-11-02T10:01:00.000Z", bidder: { id: "u2", username: "ben" } },
+  bids: [{ id: "b2", amountCents: 1200, createdAt: "2026-11-02T10:01:00.000Z", bidder: { id: "u2", username: "ben" } }],
   ...over,
 });
 
@@ -68,9 +70,91 @@ describe("live auction store", () => {
   it("keeps only the newest 5 rows", () => {
     const store = createLiveStore({ ...snapshot, bidCount: 0, bids: [] });
     for (let i = 1; i <= 25; i++) {
-      store.getState().applyBid(event({ bidCount: i, bid: { id: `b${i}`, amountCents: 1000 + i, createdAt: "2026-11-02T10:01:00.000Z", bidder: { id: "u2", username: "ben" } } }));
+      const row = { id: `b${i}`, amountCents: 1000 + i, createdAt: "2026-11-02T10:01:00.000Z", bidder: { id: "u2", username: "ben" } };
+      store.getState().applyBid(event({ bidCount: i, bid: row, bids: [row] }));
     }
     expect(store.getState().bids).toHaveLength(5);
     expect(store.getState().bids[0].id).toBe("b25");
+  });
+
+  it("adds every row of a defended bid, newest first", () => {
+    const store = createLiveStore(snapshot);
+    const ben = { id: "u2", username: "ben" };
+    const anna = { id: "u1", username: "anna" };
+    store.getState().applyBid(
+      event({
+        bidCount: 3,
+        currentBidCents: 1200,
+        highBidder: anna,
+        bid: { id: "b3", amountCents: 1200, createdAt: "2026-11-02T10:01:00.000Z", bidder: anna },
+        bids: [
+          { id: "b2", amountCents: 1100, createdAt: "2026-11-02T10:01:00.000Z", bidder: ben },
+          { id: "b3", amountCents: 1200, createdAt: "2026-11-02T10:01:00.000Z", bidder: anna },
+        ],
+      }),
+    );
+    expect(store.getState().bids.map((b) => b.id)).toEqual(["b3", "b2", "b1"]);
+    expect(store.getState().bidCount).toBe(3);
+  });
+
+  it("still works with an older server that sends only the top row", () => {
+    const store = createLiveStore(snapshot);
+    const old = { ...event(), bids: undefined } as unknown as BidPlacedEvent;
+    store.getState().applyBid(old);
+    expect(store.getState().bids.map((b) => b.id)).toEqual(["b2", "b1"]);
+  });
+});
+
+describe("the viewer's own maximum", () => {
+  it("starts as the page sent it", () => {
+    expect(createLiveStore({ ...snapshot, viewerMaxCents: 5000 }).getState().viewerMaxCents).toBe(5000);
+    expect(createLiveStore(snapshot).getState().viewerMaxCents).toBeNull();
+  });
+
+  it("is set after the viewer bids, and can be raised but never lowered", () => {
+    const store = createLiveStore(snapshot);
+    store.getState().setViewerMax(3000);
+    expect(store.getState().viewerMaxCents).toBe(3000);
+    store.getState().setViewerMax(8000);
+    expect(store.getState().viewerMaxCents).toBe(8000);
+    store.getState().setViewerMax(2000);
+    expect(store.getState().viewerMaxCents).toBe(8000);
+  });
+
+  it("is not lost to an older copy from the server, and is taken from a newer one", () => {
+    const store = createLiveStore({ ...snapshot, viewerMaxCents: 3000 });
+    store.getState().setViewerMax(8000);
+    store.getState().sync({ ...snapshot, viewerMaxCents: 3000 });
+    expect(store.getState().viewerMaxCents).toBe(8000);
+    store.getState().sync({ ...snapshot, viewerMaxCents: null });
+    expect(store.getState().viewerMaxCents).toBe(8000);
+    store.getState().sync({ ...snapshot, viewerMaxCents: 9000 });
+    expect(store.getState().viewerMaxCents).toBe(9000);
+  });
+
+  it("is untouched by other people's bids", () => {
+    const store = createLiveStore({ ...snapshot, viewerMaxCents: 5000 });
+    store.getState().applyBid(event());
+    expect(store.getState().viewerMaxCents).toBe(5000);
+  });
+});
+
+describe("missedBids", () => {
+  it("is false for the next bid, however many rows it made", () => {
+    expect(missedBids(1, event())).toBe(false);
+    expect(missedBids(1, event({ bidCount: 3, bids: [event().bid, event().bid] }))).toBe(false);
+  });
+
+  it("is true when rows are missing between what is held and the event", () => {
+    expect(missedBids(1, event({ bidCount: 4, bids: [event().bid, event().bid] }))).toBe(true);
+  });
+
+  it("is false for a repeated event", () => {
+    expect(missedBids(2, event())).toBe(false);
+  });
+
+  it("treats an event without rows as one row", () => {
+    const old = { ...event({ bidCount: 3 }), bids: undefined } as unknown as BidPlacedEvent;
+    expect(missedBids(1, old)).toBe(true);
   });
 });

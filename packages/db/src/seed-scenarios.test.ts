@@ -1,6 +1,7 @@
-import { minimumNextBidCents } from "@auction/shared";
+import { resolveProxyBid } from "@auction/shared";
 import { describe, expect, it } from "vitest";
 import type { SeedData, UserRow } from "./seed-data";
+import { autoBidsOf } from "./seed-bids";
 import { buildScenarios } from "./seed-scenarios";
 
 const now = Date.parse("2026-11-05T12:00:00Z");
@@ -41,22 +42,62 @@ describe("buildScenarios", () => {
     expect(without.notes.join(" ")).toMatch(/No --owner/);
   });
 
-  it("makes bids that follow the bidding rules", () => {
+  it("makes bids that follow the bidding rules: every auction replays through the real proxy rules to the same rows", () => {
     for (const listing of withOwner.data.listings) {
       const bids = withOwner.data.bids.filter((b) => b.listingId === listing.id);
-      let current: number | null = null;
-      let previous: string | null = null;
-      for (const bid of bids) {
-        expect(bid.bidderId, listing.id).not.toBe(listing.sellerId);
-        expect(bid.bidderId, listing.id).not.toBe(previous);
-        expect(bid.amountCents).toBe(minimumNextBidCents({ startingPriceCents: listing.startingPriceCents, currentBidCents: current }));
-        expect(bid.createdAt.getTime()).toBeLessThanOrEqual(now);
-        current = bid.amountCents;
-        previous = bid.bidderId;
+      // A request is a row that is not the system's own; the system's rows are named after the request they answer.
+      const requests = bids.filter((b) => b.kind !== "AUTO");
+      const maxes = new Map<string, number>();
+      let price: number | null = null;
+      let leaderId: string | null = null;
+      for (const [i, request] of requests.entries()) {
+        expect(request.bidderId, listing.id).not.toBe(listing.sellerId);
+        expect(request.createdAt.getTime()).toBeLessThanOrEqual(now);
+        const result = resolveProxyBid({
+          startingPriceCents: listing.startingPriceCents,
+          reservePriceCents: listing.reservePriceCents ?? null,
+          currentBidCents: price,
+          leader: leaderId ? { bidderId: leaderId, maxCents: maxes.get(leaderId)! } : null,
+          bidderId: request.bidderId,
+          maxCents: request.maxCents ?? request.amountCents,
+        });
+        if (!result.ok) throw new Error(`${listing.id}: request ${i} would be refused (${result.reason})`);
+        // The rows this request left behind: itself and the automatic ones named after it.
+        const stored = bids.filter((b) => b.idempotencyKey === request.idempotencyKey || b.idempotencyKey.startsWith(`${request.idempotencyKey}-auto`));
+        const sorted = [...stored].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+        expect(sorted.map((b) => [b.bidderId, b.amountCents, b.kind ?? "BID"]), listing.id).toEqual(result.rows.map((r) => [r.bidderId, r.amountCents, r.kind]));
+        maxes.set(request.bidderId, Math.max(maxes.get(request.bidderId) ?? 0, request.maxCents ?? request.amountCents));
+        price = result.priceCents;
+        leaderId = result.leaderId;
       }
-      expect(listing.bidCount, listing.id).toBe(bids.length);
-      expect(listing.currentBidCents, listing.id).toBe(current);
-      expect(listing.highBidderId, listing.id).toBe(previous);
+      const visible = bids.filter((b) => b.kind !== "RAISE");
+      expect(listing.bidCount, listing.id).toBe(visible.length);
+      expect(listing.currentBidCents, listing.id).toBe(price);
+      expect(listing.highBidderId, listing.id).toBe(leaderId);
+      // Times never go backwards and never pass now.
+      const times = bids.map((b) => b.createdAt.getTime());
+      expect(times, listing.id).toEqual([...times].sort((a, b) => a - b));
+    }
+  });
+
+  it("shows a hidden maximum: the proxy scenario's leader typed far more than the price, and no one else can see it in a bid", () => {
+    const listing = withOwner.data.listings.find((l) => l.id === "seed_scn_proxy-defended")!;
+    const bids = withOwner.data.bids.filter((b) => b.listingId === listing.id);
+    const held = new Map(autoBidsOf(withOwner.data.bids).filter((a) => a.listingId === listing.id).map((a) => [a.bidderId, a.maxCents]));
+    expect(held.get(listing.highBidderId!)).toBe(8000);
+    expect(listing.currentBidCents).toBe(5250);
+    // The maximum is in no row's amount; the typed ones are only on the rows the bidders themselves placed.
+    expect(bids.some((b) => b.amountCents === 8000)).toBe(false);
+    expect(bids.filter((b) => b.kind === "AUTO").every((b) => b.maxCents === null && b.outcome === null)).toBe(true);
+    expect(bids.filter((b) => b.outcome === "OUTBID_BY_PROXY")).toHaveLength(2);
+    expect(listing.bidCount).toBe(bids.length);
+  });
+
+  it("holds one maximum per bidder and auction, never below any amount they reached", () => {
+    const held = autoBidsOf(withOwner.data.bids);
+    expect(new Set(held.map((a) => `${a.listingId}|${a.bidderId}`)).size).toBe(held.length);
+    for (const bid of withOwner.data.bids) {
+      expect(held.find((a) => a.listingId === bid.listingId && a.bidderId === bid.bidderId)!.maxCents).toBeGreaterThanOrEqual(bid.amountCents);
     }
   });
 

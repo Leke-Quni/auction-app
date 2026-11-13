@@ -1,18 +1,13 @@
 "use client";
 
-import { eurosToCents, formatEur } from "@auction/shared";
+import { formatEur, minimumNextBidCents as minimumFor } from "@auction/shared";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useRef, useState, useTransition } from "react";
+import { useRef, useState } from "react";
 import { LocalTime } from "@/app/local-time";
-import { placeBidAction } from "./bid-actions";
+import { BidForm, type Placed } from "./bid-form";
 
 export type BidMode = "signed-out" | "owner" | "blocked" | "upcoming" | "ended" | "highest" | "live";
 
-// A bid this many times the minimum is probably a slip of the keys, so the confirmation says so.
-const FAR_ABOVE_TIMES_MINIMUM = 10;
-
-const toEuros = (cents: number) => (cents / 100).toFixed(2);
 const note = "border border-line bg-surface p-2 text-muted";
 
 // The sale this auction ended in, for the winner and the seller, who are pointed to the order.
@@ -23,25 +18,70 @@ export interface BidPanelOrder {
   amountCents: number;
 }
 
-export function BidPanel({ listingId, mode, minimumNextBidCents, order }: { listingId: string; mode: BidMode; minimumNextBidCents: number; order?: BidPanelOrder }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const [amount, setAmount] = useState(toEuros(minimumNextBidCents));
-  const [minimum, setMinimum] = useState(minimumNextBidCents);
-  const [error, setError] = useState("");
-  // The amount (in cents) waiting for a second click to confirm, so a stray click never places a bid.
-  const [confirming, setConfirming] = useState<number | null>(null);
-  const [placed, setPlaced] = useState<{ extended: boolean; endsAt?: string } | null>(null);
-  // One key per bid, kept while the answer is unknown, so retrying can never place the bid twice.
-  const attempt = useRef<{ key: string; cents: number } | null>(null);
-  const [lastMinimum, setLastMinimum] = useState(minimumNextBidCents);
-  if (minimumNextBidCents !== lastMinimum) {
-    // The listing changed (someone bid): show the new minimum.
-    setLastMinimum(minimumNextBidCents);
-    setMinimum(minimumNextBidCents);
-    setAmount(toEuros(minimumNextBidCents));
-    setConfirming(null);
-  }
+// What the bid just placed meant for the bidder: in front at the price, beaten at once by a higher maximum, or a raised maximum.
+// A note that states a price is dropped once the price has gone above it (prices only rise, so until then, including the moment before
+// the page has caught up with the bid, it still holds). A raised maximum states no price, so it holds for as long as the bidder is in front.
+// It is a status, so a screen reader announces it when it appears.
+function PlacedNote({ placed, currentBidCents, leading, onRaise }: { placed: Placed; currentBidCents?: number | null; leading: boolean; onRaise: () => void }) {
+  const stale =
+    placed.outcome === "MAX_RAISED"
+      ? !leading
+      : placed.priceCents !== undefined && currentBidCents != null && currentBidCents > placed.priceCents;
+  if (stale) return null;
+  const price = placed.priceCents === undefined ? "" : ` at ${formatEur(placed.priceCents)}`;
+  return (
+    <div role="status" className="space-y-1 text-muted">
+      {placed.outcome === "OUTBID_BY_PROXY" ? (
+        <>
+          <p>
+            Someone has a higher maximum. The price is now {placed.priceCents === undefined ? "higher" : formatEur(placed.priceCents)}.
+          </p>
+          <button type="button" onClick={onRaise} className="cursor-pointer border border-field bg-surface px-3 py-1 hover:bg-head">
+            Raise your maximum
+          </button>
+        </>
+      ) : placed.outcome === "MAX_RAISED" ? (
+        <p>Your maximum is now {placed.maxCents === undefined ? "raised" : formatEur(placed.maxCents)}.</p>
+      ) : (
+        <p>You are the highest bidder{price}.</p>
+      )}
+      {placed.extended && placed.endsAt && (
+        <p>
+          The auction was extended and now ends <LocalTime iso={placed.endsAt} />.
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function BidPanel({
+  listingId,
+  mode,
+  minimumNextBidCents,
+  currentBidCents,
+  viewerMaxCents,
+  onMaxChange,
+  order,
+}: {
+  listingId: string;
+  mode: BidMode;
+  minimumNextBidCents: number;
+  // The price now, so a result note that quotes an older price can go.
+  currentBidCents?: number | null;
+  // The viewer's own hidden maximum, when the API sent it, and a way to tell the page when a bid changes it.
+  viewerMaxCents?: number | null;
+  onMaxChange?: (cents: number) => void;
+  order?: BidPanelOrder;
+}) {
+  const [placed, setPlaced] = useState<Placed | null>(null);
+  const amountBox = useRef<HTMLInputElement>(null);
+  const focusBox = () => amountBox.current?.focus();
+  const onPlaced = (result: Placed) => {
+    setPlaced(result);
+    if (result.maxCents !== undefined) onMaxChange?.(result.maxCents);
+  };
+  // A maximum only rises, so the higher of what the page knows and what the last bid said is the current one.
+  const myMax = viewerMaxCents == null && placed?.maxCents === undefined ? null : Math.max(viewerMaxCents ?? 0, placed?.maxCents ?? 0);
 
   if (mode === "signed-out") {
     return (
@@ -89,106 +129,30 @@ export function BidPanel({ listingId, mode, minimumNextBidCents, order }: { list
   if (mode === "ended") return <p className={note}>This auction has ended.</p>;
   if (mode === "highest") {
     return (
-      <div className="space-y-1">
-        <p className="border border-time-ok bg-surface p-2 font-bold text-time-ok">You are the highest bidder.</p>
-        {placed && (
-          <p className="text-muted">
-            Your bid was placed.
-            {placed.extended && placed.endsAt && (
-              <>
-                {" "}
-                The auction was extended and now ends <LocalTime iso={placed.endsAt} />.
-              </>
-            )}
-          </p>
+      <div className="space-y-2">
+        <div className="space-y-1">
+          <p className="border border-time-ok bg-surface p-2 font-bold text-time-ok">You are the highest bidder.</p>
+          {myMax !== null && <p className="text-muted">Your maximum: {formatEur(myMax)}</p>}
+        </div>
+        {placed && <PlacedNote placed={placed} currentBidCents={currentBidCents} leading onRaise={focusBox} />}
+        {myMax !== null && (
+          <BidForm
+            listingId={listingId}
+            kind="raise"
+            minCents={myMax + 1}
+            startCents={minimumFor({ startingPriceCents: 0, currentBidCents: myMax })}
+            inputRef={amountBox}
+            onPlaced={onPlaced}
+          />
         )}
       </div>
     );
   }
 
-  const review = (event: React.FormEvent) => {
-    event.preventDefault();
-    setError("");
-    const cents = eurosToCents(amount);
-    if (cents === null) return setError("Enter an amount like 25 or 25.50.");
-    if (cents < minimum) return setError(`Your bid must be at least ${formatEur(minimum)}.`);
-    setConfirming(cents);
-  };
-
-  const place = (cents: number) => {
-    if (!attempt.current || attempt.current.cents !== cents) attempt.current = { key: crypto.randomUUID(), cents };
-    const { key } = attempt.current;
-    startTransition(async () => {
-      const result = await placeBidAction(listingId, cents, key);
-      if (!result.retry) attempt.current = null;
-      setConfirming(null);
-      if (result.ok) {
-        setPlaced({ extended: Boolean(result.extended), endsAt: result.endsAt });
-        router.refresh();
-        return;
-      }
-      setError(result.error ?? "That bid could not be placed.");
-      if (result.minimumNextBidCents !== undefined) {
-        setMinimum(result.minimumNextBidCents);
-        setAmount(toEuros(result.minimumNextBidCents));
-      }
-      router.refresh();
-    });
-  };
-
   return (
-    <form onSubmit={review} className="space-y-2 border border-line bg-surface p-3">
-      <label className="block">
-        <span className="text-xs text-muted">Your bid (€)</span>
-        <input
-          inputMode="decimal"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          readOnly={confirming !== null}
-          aria-describedby="bid-minimum"
-          className="mt-1 w-full border border-field bg-surface p-2 text-base font-bold"
-        />
-      </label>
-      <p id="bid-minimum" className="text-xs text-muted">
-        Minimum bid: {formatEur(minimum)}. Bids cannot be withdrawn.
-      </p>
-      {error && (
-        <p role="alert" className="text-urgent">
-          {error}
-        </p>
-      )}
-      {confirming === null ? (
-        <button type="submit" className="w-full cursor-pointer bg-brand px-3 py-2 font-bold text-on-brand hover:bg-brand-dark">
-          Place bid
-        </button>
-      ) : (
-        <div className="space-y-2 border border-time-warn bg-warn-soft p-2">
-          <p>
-            You are about to bid <strong>{formatEur(confirming)}</strong>. A bid cannot be withdrawn.
-          </p>
-          {confirming >= minimum * FAR_ABOVE_TIMES_MINIMUM && (
-            <p className="font-bold">That is far above the minimum of {formatEur(minimum)}. Check the amount.</p>
-          )}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() => place(confirming)}
-              className="flex-1 cursor-pointer bg-brand px-3 py-2 font-bold text-on-brand hover:bg-brand-dark disabled:opacity-60"
-            >
-              {pending ? "Placing bid..." : `Confirm bid of ${formatEur(confirming)}`}
-            </button>
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() => setConfirming(null)}
-              className="cursor-pointer border border-field bg-surface px-3 py-2 hover:bg-head disabled:opacity-60"
-            >
-              Change
-            </button>
-          </div>
-        </div>
-      )}
-    </form>
+    <div className="space-y-2">
+      <BidForm listingId={listingId} kind="bid" minCents={minimumNextBidCents} startCents={minimumNextBidCents} inputRef={amountBox} onPlaced={onPlaced} />
+      {placed && <PlacedNote placed={placed} currentBidCents={currentBidCents} leading={false} onRaise={focusBox} />}
+    </div>
   );
 }

@@ -5,8 +5,10 @@ import {
   isFinalChance,
   MAX_STRIKES,
   minimumNextBidCents,
+  resolveProxyBid,
   type BidRefusal,
   type PlaceBidInput,
+  type ProxyOutcome,
 } from "@auction/shared";
 import { ConflictException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { bidLimits } from "../config";
@@ -18,7 +20,7 @@ const REFUSAL_STATUS: Record<BidRefusal, HttpStatus> = {
   NOT_FOUND: HttpStatus.NOT_FOUND,
   NOT_LIVE: HttpStatus.CONFLICT,
   OWN_LISTING: HttpStatus.FORBIDDEN,
-  ALREADY_HIGHEST: HttpStatus.CONFLICT,
+  MAX_NOT_HIGHER: HttpStatus.CONFLICT,
   TOO_LOW: HttpStatus.UNPROCESSABLE_ENTITY,
   RATE_LIMITED: HttpStatus.TOO_MANY_REQUESTS,
   BLOCKED: HttpStatus.FORBIDDEN,
@@ -52,14 +54,32 @@ interface LockedListing {
   endsAt: Date | null;
   durationDays: number;
   startingPriceCents: number;
+  reservePriceCents: number | null;
   currentBidCents: number | null;
   bidCount: number;
   highBidderId: string | null;
   extensionCount: number;
 }
 
+// A bid row as it is shown: what it set the price to and who placed it.
+export interface BidRowView {
+  id: string;
+  amountCents: number;
+  createdAt: Date;
+  bidder: { id: string; username: string };
+}
+
 export interface BidResult {
-  bid: { id: string; amountCents: number; createdAt: Date; bidder: { id: string; username: string } };
+  // The request's own row: what the bidder asked for, at the price it set (for a hidden raise, the unchanged price). With proxy
+  // bidding a request can also place automatic rows for the leader, which are in `rows`.
+  bid: BidRowView;
+  // The visible rows this request created (the request's own and the leader's automatic ones), in the order they were saved.
+  rows: BidRowView[];
+  // What this request meant for the person who made it, and what their maximum is now (only they are ever told it).
+  outcome: ProxyOutcome;
+  yourMaxCents: number;
+  // The person who made the request, who is not always the leader.
+  requestedBy: string;
   listing: {
     id: string;
     currentBidCents: number;
@@ -70,12 +90,14 @@ export interface BidResult {
     finalChance: boolean;
     minimumNextBidCents: number;
     highBidderId: string;
+    highBidder: { id: string; username: string };
   };
   // True when this bid moved the end time. Always false for a replay.
   extended: boolean;
   // True when the same bid key had already placed this bid, so nothing new happened.
   replayed: boolean;
-  // Who this bid outbid, for the outbid notice. Null for the first bid and for a replay.
+  // Who lost the lead to this request, for the outbid notice. Null when the leader did not change (the first bid, a defended
+  // bid, a raise) and for a replay.
   previousHighBidderId: string | null;
 }
 
@@ -106,8 +128,8 @@ export class BidsService {
       result = await this.prisma.$transaction(
         async (tx) => {
           const [listing] = await tx.$queryRaw<LockedListing[]>`
-            SELECT "id", "sellerId", "status", "startsAt", "endsAt", "durationDays", "startingPriceCents", "currentBidCents", "bidCount",
-                   "highBidderId", "extensionCount"
+            SELECT "id", "sellerId", "status", "startsAt", "endsAt", "durationDays", "startingPriceCents", "reservePriceCents", "currentBidCents",
+                   "bidCount", "highBidderId", "extensionCount"
             FROM "Listing" WHERE "id" = ${listingId} FOR UPDATE`;
 
           // A retry of a bid that went through gets the same answer, whatever has happened since.
@@ -116,12 +138,14 @@ export class BidsService {
             include: { bidder: { select: { id: true, username: true } } },
           });
           if (earlier) {
-            if (earlier.listingId !== listingId || earlier.amountCents !== input.amountCents) {
+            // The same request means the same listing and the same maximum (what was typed, which can differ from the price the row set).
+            if (earlier.listingId !== listingId || (earlier.maxCents ?? earlier.amountCents) !== input.amountCents) {
               throw new ConflictException({ code: KEY_REUSED, message: "That bid key was already used for a different bid." });
             }
             const current = listing ?? (await tx.listing.findUniqueOrThrow({ where: { id: listingId } }));
+            const leader = current.highBidderId ? await tx.user.findUnique({ where: { id: current.highBidderId }, select: { id: true, username: true } }) : null;
             await tx.bidAudit.create({ data: { ...attempt, outcome: "ACCEPTED", reason: "REPLAY" } });
-            return replayOf(earlier, current as LockedListing);
+            return replayOf(earlier, current as LockedListing, leader);
           }
 
           if (!listing || listing.status !== "PUBLISHED" || !listing.startsAt || !listing.endsAt) throw refusal("NOT_FOUND");
@@ -131,43 +155,100 @@ export class BidsService {
           if (now < listing.startsAt || now >= listing.endsAt) throw refusal("NOT_LIVE");
           // Winning and not paying earns a strike; two strikes stop a person bidding at all.
           if (strikes >= MAX_STRIKES) throw refusal("BLOCKED");
-          if (listing.highBidderId === bidderId) throw refusal("ALREADY_HIGHEST");
-          const minimum = minimumNextBidCents(listing);
-          if (input.amountCents < minimum) throw refusal("TOO_LOW", { minimumNextBidCents: minimum });
+          // The leader and what they have typed. A leader with no stored maximum (a bid from before proxy bidding) holds only their price.
+          const price = listing.currentBidCents;
+          let leader: { bidderId: string; maxCents: number } | null = null;
+          if (listing.highBidderId && price !== null) {
+            const held = await tx.autoBid.findUnique({ where: { listingId_bidderId: { listingId, bidderId: listing.highBidderId } }, select: { maxCents: true } });
+            let maxCents = Math.max(held?.maxCents ?? price, price);
+            // A leader who may no longer bid (banned, asked to delete their account, or two strikes) must not keep bidding by
+            // themselves: they count as a plain bid at the price they reached. Only asked when there is a maximum to defend with.
+            if (maxCents > price) {
+              const [{ blocked }] = await tx.$queryRaw<{ blocked: boolean }[]>`
+                SELECT (u."bannedAt" IS NOT NULL OR u."deletionRequestedAt" IS NOT NULL OR (SELECT COUNT(*) FROM "Strike" s WHERE s."userId" = u."id") >= ${MAX_STRIKES}) AS "blocked"
+                FROM "User" u WHERE u."id" = ${listing.highBidderId}`;
+              if (blocked) maxCents = price;
+            }
+            leader = { bidderId: listing.highBidderId, maxCents };
+          }
+          const resolved = resolveProxyBid({
+            startingPriceCents: listing.startingPriceCents,
+            reservePriceCents: listing.reservePriceCents,
+            currentBidCents: price,
+            leader,
+            bidderId,
+            maxCents: input.amountCents,
+          });
+          if (!resolved.ok) throw resolved.reason === "TOO_LOW" ? refusal("TOO_LOW", { minimumNextBidCents: resolved.minimumNextBidCents }) : refusal(resolved.reason);
 
+          // Any change of price in the last two minutes extends the auction, once however many rows it made; a hidden raise never does.
           const ceiling = extensionCeiling(listing.startsAt, listing.durationDays);
-          const timing = endsAtAfterBid(listing.endsAt, now, ceiling);
+          const timing = resolved.priceChanged ? endsAtAfterBid(listing.endsAt, now, ceiling) : { endsAt: listing.endsAt, extended: false };
           const extensionCount = listing.extensionCount + (timing.extended ? 1 : 0);
-          const bid = await tx.bid.create({
-            data: { listingId, bidderId, amountCents: input.amountCents, idempotencyKey: input.idempotencyKey, ip },
-            include: { bidder: { select: { id: true, username: true } } },
+
+          // The request's own row keeps the bidder's key; the leader's automatic rows are named after the request (a user's key can
+          // never contain a colon). All rows carry the time read from the database after the lock.
+          const visible: BidRowView[] = [];
+          let own: BidRowView | undefined;
+          let automatic = 0;
+          for (const row of resolved.rows) {
+            const isRequest = row.kind !== "AUTO" && row.bidderId === bidderId;
+            const saved = await tx.bid.create({
+              data: {
+                listingId,
+                bidderId: row.bidderId,
+                amountCents: row.amountCents,
+                kind: row.kind,
+                maxCents: isRequest ? input.amountCents : null,
+                outcome: isRequest ? resolved.outcome : null,
+                idempotencyKey: isRequest ? input.idempotencyKey : `auto:${bidderId}:${input.idempotencyKey}:${automatic++}`,
+                ip: isRequest ? ip : null,
+                createdAt: now,
+              },
+              include: { bidder: { select: { id: true, username: true } } },
+            });
+            const view = { id: saved.id, amountCents: saved.amountCents, createdAt: saved.createdAt, bidder: saved.bidder };
+            if (isRequest) own = view;
+            if (row.kind !== "RAISE") visible.push(view);
+          }
+          if (!own) throw new Error("A bid request produced no row of its own");
+          // The bidder's maximum only ever rises.
+          const [{ maxCents: yourMaxCents }] = await tx.$queryRaw<{ maxCents: number }[]>`
+            INSERT INTO "AutoBid" ("listingId", "bidderId", "maxCents", "updatedAt") VALUES (${listingId}, ${bidderId}, ${input.amountCents}, ${now})
+            ON CONFLICT ("listingId", "bidderId") DO UPDATE SET "maxCents" = GREATEST("AutoBid"."maxCents", EXCLUDED."maxCents"), "updatedAt" = EXCLUDED."updatedAt"
+            RETURNING "maxCents"`;
+          await tx.bidAudit.create({
+            data: { ...attempt, outcome: "ACCEPTED", ...(resolved.outcome === "MAX_RAISED" ? { reason: "MAX_RAISED" } : resolved.outcome === "OUTBID_BY_PROXY" ? { reason: "PROXY_DEFENDED" } : {}) },
           });
-          await tx.bidAudit.create({ data: { ...attempt, outcome: "ACCEPTED" } });
-          const updated = await tx.listing.update({
-            where: { id: listingId },
-            data: {
-              currentBidCents: input.amountCents,
-              bidCount: { increment: 1 },
-              highBidderId: bidderId,
-              endsAt: timing.endsAt,
-              extensionCount,
-            },
-          });
+          const bidCount = resolved.priceChanged
+            ? (
+                await tx.listing.update({
+                  where: { id: listingId },
+                  data: { currentBidCents: resolved.priceCents, bidCount: { increment: visible.length }, highBidderId: resolved.leaderId, endsAt: timing.endsAt, extensionCount },
+                })
+              ).bidCount
+            : listing.bidCount;
+          const leaderView = [own, ...visible].find((v) => v.bidder.id === resolved.leaderId)!.bidder;
           return {
-            bid: { id: bid.id, amountCents: bid.amountCents, createdAt: bid.createdAt, bidder: bid.bidder },
+            bid: own,
+            rows: visible,
+            outcome: resolved.outcome,
+            yourMaxCents,
+            requestedBy: bidderId,
             listing: {
-              id: updated.id,
-              currentBidCents: input.amountCents,
-              bidCount: updated.bidCount,
+              id: listing.id,
+              currentBidCents: resolved.priceCents,
+              bidCount,
               endsAt: timing.endsAt,
               extensionCount,
               finalChance: isFinalChance(timing.endsAt, ceiling),
-              minimumNextBidCents: minimumNextBidCents({ startingPriceCents: updated.startingPriceCents, currentBidCents: input.amountCents }),
-              highBidderId: bidderId,
+              minimumNextBidCents: minimumNextBidCents({ startingPriceCents: listing.startingPriceCents, currentBidCents: resolved.priceCents }),
+              highBidderId: resolved.leaderId,
+              highBidder: leaderView,
             },
             extended: timing.extended,
             replayed: false,
-            previousHighBidderId: listing.highBidderId,
+            previousHighBidderId: resolved.leaderChanged ? listing.highBidderId : null,
           };
         },
         // Bids queue up on a hot auction, so give them time to wait for the lock.
@@ -215,8 +296,8 @@ export class BidsService {
     const listing = await this.prisma.listing.findUnique({ where: { id: listingId }, select: { status: true, bidCount: true } });
     if (!listing || listing.status !== "PUBLISHED") throw new NotFoundException();
     const items = await this.prisma.bid.findMany({
-      where: { listingId },
-      orderBy: [{ amountCents: "desc" }, { id: "desc" }],
+      where: { listingId, kind: { not: "RAISE" } },
+      orderBy: [{ amountCents: "desc" }, { seq: "desc" }],
       take: limit,
       select: { id: true, amountCents: true, createdAt: true, bidder: { select: { id: true, username: true } } },
     });
@@ -225,11 +306,18 @@ export class BidsService {
 }
 
 function replayOf(
-  earlier: { id: string; amountCents: number; createdAt: Date; bidder: { id: string; username: string } },
+  earlier: { id: string; amountCents: number; createdAt: Date; maxCents: number | null; outcome: ProxyOutcome | null; bidder: { id: string; username: string } },
   listing: Pick<LockedListing, "id" | "currentBidCents" | "bidCount" | "startsAt" | "endsAt" | "durationDays" | "extensionCount" | "highBidderId" | "startingPriceCents">,
+  leader: { id: string; username: string } | null,
 ): BidResult {
+  const row = { id: earlier.id, amountCents: earlier.amountCents, createdAt: earlier.createdAt, bidder: earlier.bidder };
   return {
-    bid: { id: earlier.id, amountCents: earlier.amountCents, createdAt: earlier.createdAt, bidder: earlier.bidder },
+    bid: row,
+    rows: [],
+    // Said as it was the first time; the maximum is what was typed (a raise may since have been beaten by a later one).
+    outcome: earlier.outcome ?? "LEADING",
+    yourMaxCents: earlier.maxCents ?? earlier.amountCents,
+    requestedBy: earlier.bidder.id,
     listing: {
       id: listing.id,
       currentBidCents: listing.currentBidCents ?? earlier.amountCents,
@@ -239,6 +327,7 @@ function replayOf(
       finalChance: isFinalChance(listing.endsAt as Date, extensionCeiling(listing.startsAt as Date, listing.durationDays)),
       minimumNextBidCents: minimumNextBidCents(listing),
       highBidderId: listing.highBidderId ?? "",
+      highBidder: leader ?? earlier.bidder,
     },
     extended: false,
     replayed: true,

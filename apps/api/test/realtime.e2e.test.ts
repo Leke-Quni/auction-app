@@ -145,15 +145,91 @@ describe("realtime", () => {
     expect(eventA).toEqual(eventB);
     expect(eventA).toMatchObject({
       listingId: listing.id,
-      currentBidCents: 1500,
+      // The bidder typed a maximum of €15, but a first bid sets the starting price, and only the price is public.
+      currentBidCents: 1000,
       bidCount: 1,
       extensionCount: 0,
       extended: false,
       highBidder: { id: bidder.id },
-      bid: { amountCents: 1500, bidder: { id: bidder.id } },
+      bid: { amountCents: 1000, bidder: { id: bidder.id } },
     });
-    expect(eventA.minimumNextBidCents).toBe(1600);
+    // Every amount in the event is a price; the bidder's typed maximum of €15 is in none of them.
+    const amounts = (value: unknown): number[] =>
+      Array.isArray(value) ? value.flatMap(amounts) : value && typeof value === "object" ? Object.entries(value).flatMap(([k, v]) => (k.endsWith("Cents") && typeof v === "number" ? [v] : amounts(v))) : [];
+    expect(amounts(eventA)).not.toContain(1500);
+    expect(eventA.minimumNextBidCents).toBe(1100);
     expect(await quiet).toBe(true);
+  });
+
+  it("sends every visible row of a defended bid in one event, oldest first, and never the maximum", async () => {
+    const url = `http://localhost:${(apps[0].getHttpServer().address() as AddressInfo).port}`;
+    const [leader, challenger] = await makePeople(2);
+    const listing = await makeListing();
+    await bid(url, leader, listing.id, 5000).expect(201);
+    const viewer = await open(url);
+    await watch(viewer, listing.id);
+
+    const heard = next<BidPlacedEvent>(viewer, SOCKET_EVENTS.bidPlaced);
+    await bid(url, challenger, listing.id, 2000).expect(201);
+
+    const event = await heard;
+    // The challenger's €20 and the leader's automatic answer at €21; the leader's €50 maximum is in neither.
+    expect(event.bids.map((row) => [row.bidder.id, row.amountCents])).toEqual([
+      [challenger.id, 2000],
+      [leader.id, 2100],
+    ]);
+    expect(event.bid).toEqual(event.bids[1]);
+    expect(event).toMatchObject({ bidCount: 3, currentBidCents: 2100, highBidder: { id: leader.id } });
+    expect(JSON.stringify(event)).not.toContain("5000");
+  });
+
+  it("never puts a bidder's hidden maximum in anything anyone else can receive, by socket or by request", async () => {
+    const url = `http://localhost:${(apps[0].getHttpServer().address() as AddressInfo).port}`;
+    const [anna, ben, cara] = await makePeople(3);
+    // Anna's maximum is a number no price in the fight comes near, so any sighting of it is a leak. It is found as a whole number or
+    // as euros ("731.23"), not as part of an id.
+    const SECRET = 73_123;
+    const leaked = (value: unknown) => /(?<![\w.])73123(?![\w])|731\.23/.test(JSON.stringify(value));
+    // Ending in 90 seconds, so every price change extends the auction and the extension notices are sent too.
+    const listing = await makeListing({ endsAt: new Date(Date.now() + 90_000) });
+
+    const heard: Record<string, [string, unknown][]> = { visitor: [], cara: [], ben: [], seller: [] };
+    const listen = (name: string, socket: Socket) => socket.onAny((event, payload) => heard[name].push([event, payload]));
+    const [visitorSocket, caraSocket, benSocket, sellerSocket] = await Promise.all([open(url), open(url, cara.token), open(url, ben.token), open(url, seller.token)]);
+    for (const [name, socket] of [["visitor", visitorSocket], ["cara", caraSocket], ["ben", benSocket], ["seller", sellerSocket]] as const) {
+      listen(name, socket);
+      await watch(socket, listing.id);
+    }
+
+    const carasBid = (await bid(url, cara, listing.id, 1000).expect(201)).body; // cara first, then outbid by anna
+    const annasBid = (await bid(url, anna, listing.id, SECRET).expect(201)).body; // anna leads with a hidden maximum
+    const bensBid = (await bid(url, ben, listing.id, 20_000).expect(201)).body; // ben is beaten at once and she defends
+    expect(bensBid.outcome).toBe("OUTBID_BY_PROXY");
+    await new Promise((resolve) => setTimeout(resolve, 600));
+
+    const asRequest = async (path: string, token?: string) => (await request(url).get(path).set(token ? { Authorization: `Bearer ${token}` } : {}).expect(200)).body;
+    const pages = {
+      visitorListing: await asRequest(`/listings/${listing.id}`),
+      caraListing: await asRequest(`/listings/${listing.id}`, cara.token),
+      benListing: await asRequest(`/listings/${listing.id}`, ben.token),
+      sellerListing: await asRequest(`/listings/${listing.id}`, seller.token),
+      list: await asRequest("/listings"),
+      history: await asRequest(`/listings/${listing.id}/bids?limit=20`),
+    };
+
+    // The test would be empty if nothing arrived: the public room and the other bidders did hear the fight.
+    expect(heard.visitor.filter(([event]) => event === SOCKET_EVENTS.bidPlaced).length).toBeGreaterThanOrEqual(3);
+    expect(heard.cara.some(([event]) => event === SOCKET_EVENTS.outbid)).toBe(true);
+    expect(heard.cara.some(([event]) => event === SOCKET_EVENTS.extendedNotice)).toBe(true);
+
+    for (const [name, events] of Object.entries(heard)) expect(events.filter(([, payload]) => leaked(payload)).map(([event]) => event), `socket events heard by ${name}`).toEqual([]);
+    for (const [name, body] of Object.entries(pages)) expect(leaked(body), name).toBe(false);
+    expect(leaked(carasBid), "cara's own response").toBe(false);
+    expect(leaked(bensBid), "ben's own response").toBe(false);
+
+    // The same check does see the number where it belongs, so it cannot pass by looking in the wrong place: anna's own answers.
+    expect(leaked(annasBid)).toBe(true);
+    expect(leaked(await asRequest(`/listings/${listing.id}`, anna.token))).toBe(true);
   });
 
   it("announces an extension, and nothing for a refused bid", async () => {

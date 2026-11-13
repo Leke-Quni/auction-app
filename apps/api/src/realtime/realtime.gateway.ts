@@ -127,18 +127,22 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnMo
     if (event.type === "BidPlaced") {
       const { result } = event;
       if (result.replayed) return;
-      const bidder = result.bid.bidder;
+      // The history row the page adds is the one that set the price: the last visible row (the leader's automatic one when a
+      // challenger was beaten at once), or the request's own row when it changed no price.
+      const top = result.rows.length > 0 ? result.rows[result.rows.length - 1] : result.bid;
+      const toRow = (row: typeof top) => ({ id: row.id, amountCents: row.amountCents, createdAt: row.createdAt.toISOString(), bidder: row.bidder });
       const payload: BidPlacedEvent = {
         listingId: event.listingId,
         currentBidCents: result.listing.currentBidCents,
         bidCount: result.listing.bidCount,
-        highBidder: bidder,
+        highBidder: result.listing.highBidder,
         endsAt: result.listing.endsAt.toISOString(),
         extensionCount: result.listing.extensionCount,
         minimumNextBidCents: result.listing.minimumNextBidCents,
         serverTime,
         extended: result.extended,
-        bid: { id: result.bid.id, amountCents: result.bid.amountCents, createdAt: result.bid.createdAt.toISOString(), bidder },
+        bid: toRow(top),
+        bids: result.rows.map(toRow),
       };
       this.server.to(auctionRoom(event.listingId)).emit(SOCKET_EVENTS.bidPlaced, payload);
       return;

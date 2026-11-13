@@ -140,13 +140,22 @@ describe("bids", () => {
       }
     });
 
-    it("does not let the high bidder outbid themselves", async () => {
+    it("lets the high bidder raise their own maximum, in secret, but never lower it", async () => {
       const [person] = await makePeople(1);
       const listing = await makeListing();
       await bid(person, listing.id, 1000).expect(201);
-      const res = await bid(person, listing.id, 5000).expect(409);
-      expect(res.body.code).toBe("ALREADY_HIGHEST");
-      expect((await stored(listing.id)).currentBidCents).toBe(1000);
+      const raised = (await bid(person, listing.id, 5000).expect(201)).body;
+      expect(raised).toMatchObject({ outcome: "MAX_RAISED", yourMaxCents: 5000, rows: [], listing: { currentBidCents: 1000, bidCount: 1, highBidderId: person.id } });
+      // Nothing visible changed: the price, the count and the history are as they were.
+      expect(await stored(listing.id)).toMatchObject({ currentBidCents: 1000, bidCount: 1, highBidderId: person.id });
+      expect((await api().get(`/listings/${listing.id}/bids`).expect(200)).body).toMatchObject({ total: 1, items: [{ amountCents: 1000 }] });
+      expect(await prisma.autoBid.findUniqueOrThrow({ where: { listingId_bidderId: { listingId: listing.id, bidderId: person.id } } })).toMatchObject({ maxCents: 5000 });
+      expect(await prisma.bid.findMany({ where: { listingId: listing.id }, orderBy: { seq: "asc" }, select: { kind: true, amountCents: true, maxCents: true } })).toEqual([
+        { kind: "BID", amountCents: 1000, maxCents: 1000 },
+        { kind: "RAISE", amountCents: 1000, maxCents: 5000 },
+      ]);
+      for (const amount of [5000, 4000, 1000]) expect((await bid(person, listing.id, amount).expect(409)).body.code).toBe("MAX_NOT_HIGHER");
+      expect(await prisma.autoBid.count({ where: { listingId: listing.id, maxCents: 5000 } })).toBe(1);
     });
   });
 
@@ -167,8 +176,9 @@ describe("bids", () => {
       expect((await bid(b, listing.id, 10_499).expect(422)).body.minimumNextBidCents).toBe(10_500);
       await bid(b, listing.id, 10_500).expect(201);
       expect((await bid(c, listing.id, 11_024).expect(422)).body.minimumNextBidCents).toBe(11_025);
+      // c typed a maximum of €200 but only takes the lead one step above b's €105: €110.25.
       await bid(c, listing.id, 20_000).expect(201);
-      expect(await stored(listing.id)).toMatchObject({ currentBidCents: 20_000, bidCount: 3, highBidderId: c.id });
+      expect(await stored(listing.id)).toMatchObject({ currentBidCents: 11_025, bidCount: 3, highBidderId: c.id });
     });
 
     it("shows the current bid, bid count, minimum next bid and high bidder on the listing", async () => {
@@ -177,9 +187,10 @@ describe("bids", () => {
       const before = (await api().get(`/listings/${listing.id}`).expect(200)).body;
       expect(before).toMatchObject({ currentBidCents: null, bidCount: 0, minimumNextBidCents: 1000, highBidder: null });
       expect(Math.abs(new Date(before.serverTime).getTime() - Date.now())).toBeLessThan(5_000);
+      // A first bid sets the starting price, whatever maximum was typed.
       await bid(person, listing.id, 1200).expect(201);
       const after = (await api().get(`/listings/${listing.id}`).expect(200)).body;
-      expect(after).toMatchObject({ currentBidCents: 1200, bidCount: 1, minimumNextBidCents: 1300, highBidder: { id: person.id, username: person.username } });
+      expect(after).toMatchObject({ currentBidCents: 1000, bidCount: 1, minimumNextBidCents: 1100, highBidder: { id: person.id, username: person.username } });
     });
   });
 
@@ -284,11 +295,12 @@ describe("bids", () => {
       const listing = await makeListing();
       await bid(a, listing.id, 1000).expect(201);
       await bid(b, listing.id, 1100).expect(201);
+      // c typed €13 but takes the lead one step above b's €11 (the €1 floor, as 5% is only 55 cents): €12.
       await bid(c, listing.id, 1300).expect(201);
       const res = await api().get(`/listings/${listing.id}/bids`).expect(200);
       expect(res.body.total).toBe(3);
       expect(res.body.items.map((i: { amountCents: number; bidder: { username: string } }) => [i.amountCents, i.bidder.username])).toEqual([
-        [1300, c.username],
+        [1200, c.username],
         [1100, b.username],
         [1000, a.username],
       ]);
@@ -331,7 +343,7 @@ describe("bids", () => {
       expect(await prisma.bid.count({ where: { listingId: listing.id } })).toBe(1);
     }, 30_000);
 
-    it("50 different amounts at the same moment: every accepted bid cleared the minimum, and the books balance", async () => {
+    it("50 different maximums at the same moment: every accepted request is recorded, and the books balance", async () => {
       const bidders = await makePeople(50);
       const listing = await makeListing();
       const amounts = bidders.map((_, i) => 1000 + i * 20);
@@ -342,15 +354,19 @@ describe("bids", () => {
       const accepted = statuses.filter((status) => status === 201).length;
       expect(accepted).toBeGreaterThanOrEqual(1);
 
-      const rows = await prisma.bid.findMany({ where: { listingId: listing.id }, orderBy: { amountCents: "asc" } });
-      expect(rows).toHaveLength(accepted);
-      expect(rows[0].amountCents).toBeGreaterThanOrEqual(1000);
-      for (let i = 1; i < rows.length; i++) {
-        const minimum = minimumNextBidCents({ startingPriceCents: 1000, currentBidCents: rows[i - 1].amountCents });
-        expect(rows[i].amountCents, `bid ${i}`).toBeGreaterThanOrEqual(minimum);
-      }
-      const top = rows[rows.length - 1];
-      expect(await stored(listing.id)).toMatchObject({ bidCount: accepted, currentBidCents: top.amountCents, highBidderId: top.bidderId });
+      // Every accepted request left exactly one row of its own; the leader's automatic rows are on top of those.
+      const rows = await prisma.bid.findMany({ where: { listingId: listing.id }, orderBy: { seq: "asc" } });
+      expect(rows.filter((r) => r.kind === "BID" && r.maxCents !== null)).toHaveLength(accepted);
+      const visible = rows.filter((r) => r.kind !== "RAISE");
+      for (let i = 1; i < visible.length; i++) expect(visible[i].amountCents, `row ${i}`).toBeGreaterThanOrEqual(visible[i - 1].amountCents);
+      const top = visible[visible.length - 1];
+      const row = await stored(listing.id);
+      expect(row).toMatchObject({ bidCount: visible.length, currentBidCents: top.amountCents });
+      // The price never passes the leader's maximum, and the leader holds the highest maximum anyone typed and was accepted for.
+      const held = await prisma.autoBid.findMany({ where: { listingId: listing.id } });
+      const leaderMax = held.find((h) => h.bidderId === row.highBidderId)!.maxCents;
+      expect(row.currentBidCents!).toBeLessThanOrEqual(leaderMax);
+      for (const h of held) expect(leaderMax).toBeGreaterThanOrEqual(h.maxCents);
     }, 30_000);
 
     it("other requests still get through while 50 bidders queue on one auction", async () => {

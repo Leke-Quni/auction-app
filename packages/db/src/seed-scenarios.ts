@@ -1,6 +1,7 @@
 import { minimumNextBidCents, type ShippingAddress } from "@auction/shared";
 import { emptyData, type ListingRow, type NotificationRow, type SeedData, type UserRow } from "./seed-data";
 import { makeOrder, payoutFor, ratingFor, strikeFor, type OrderRow } from "./seed-orders";
+import { proxyBids } from "./seed-bids";
 
 const MIN = 60_000;
 const H = 3_600_000;
@@ -75,7 +76,7 @@ export function buildScenarios(ctx: ScenarioContext): Scenarios {
       if (bidderId === spec.sellerId) throw new Error(`Scenario ${spec.key}: the seller cannot bid`);
       const amount = minimumNextBidCents({ startingPriceCents, currentBidCents: current });
       const span = bidEnd - startsAt.getTime();
-      data.bids.push({ listingId: id, bidderId, amountCents: amount, idempotencyKey: `seed-${id}-${i}`, createdAt: new Date(Math.floor(startsAt.getTime() + (span * (i + 1)) / (bidders.length + 1)) + i) });
+      data.bids.push({ listingId: id, bidderId, amountCents: amount, maxCents: amount, idempotencyKey: `seed-${id}-${i}`, createdAt: new Date(Math.floor(startsAt.getTime() + (span * (i + 1)) / (bidders.length + 1)) + i) });
       current = amount;
     });
     const row: ListingRow = {
@@ -178,6 +179,18 @@ export function buildScenarios(ctx: ScenarioContext): Scenarios {
   const hot = add({ key: "hot-auction", sellerId: sellerB, title: "Bidding war: sixty bids from twenty people", startingPriceCents: 1000, durationDays: 5, startsIn: -4 * D, endsIn: 20 * H, bidders: Array.from({ length: 60 }, (_, i) => bidder(i % 20)) });
   for (let i = 0; i < Math.min(24, ctx.users.length - 5); i++) data.watches.push({ userId: bidder(i), listingId: hot.id, createdAt: at(-(i + 1) * H) });
   notes.push(`"${hot.title}" has 60 bids and 24 watchers (bid history paging, bidding at volume).`);
+
+  // A hidden maximum at work: the leader typed EUR 80, a challenger typing EUR 20 was beaten at once, and so was one typing EUR 50.
+  // Built through the real proxy rules, so the rows are what the app would have saved.
+  const proxy = add({ key: "proxy-defended", sellerId: sellerB, title: "Proxy bidding: a hidden maximum is defending the lead", startingPriceCents: 1000, startsIn: -D, endsIn: 2 * D });
+  const proxied = proxyBids(proxy, [
+    { bidderId: bidder(0), maxCents: 8000, at: at(-20 * H) },
+    { bidderId: bidder(1), maxCents: 2000, at: at(-10 * H) },
+    { bidderId: bidder(2), maxCents: 5000, at: at(-3 * H) },
+  ]);
+  data.bids.push(...proxied.bids);
+  Object.assign(proxy, { currentBidCents: proxied.currentBidCents, bidCount: proxied.bidCount, highBidderId: proxied.highBidderId });
+  notes.push(`"${proxy.title}": its leader typed a maximum of EUR 80.00 and the price is only EUR ${((proxied.currentBidCents ?? 0) / 100).toFixed(2)}; two challengers were beaten at once.`);
 
   // ---- Questions and answers, and what moderators see of them --------------------------------------------------------------
   const qa = add({ key: "questions", sellerId: sellerA, title: "Questions and answers in every state", startsIn: -2 * D, endsIn: 3 * D, bidders: [bidder(6)] });

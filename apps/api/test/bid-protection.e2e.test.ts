@@ -111,14 +111,14 @@ describe("bid rate limits and audit log", () => {
       const key = randomUUID();
       await bid(anna, listing.id, 1000, { key, ip: "203.0.113.50" }).expect(201);
       await bid(anna, listing.id, 1000, { key, ip: "203.0.113.50" }).expect(200); // replay
-      await bid(anna, listing.id, 1100, { ip: "203.0.113.50" }).expect(409); // already highest
+      await bid(anna, listing.id, 1000, { ip: "203.0.113.50" }).expect(409); // not above her own maximum
       await bid(ben, listing.id, 1050, { ip: "203.0.113.51" }).expect(422); // too low
       await bid(seller, listing.id, 1200).expect(403); // own listing
 
       expect((await audit(anna.id)).map((r) => [r.outcome, r.reason, r.amountCents, r.ip, r.listingId])).toEqual([
         ["ACCEPTED", null, 1000, "203.0.113.50", listing.id],
         ["ACCEPTED", "REPLAY", 1000, "203.0.113.50", listing.id],
-        ["REFUSED", "ALREADY_HIGHEST", 1100, "203.0.113.50", listing.id],
+        ["REFUSED", "MAX_NOT_HIGHER", 1000, "203.0.113.50", listing.id],
       ]);
       expect((await audit(ben.id)).map((r) => [r.outcome, r.reason, r.amountCents])).toEqual([["REFUSED", "TOO_LOW", 1050]]);
       expect((await audit(seller.id)).map((r) => [r.outcome, r.reason])).toEqual([["REFUSED", "OWN_LISTING"]]);
@@ -172,7 +172,7 @@ describe("bid rate limits and audit log", () => {
         const listing = await makeListing();
         const key = randomUUID();
         await bid(anna, listing.id, 1000, { key }).expect(201);
-        await bid(anna, listing.id, 1100).expect(409); // refused (she already leads), but it counts
+        await bid(anna, listing.id, 1000).expect(409); // refused (not above her own maximum), but it counts
         await bid(anna, listing.id, 1100).expect(429); // over the limit now
         const retry = await bid(anna, listing.id, 1000, { key }).expect(200);
         expect(retry.body.replayed).toBe(true);

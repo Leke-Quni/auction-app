@@ -12,7 +12,7 @@ import { config } from "dotenv";
 import { resolve } from "node:path";
 import type { ShippingAddress } from "@auction/shared";
 import { createPrismaClient } from "./index";
-import { generateBids, type SeedBid } from "./seed-bids";
+import { autoBidsOf, generateBids, type SeedBid } from "./seed-bids";
 import { parseSeedArgs } from "./seed-args";
 import { emptyData, type ListingRow, type SeedData, type UserRow } from "./seed-data";
 import { planSale } from "./seed-orders";
@@ -299,6 +299,8 @@ async function main() {
 
     const scenarios = buildScenarios({ now, users, ownerId: owner?.id ?? null, categoryId, addresses: DELIVERIES, pickups: PICKUPS, next });
     for (const key of Object.keys(data) as (keyof SeedData)[]) (data[key] as unknown[]).push(...scenarios.data[key]);
+    // The maximum each bidder holds on each auction follows from the bids.
+    data.autoBids = autoBidsOf(data.bids);
 
     // Insertion, in the order the rows depend on each other.
     const insert = async (name: string, rows: unknown[], size: number, write: (batch: never[]) => Promise<unknown>) => {
@@ -311,6 +313,7 @@ async function main() {
       await insert("listings", data.listings, 250, (d) => prisma.listing.createMany({ data: d })),
       await insert("photos", data.images, 500, (d) => prisma.listingImage.createMany({ data: d })),
       await insert("bids", data.bids as SeedBid[], 500, (d) => prisma.bid.createMany({ data: d })),
+      await insert("maximum bids", data.autoBids, 500, (d) => prisma.autoBid.createMany({ data: d })),
       await insert("orders", data.orders, 250, (d) => prisma.order.createMany({ data: d })),
       await insert("strikes", data.strikes, 500, (d) => prisma.strike.createMany({ data: d })),
       await insert("payouts", data.payouts, 500, (d) => prisma.payout.createMany({ data: d })),

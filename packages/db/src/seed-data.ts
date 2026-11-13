@@ -1,4 +1,4 @@
-import type { SeedBid } from "./seed-bids";
+import type { SeedAutoBid, SeedBid } from "./seed-bids";
 import type { OrderRow, PayoutRow, RatingRow, StrikeRow } from "./seed-orders";
 
 export interface UserRow {
@@ -131,6 +131,7 @@ export interface SeedData {
   listings: ListingRow[];
   images: ImageRow[];
   bids: SeedBid[];
+  autoBids: SeedAutoBid[];
   orders: OrderRow[];
   strikes: StrikeRow[];
   ratings: RatingRow[];
@@ -145,5 +146,5 @@ export interface SeedData {
 }
 
 export const emptyData = (): SeedData => ({
-  listings: [], images: [], bids: [], orders: [], strikes: [], ratings: [], payouts: [], questions: [], votes: [], reports: [], questionLogs: [], watches: [], notifications: [], pendingEmails: [],
+  listings: [], images: [], bids: [], autoBids: [], orders: [], strikes: [], ratings: [], payouts: [], questions: [], votes: [], reports: [], questionLogs: [], watches: [], notifications: [], pendingEmails: [],
 });

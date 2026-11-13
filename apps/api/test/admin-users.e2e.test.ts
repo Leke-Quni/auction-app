@@ -364,6 +364,24 @@ describe("admin accounts: ban, unban and strikes", () => {
     expect(log.filter((e: { action: string }) => e.action === "STRIKE_USER")).toHaveLength(2);
   });
 
+  it("does not count a hidden raise of a maximum as a bid, in a person's bid count or in their auctions", async () => {
+    const admin = await person("ADMIN");
+    const [seller, bidder] = [await person(), await person()];
+    const listing = await prisma.listing.create({
+      data: { sellerId: seller.id, title: `Raised ${stamp}`, description: "x", categoryId, condition: "GOOD", startingPriceCents: 1000, durationDays: 3, status: "PUBLISHED", startsAt: new Date(Date.now() - 4 * DAY), endsAt: new Date(Date.now() + 2 * DAY), publishedAt: new Date(Date.now() - 4 * DAY), currentBidCents: 1500, bidCount: 2, highBidderId: bidder.id },
+    });
+    listingIds.push(listing.id);
+    const row = (kind: "BID" | "AUTO" | "RAISE", amountCents: number, minutes: number) =>
+      prisma.bid.create({ data: { listingId: listing.id, bidderId: bidder.id, amountCents, maxCents: kind === "AUTO" ? null : 9000, kind, idempotencyKey: randomUUID(), createdAt: new Date(Date.now() - minutes * 60_000) } });
+    await row("BID", 1000, 30);
+    await row("AUTO", 1500, 20);
+    await row("RAISE", 1800, 10);
+
+    const get = (path: string) => request(url).get(path).set(admin.auth);
+    expect((await get(`/admin/users/${bidder.id}`).expect(200)).body).toMatchObject({ bidCount: 2 });
+    expect((await get(`/admin/users/${bidder.id}/bids`).expect(200)).body.auctions[0]).toMatchObject({ yourBids: 2, yourHighestCents: 1500 });
+  });
+
   it("lists exactly one seller's listings, and the auctions a person has bid on with where each stands", async () => {
     const admin = await person("ADMIN");
     const [seller, other, bidder, rival] = [await person(), await person(), await person(), await person()];
