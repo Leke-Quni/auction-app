@@ -513,8 +513,13 @@ describe("bid notifications", () => {
         await other.get(NotificationsService).sweep();
         await app.get(NotificationsService).sweep();
         // Sent once, by whichever got there first. (Only mail about this listing: a second app also sends any other
-        // auction-ended email that happens to be waiting in the shared database.)
-        expect(sent.filter((m) => m.text.includes(listing.id)).map((m) => m.to)).toEqual([anna.email]);
+        // auction-ended email that happens to be waiting in the shared database.) A sweep that is already under way, such as the
+        // one a new app starts on its own, makes sweep() return at once, so the mail is waited for, then a moment more in case
+        // a second copy follows.
+        const aboutThis = () => sent.filter((m) => m.text.includes(listing.id)).map((m) => m.to);
+        for (let waited = 0; aboutThis().length === 0 && waited < 3000; waited += 50) await new Promise((resolve) => setTimeout(resolve, 50));
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(aboutThis()).toEqual([anna.email]);
       } finally {
         await other.close();
       }
