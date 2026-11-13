@@ -174,7 +174,7 @@ export function LiveDetails({ listing, openMode, viewerId, order }: { listing: D
         </tbody>
       </table>
       {bidMode && (
-        <BidPanel listingId={listing.id} mode={bidMode} minimumNextBidCents={live.minimumNextBidCents} viewerMaxCents={live.viewerMaxCents} onMaxChange={live.setViewerMax} order={order} />
+        <BidPanel listingId={listing.id} mode={bidMode} minimumNextBidCents={live.minimumNextBidCents} currentBidCents={live.currentBidCents} viewerMaxCents={live.viewerMaxCents} onMaxChange={live.setViewerMax} order={order} />
       )}
     </>
   );

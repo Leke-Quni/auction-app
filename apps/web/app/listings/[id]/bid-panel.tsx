@@ -19,7 +19,11 @@ export interface BidPanelOrder {
 }
 
 // What the bid just placed meant for the bidder: in front at the price, beaten at once by a higher maximum, or a raised maximum.
-function PlacedNote({ placed, onRaise }: { placed: Placed; onRaise: () => void }) {
+// A note that states a price is dropped once the price has gone above it (prices only rise, so until then, including the moment before
+// the page has caught up with the bid, it still holds). A raised maximum states no price and stays.
+function PlacedNote({ placed, currentBidCents, onRaise }: { placed: Placed; currentBidCents?: number | null; onRaise: () => void }) {
+  const stale = placed.outcome !== "MAX_RAISED" && placed.priceCents !== undefined && currentBidCents != null && currentBidCents > placed.priceCents;
+  if (stale) return null;
   const price = placed.priceCents === undefined ? "" : ` at ${formatEur(placed.priceCents)}`;
   return (
     <div className="space-y-1 text-muted">
@@ -50,6 +54,7 @@ export function BidPanel({
   listingId,
   mode,
   minimumNextBidCents,
+  currentBidCents,
   viewerMaxCents,
   onMaxChange,
   order,
@@ -57,6 +62,8 @@ export function BidPanel({
   listingId: string;
   mode: BidMode;
   minimumNextBidCents: number;
+  // The price now, so a result note that quotes an older price can go.
+  currentBidCents?: number | null;
   // The viewer's own hidden maximum, when the API sent it, and a way to tell the page when a bid changes it.
   viewerMaxCents?: number | null;
   onMaxChange?: (cents: number) => void;
@@ -123,7 +130,7 @@ export function BidPanel({
           <p className="border border-time-ok bg-surface p-2 font-bold text-time-ok">You are the highest bidder.</p>
           {myMax !== null && <p className="text-muted">Your maximum: {formatEur(myMax)}</p>}
         </div>
-        {placed && <PlacedNote placed={placed} onRaise={focusBox} />}
+        {placed && <PlacedNote placed={placed} currentBidCents={currentBidCents} onRaise={focusBox} />}
         {myMax !== null && (
           <BidForm
             listingId={listingId}
@@ -141,7 +148,7 @@ export function BidPanel({
   return (
     <div className="space-y-2">
       <BidForm listingId={listingId} kind="bid" minCents={minimumNextBidCents} startCents={minimumNextBidCents} inputRef={amountBox} onPlaced={onPlaced} />
-      {placed && <PlacedNote placed={placed} onRaise={focusBox} />}
+      {placed && <PlacedNote placed={placed} currentBidCents={currentBidCents} onRaise={focusBox} />}
     </div>
   );
 }

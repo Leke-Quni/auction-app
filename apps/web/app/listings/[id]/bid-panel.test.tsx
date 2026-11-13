@@ -21,6 +21,9 @@ const panel = (mode: BidMode = "live", minimumNextBidCents = 1100) => <BidPanel 
 const leader = (viewerMaxCents: number | null, onMaxChange?: (cents: number) => void) => (
   <BidPanel listingId="L1" mode="highest" minimumNextBidCents={1100} viewerMaxCents={viewerMaxCents} onMaxChange={onMaxChange} />
 );
+const priced = (mode: BidMode, minimumNextBidCents: number, currentBidCents: number | null) => (
+  <BidPanel listingId="L1" mode={mode} minimumNextBidCents={minimumNextBidCents} currentBidCents={currentBidCents} viewerMaxCents={mode === "highest" ? 5000 : null} />
+);
 const raiseBox = () => screen.getByLabelText("Raise your maximum (€)") as HTMLInputElement;
 const box = () => screen.getByLabelText("Your maximum bid (€)") as HTMLInputElement;
 const place = () => fireEvent.click(screen.getByRole("button", { name: /^place bid$/i }));
@@ -297,5 +300,54 @@ describe("BidPanel for the person in front", () => {
     rerender(leader(8000));
     expect(screen.getByText(/Your maximum: €80\.00/)).toBeTruthy();
     expect(raiseBox().value).toBe("84.00");
+  });
+});
+
+describe("BidPanel result notes once the price moves on", () => {
+  const placeAndSettle = async (rerenderTo: () => React.ReactElement, rerender: (ui: React.ReactElement) => void) => {
+    place();
+    await confirmBid();
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    rerender(rerenderTo());
+  };
+
+  it("drops 'highest bidder at €X' once the price has gone above X, but shows it while the page catches up and while the price is X", async () => {
+    placeBidAction.mockResolvedValue({ ok: true, outcome: "LEADING", currentBidCents: 1000, yourMaxCents: 5000 });
+    const { rerender } = render(priced("live", 1100, null));
+    await placeAndSettle(() => priced("highest", 1100, null), rerender);
+    expect(screen.getByText(/You are the highest bidder at €10\.00/)).toBeTruthy(); // the page has not caught up yet
+    rerender(priced("highest", 1100, 1000));
+    expect(screen.getByText(/You are the highest bidder at €10\.00/)).toBeTruthy();
+    rerender(priced("highest", 2205, 2100));
+    expect(screen.queryByText(/You are the highest bidder at/)).toBeNull();
+    expect(screen.getByText("You are the highest bidder.")).toBeTruthy();
+    expect(screen.getByText(/Your maximum: €50\.00/)).toBeTruthy();
+  });
+
+  it("drops 'the price is now €X' and its raise button once the price has gone above X", async () => {
+    placeBidAction.mockResolvedValue({ ok: true, outcome: "OUTBID_BY_PROXY", currentBidCents: 2100, yourMaxCents: 2000 });
+    const { rerender } = render(priced("live", 1100, 1000));
+    await placeAndSettle(() => priced("live", 2205, 2100), rerender);
+    expect(screen.getByText(/The price is now €21\.00/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Raise your maximum" })).toBeTruthy();
+    rerender(priced("live", 3000, 2860));
+    expect(screen.queryByText(/The price is now/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Raise your maximum" })).toBeNull();
+    expect(screen.queryByText(/Someone has a higher maximum/)).toBeNull();
+  });
+
+  it("keeps 'your maximum is now €Y', which states no price, when the price moves", async () => {
+    placeBidAction.mockResolvedValue({ ok: true, outcome: "MAX_RAISED", currentBidCents: 1200, yourMaxCents: 8000 });
+    const { rerender } = render(priced("live", 1100, 1000));
+    await placeAndSettle(() => priced("highest", 1260, 1200), rerender);
+    rerender(priced("highest", 3000, 2860));
+    expect(screen.getByText(/Your maximum is now €80\.00/)).toBeTruthy();
+  });
+
+  it("keeps the note when the page does not say what the price is", async () => {
+    placeBidAction.mockResolvedValue({ ok: true, outcome: "LEADING", currentBidCents: 1000, yourMaxCents: 5000 });
+    const { rerender } = render(panel("live", 1100));
+    await placeAndSettle(() => panel("highest", 3000), rerender);
+    expect(screen.getByText(/You are the highest bidder at €10\.00/)).toBeTruthy();
   });
 });
