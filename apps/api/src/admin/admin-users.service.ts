@@ -17,7 +17,7 @@ export interface UserListQuery {
 
 const summary = {
   id: true, username: true, email: true, firstName: true, lastName: true, role: true, isSuperAdmin: true, createdAt: true, emailVerified: true, bannedAt: true, banReason: true,
-  _count: { select: { strikes: true, listings: true, bids: true } },
+  _count: { select: { strikes: true, listings: true, bids: { where: { kind: { not: "RAISE" } } } } },
 } as const;
 
 // What the admin app does to accounts: find them, suspend and restore them, and clear a strike. A ban takes effect on the
@@ -64,7 +64,7 @@ export class AdminUsersService {
         SELECT l."id", l."title", l."startsAt", l."endsAt", l."currentBidCents", l."highBidderId", l."winnerId", l."outcome", l."removedAt",
                MAX(b."amountCents")::int AS "highestCents", COUNT(*)::int AS "bids", MAX(b."createdAt") AS "lastBidAt"
         FROM "Bid" b JOIN "Listing" l ON l."id" = b."listingId"
-        WHERE b."bidderId" = ${id}
+        WHERE b."bidderId" = ${id} AND b."kind" <> 'RAISE'
         GROUP BY l."id"
         ORDER BY MAX(b."createdAt") DESC, l."id" ASC
         LIMIT ${limit}`,
