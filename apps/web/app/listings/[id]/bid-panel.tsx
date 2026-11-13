@@ -18,29 +18,21 @@ export interface BidPanelOrder {
   amountCents: number;
 }
 
-// What the bid just placed meant for the bidder: in front at the price, beaten at once by a higher maximum, or a raised maximum.
+// What the bid just placed meant for the bidder: in front at the price or a raised maximum. Being beaten at once is told by the box above the
+// bid form, which stays for as long as the bidder is behind; this adds only that the bid extended the auction.
 // A note that states a price is dropped once the price has gone above it (prices only rise, so until then, including the moment before
 // the page has caught up with the bid, it still holds). A raised maximum states no price, so it holds for as long as the bidder is in front.
 // It is a status, so a screen reader announces it when it appears.
-function PlacedNote({ placed, currentBidCents, leading, onRaise }: { placed: Placed; currentBidCents?: number | null; leading: boolean; onRaise: () => void }) {
+function PlacedNote({ placed, currentBidCents, leading }: { placed: Placed; currentBidCents?: number | null; leading: boolean }) {
   const stale =
     placed.outcome === "MAX_RAISED"
       ? !leading
       : placed.priceCents !== undefined && currentBidCents != null && currentBidCents > placed.priceCents;
-  if (stale) return null;
+  if (stale || (placed.outcome === "OUTBID_BY_PROXY" && !(placed.extended && placed.endsAt))) return null;
   const price = placed.priceCents === undefined ? "" : ` at ${formatEur(placed.priceCents)}`;
   return (
     <div role="status" className="space-y-1 text-muted">
-      {placed.outcome === "OUTBID_BY_PROXY" ? (
-        <>
-          <p>
-            Someone has a higher maximum. The price is now {placed.priceCents === undefined ? "higher" : formatEur(placed.priceCents)}.
-          </p>
-          <button type="button" onClick={onRaise} className="cursor-pointer border border-field bg-surface px-3 py-1 hover:bg-head">
-            Raise your maximum
-          </button>
-        </>
-      ) : placed.outcome === "MAX_RAISED" ? (
+      {placed.outcome === "OUTBID_BY_PROXY" ? null : placed.outcome === "MAX_RAISED" ? (
         <p>Your maximum is now {placed.maxCents === undefined ? "raised" : formatEur(placed.maxCents)}.</p>
       ) : (
         <p>You are the highest bidder{price}.</p>
@@ -134,7 +126,7 @@ export function BidPanel({
           <p className="border border-time-ok bg-surface p-2 font-bold text-time-ok">You are the highest bidder.</p>
           {myMax !== null && <p className="text-muted">Your maximum: {formatEur(myMax)}</p>}
         </div>
-        {placed && <PlacedNote placed={placed} currentBidCents={currentBidCents} leading onRaise={focusBox} />}
+        {placed && <PlacedNote placed={placed} currentBidCents={currentBidCents} leading />}
         {myMax !== null && (
           <BidForm
             listingId={listingId}
@@ -149,10 +141,28 @@ export function BidPanel({
     );
   }
 
+  // Someone with a maximum on this listing who is not in front has been beaten, whether by an earlier proxy answer or by a later bid.
+  // Right after a bid that put them in front, the page has not caught up yet, so that bid's own answer says they lead.
+  const passedPrice = placed?.priceCents !== undefined && currentBidCents != null && currentBidCents > placed.priceCents;
+  const justLed = placed !== null && placed.outcome !== "OUTBID_BY_PROXY" && !passedPrice;
+  const beaten = myMax !== null && !justLed;
+  const price = currentBidCents ?? placed?.priceCents;
+
   return (
     <div className="space-y-2">
+      {beaten && (
+        <div role="status" className="space-y-1 border border-urgent bg-surface p-2">
+          <p className="font-bold text-urgent">You are not the highest bidder.</p>
+          <p className="text-muted">
+            Your maximum of {formatEur(myMax)} has been beaten{price != null && <> and the price is now {formatEur(price)}</>}. Raise your maximum to get back in front.
+          </p>
+          <button type="button" onClick={focusBox} className="cursor-pointer border border-field bg-surface px-3 py-1 hover:bg-head">
+            Raise your maximum
+          </button>
+        </div>
+      )}
       <BidForm listingId={listingId} kind="bid" minCents={minimumNextBidCents} startCents={minimumNextBidCents} inputRef={amountBox} onPlaced={onPlaced} />
-      {placed && <PlacedNote placed={placed} currentBidCents={currentBidCents} leading={false} onRaise={focusBox} />}
+      {placed && <PlacedNote placed={placed} currentBidCents={currentBidCents} leading={false} />}
     </div>
   );
 }
