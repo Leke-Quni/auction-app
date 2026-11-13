@@ -20,6 +20,15 @@ export interface LiveSnapshot {
   bids: BidRow[];
 }
 
+// The rows an event carries; an older server sends only the top one.
+const rowsOf = (event: BidPlacedEvent) => event.bids ?? [event.bid];
+
+// True when the event skips bids this page never saw, so it must ask the server for the whole picture. A bid can add several
+// rows (a defended bid makes two), so the gap is measured against the rows in the event, not against one.
+export function missedBids(heldCount: number, event: BidPlacedEvent): boolean {
+  return event.bidCount > heldCount + rowsOf(event).length;
+}
+
 export interface LiveState extends LiveSnapshot {
   sync: (snapshot: LiveSnapshot) => void;
   applyBid: (event: BidPlacedEvent) => void;
@@ -37,7 +46,7 @@ export function createLiveStore(initial: LiveSnapshot): StoreApi<LiveState> {
     applyBid: (event) => {
       const state = get();
       if (event.bidCount <= state.bidCount) return;
-      const row: BidRow = event.bid;
+      const rows: BidRow[] = rowsOf(event);
       set({
         currentBidCents: event.currentBidCents,
         bidCount: event.bidCount,
@@ -46,7 +55,7 @@ export function createLiveStore(initial: LiveSnapshot): StoreApi<LiveState> {
         endsAt: event.endsAt,
         extensionCount: event.extensionCount,
         serverTime: event.serverTime,
-        bids: [row, ...state.bids.filter((b) => b.id !== row.id)].slice(0, BID_HISTORY_SHOWN),
+        bids: [...[...rows].reverse(), ...state.bids.filter((b) => !rows.some((r) => r.id === b.id))].slice(0, BID_HISTORY_SHOWN),
       });
     },
     applyExtended: (event) => {
@@ -87,7 +96,7 @@ export function LiveAuction({ listingId, snapshot, connect, children }: { listin
       if (event.listingId !== listingId) return;
       const held = store.getState().bidCount;
       store.getState().applyBid(event);
-      if (event.bidCount > held + 1) router.refresh();
+      if (missedBids(held, event)) router.refresh();
     });
     socket.on(SOCKET_EVENTS.auctionExtended, (event: AuctionExtendedEvent) => {
       if (event.listingId === listingId) store.getState().applyExtended(event);

@@ -161,6 +161,28 @@ describe("realtime", () => {
     expect(await quiet).toBe(true);
   });
 
+  it("sends every visible row of a defended bid in one event, oldest first, and never the maximum", async () => {
+    const url = `http://localhost:${(apps[0].getHttpServer().address() as AddressInfo).port}`;
+    const [leader, challenger] = await makePeople(2);
+    const listing = await makeListing();
+    await bid(url, leader, listing.id, 5000).expect(201);
+    const viewer = await open(url);
+    await watch(viewer, listing.id);
+
+    const heard = next<BidPlacedEvent>(viewer, SOCKET_EVENTS.bidPlaced);
+    await bid(url, challenger, listing.id, 2000).expect(201);
+
+    const event = await heard;
+    // The challenger's €20 and the leader's automatic answer at €21; the leader's €50 maximum is in neither.
+    expect(event.bids.map((row) => [row.bidder.id, row.amountCents])).toEqual([
+      [challenger.id, 2000],
+      [leader.id, 2100],
+    ]);
+    expect(event.bid).toEqual(event.bids[1]);
+    expect(event).toMatchObject({ bidCount: 3, currentBidCents: 2100, highBidder: { id: leader.id } });
+    expect(JSON.stringify(event)).not.toContain("5000");
+  });
+
   it("announces an extension, and nothing for a refused bid", async () => {
     const url = `http://localhost:${(apps[0].getHttpServer().address() as AddressInfo).port}`;
     const [bidder, rival] = await makePeople(2);
