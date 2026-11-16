@@ -2,6 +2,7 @@ import { formatEur } from "@auction/shared";
 import Link from "next/link";
 import { adminApiFetch } from "@/lib/api";
 import { requireAdmin } from "@/lib/require-admin";
+import { firstParam } from "@/lib/search-params";
 
 interface Row {
   id: string;
@@ -19,9 +20,10 @@ const PHASES = ["live", "upcoming", "ended", "removed"] as const;
 const PILL = { live: "bg-ok-soft text-ok", upcoming: "bg-warn-soft text-warn", ended: "bg-page text-muted" } as const;
 const when = (iso: string) => new Date(iso).toISOString().replace("T", " ").slice(0, 16) + " UTC";
 
-export default async function Listings({ searchParams }: { searchParams: Promise<{ q?: string; phase?: string; sellerId?: string }> }) {
+export default async function Listings({ searchParams }: { searchParams: Promise<{ q?: string | string[]; phase?: string | string[]; sellerId?: string | string[] }> }) {
   await requireAdmin();
-  const { q = "", phase = "", sellerId = "" } = await searchParams;
+  const params = await searchParams;
+  const [q, phase, sellerId] = [firstParam(params.q), firstParam(params.phase), firstParam(params.sellerId)];
   const query = new URLSearchParams();
   if (q.trim()) query.set("q", q.trim());
   if (sellerId.trim()) query.set("sellerId", sellerId.trim());

@@ -2,6 +2,7 @@ import { formatEur, ORDER_ATTENTION_KINDS, ORDER_ATTENTION_LABELS, type OrderAtt
 import Link from "next/link";
 import { adminApiFetch } from "@/lib/api";
 import { requireAdmin } from "@/lib/require-admin";
+import { firstParam, ownKey } from "@/lib/search-params";
 import { STATUS_LABEL, STATUS_PILL, type Status } from "./status";
 
 interface Row {
@@ -23,12 +24,13 @@ interface Row {
 
 const SHIPMENT_LABEL = { LABEL_CREATED: "Label created", IN_TRANSIT: "In transit", DELIVERED: "Delivered" } as const;
 
-export default async function Orders({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; attention?: string }> }) {
+export default async function Orders({ searchParams }: { searchParams: Promise<{ q?: string | string[]; status?: string | string[]; attention?: string | string[] }> }) {
   await requireAdmin();
-  const { q = "", status = "", attention = "" } = await searchParams;
+  const params = await searchParams;
+  const [q, status, attention] = [firstParam(params.q), firstParam(params.status), firstParam(params.attention)];
   const query = new URLSearchParams();
   if (q.trim()) query.set("q", q.trim());
-  if (status in STATUS_LABEL) query.set("status", status);
+  if (ownKey(STATUS_LABEL, status)) query.set("status", status);
   if (attention === "any" || (ORDER_ATTENTION_KINDS as readonly string[]).includes(attention)) query.set("attention", attention);
   const res = await adminApiFetch(`/admin/orders?${query}`);
   if (!res.ok) throw new Error(`API /admin/orders failed: ${res.status}`);

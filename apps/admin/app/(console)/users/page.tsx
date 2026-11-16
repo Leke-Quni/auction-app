@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { adminApiFetch } from "@/lib/api";
 import { requireAdmin } from "@/lib/require-admin";
+import { firstParam } from "@/lib/search-params";
 
 interface UserRow {
   id: string;
@@ -18,9 +19,11 @@ interface UserRow {
 
 const day = (iso: string) => iso.slice(0, 10);
 
-export default async function Users({ searchParams }: { searchParams: Promise<{ q?: string; banned?: string }> }) {
+export default async function Users({ searchParams }: { searchParams: Promise<{ q?: string | string[]; banned?: string | string[] }> }) {
   await requireAdmin();
-  const { q = "", banned } = await searchParams;
+  const params = await searchParams;
+  const q = firstParam(params.q);
+  const banned = firstParam(params.banned);
   const query = new URLSearchParams();
   if (q.trim()) query.set("q", q.trim());
   if (banned === "true") query.set("banned", "true");
