@@ -141,6 +141,7 @@ export async function changePasswordAction(_: FormState, formData: FormData): Pr
   if (!parsed.success) return { error: firstIssue(parsed.error) };
   const res = await authedApiFetch("/me/password", { method: "POST", body: JSON.stringify(parsed.data) });
   if (res.status === 403) return { error: "Your current password is incorrect." };
+  if (res.status === 429) return { error: await apiErrorMessage(res) };
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
   // Every other browser is signed out; this one takes the new number and stays signed in.
   const { sessionVersion } = await res.json();
@@ -192,6 +193,7 @@ export async function deleteAccountAction(_: FormState, formData: FormData): Pro
   if (res.status === 403) return { error: "Your password is incorrect." };
   if (res.status === 401) return { error: "That code is invalid or has expired." };
   if (res.status === 409) return { error: "Some things have to finish before this account can be deleted. Reload this page to see them." };
+  if (res.status === 429) return { error: await apiErrorMessage(res) };
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
   // The drafts were deleted with the account; the API has no access to the image store, so their photos are deleted here.
   const { removedImageUrls } = (await res.json().catch(() => ({}))) as { removedImageUrls?: string[] };

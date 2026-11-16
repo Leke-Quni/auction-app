@@ -8,7 +8,6 @@ import {
 } from "@auction/shared";
 import {
   BadRequestException,
-  ForbiddenException,
   HttpException,
   HttpStatus,
   Inject,
@@ -22,6 +21,7 @@ import { PRISMA, type Prisma } from "../db/db.module";
 import { loginCodeCooldownSeconds } from "../config";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
 import { RATE_LIMITER, type RateLimiter } from "../rate-limit/rate-limiter";
+import { requirePassword } from "./require-password";
 
 const emailChangeScope = (userId: string, newEmail: string) => `email-change:${userId}:${newEmail}`;
 
@@ -128,10 +128,7 @@ export class AccountService {
     return { email: record.newEmail };
   }
 
-  private async requirePassword(userId: string, password: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new UnauthorizedException();
-    if (!(await bcrypt.compare(password, user.passwordHash))) throw new ForbiddenException("Incorrect password");
-    return user;
+  private requirePassword(userId: string, password: string) {
+    return requirePassword(this.prisma, this.limiter, userId, password);
   }
 }

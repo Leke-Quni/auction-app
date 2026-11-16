@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { EMAIL_CHANGE_RATE_LIMIT } from "@auction/shared";
+import { CURRENT_PASSWORD_RATE_LIMIT, EMAIL_CHANGE_RATE_LIMIT } from "@auction/shared";
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { SignJWT } from "jose";
@@ -32,6 +32,8 @@ const emails = {
   slow: `slow-${stamp}@example.com`,
   capped: `capped-${stamp}@example.com`,
   revoked: `revoked-${stamp}@example.com`,
+  guesser: `guesser-${stamp}@example.com`,
+  corrected: `corrected-${stamp}@example.com`,
 };
 const password = "hunter22!";
 
@@ -313,6 +315,35 @@ describe("account and password reset", () => {
       const over = await start(auth, `capped-over-${stamp}@example.com`).expect(429);
       expect(over.body.code).toBe("RATE_LIMITED");
       expect(emailsSent() - before).toBe(EMAIL_CHANGE_RATE_LIMIT.limit);
+    });
+
+    it("stops guessing the current password after a few wrong ones, counted across the forms that ask for it", async () => {
+      const id = await signUpVerified(emails.guesser);
+      const auth = `Bearer ${await tokenFor(id, emails.guesser)}`;
+      await waitForLimiter(app);
+      const wrong = [
+        () => api().post("/me/password").set("Authorization", auth).send({ currentPassword: "wrong-1", newPassword: "changed-pass1", confirmPassword: "changed-pass1" }),
+        () => api().post("/me/email/start").set("Authorization", auth).send({ newEmail: `guess-x-${stamp}@example.com`, password: "wrong-2" }),
+        () => api().post("/me/deletion/code").set("Authorization", auth).send({ password: "wrong-3" }),
+      ];
+      // Simultaneous guesses are all counted.
+      const answers = await Promise.all(Array.from({ length: CURRENT_PASSWORD_RATE_LIMIT.limit + 3 }, (_, i) => wrong[i % 3]!()));
+      expect(answers.filter((r) => r.status === 403)).toHaveLength(CURRENT_PASSWORD_RATE_LIMIT.limit);
+      expect(answers.filter((r) => r.status === 429)).toHaveLength(3);
+      // Even the right password is refused until the window passes.
+      const over = await api().post("/me/password").set("Authorization", auth).send({ currentPassword: password, newPassword: "changed-pass1", confirmPassword: "changed-pass1" }).expect(429);
+      expect(over.body.code).toBe("RATE_LIMITED");
+    });
+
+    it("clears the count of wrong current passwords when the right one is given", async () => {
+      const id = await signUpVerified(emails.corrected);
+      const auth = `Bearer ${await tokenFor(id, emails.corrected)}`;
+      await waitForLimiter(app);
+      const start = (pw: string) => api().post("/me/email/start").set("Authorization", auth).send({ newEmail: emails.corrected, password: pw });
+      for (let i = 0; i < CURRENT_PASSWORD_RATE_LIMIT.limit - 1; i++) await start("wrong").expect(403);
+      await start(password).expect(400); // the password is right; the address is already theirs
+      for (let i = 0; i < CURRENT_PASSWORD_RATE_LIMIT.limit; i++) await start("wrong").expect(403);
+      await start("wrong").expect(429);
     });
   });
 });

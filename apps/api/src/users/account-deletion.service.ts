@@ -5,8 +5,7 @@ import {
   type DeletionBlocker,
   type StartAccountDeletionInput,
 } from "@auction/shared";
-import { ConflictException, ForbiddenException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, UnauthorizedException } from "@nestjs/common";
-import bcrypt from "bcryptjs";
+import { ConflictException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, UnauthorizedException } from "@nestjs/common";
 import { Prisma as PrismaRuntime } from "@auction/db";
 import { AuctionCloseService } from "../auctions/auction-close.service";
 import { CODE_TTL_MS, generateCode, hashCode, MAX_CODE_ATTEMPTS, sameHash } from "../auth/codes";
@@ -15,6 +14,7 @@ import { PRISMA, type Prisma } from "../db/db.module";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
 import { runEvery } from "../jobs/sweep-support";
 import { RATE_LIMITER, type RateLimiter } from "../rate-limit/rate-limiter";
+import { requirePassword } from "./require-password";
 import { SEARCH_INDEX, type SearchIndex } from "../search/search-index";
 import { emailFingerprint } from "./email-fingerprint";
 
@@ -236,10 +236,7 @@ export class AccountDeletionService implements OnModuleInit, OnModuleDestroy {
     if (blockers.length > 0) throw new ConflictException({ code: "DELETION_BLOCKED", message: "Some things have to finish before this account can be deleted.", blockers });
   }
 
-  private async requirePassword(userId: string, password: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new UnauthorizedException();
-    if (!(await bcrypt.compare(password, user.passwordHash))) throw new ForbiddenException("Incorrect password");
-    return user;
+  private requirePassword(userId: string, password: string) {
+    return requirePassword(this.prisma, this.limiter, userId, password);
   }
 }
