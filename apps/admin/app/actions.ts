@@ -5,6 +5,7 @@ import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
 import { signIn, signOut } from "@/auth";
 import { apiFetch } from "@/lib/api";
+import { noViewerIpHeaders } from "@/lib/viewer-ip";
 
 export interface FormState {
   error?: string;
@@ -14,7 +15,7 @@ export interface FormState {
 export async function signInAction(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = signInSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Enter your email and password." };
-  const res = await apiFetch("/auth/login/start", { method: "POST", body: JSON.stringify(parsed.data) });
+  const res = await apiFetch("/auth/login/start", { method: "POST", body: JSON.stringify(parsed.data), headers: noViewerIpHeaders() });
   if (res.status === 401) return { error: "Invalid email or password." };
   if (res.status === 403) return { error: "This account has been suspended." };
   if (res.status === 429) {

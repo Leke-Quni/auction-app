@@ -16,7 +16,7 @@ import {
 import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import bcrypt from "bcryptjs";
 import { createHash, randomBytes } from "node:crypto";
-import { loginCodeCooldownSeconds, webUrl } from "../config";
+import { authIpLimitOverride, loginCodeCooldownSeconds, webUrl } from "../config";
 import { conflict, isUniqueViolation } from "../common/errors";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
@@ -47,7 +47,7 @@ export class AuthService {
   // Counts one attempt per email and, when the visitor's address is known, per address. Runs before any password hashing or
   // lookup, so a flood costs almost nothing. Returns false when either limit is passed.
   private async withinLimits(name: string, email: string, ip: string | null, perEmail: { limit: number; windowSeconds: number }, perIp: { limit: number; windowSeconds: number }) {
-    if (ip && !(await this.limiter.allow(`rl:${name}-ip:${ip}`, perIp.limit, perIp.windowSeconds))) return false;
+    if (ip && !(await this.limiter.allow(`rl:${name}-ip:${ip}`, authIpLimitOverride() || perIp.limit, perIp.windowSeconds))) return false;
     return this.limiter.allow(`rl:${name}:${email}`, perEmail.limit, perEmail.windowSeconds);
   }
 
@@ -182,7 +182,7 @@ export class AuthService {
   async forgotPassword(input: ForgotPasswordInput, ip: string | null = null) {
     const email = input.email.toLowerCase();
     // Too many from one address is refused. Too many for one email is answered like success, so it does not show the email has an account.
-    if (ip && !(await this.limiter.allow(`rl:forgot-ip:${ip}`, FORGOT_PASSWORD_IP_RATE_LIMIT.limit, FORGOT_PASSWORD_IP_RATE_LIMIT.windowSeconds))) throw this.tooMany();
+    if (ip && !(await this.limiter.allow(`rl:forgot-ip:${ip}`, authIpLimitOverride() || FORGOT_PASSWORD_IP_RATE_LIMIT.limit, FORGOT_PASSWORD_IP_RATE_LIMIT.windowSeconds))) throw this.tooMany();
     if (!(await this.limiter.allow(`rl:forgot:${email}`, FORGOT_PASSWORD_RATE_LIMIT.limit, FORGOT_PASSWORD_RATE_LIMIT.windowSeconds))) return;
     // The caller gets the same answer whether or not the email has an account.
     const user = await this.prisma.user.findUnique({ where: { email } });

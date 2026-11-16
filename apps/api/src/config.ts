@@ -26,6 +26,10 @@ const intFromEnv = (name: string, fallback: number) => {
 // Bid attempts allowed per minute, counting refused ones too. Read on every call so tests can change them.
 export const bidLimits = () => ({ perUser: intFromEnv("BID_LIMIT_USER", 10), perIp: intFromEnv("BID_LIMIT_IP", 30) });
 
+// Lifts the per-address limits on sign-in, sign-up and forgot-password to this many when set (0 or unset keeps the defaults). Tests call
+// from one address, so they lift it; the rate-limit tests set their own. Read on every call.
+export const authIpLimitOverride = () => intFromEnv("AUTH_LIMIT_IP", 0);
+
 // How many proxies sit in front of the API and may be believed about the caller's address (Fly's proxy is one).
 export const trustedProxies = () => intFromEnv("TRUST_PROXY", 0);
 

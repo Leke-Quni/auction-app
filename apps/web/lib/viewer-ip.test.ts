@@ -26,14 +26,16 @@ describe("viewerIpHeaders", () => {
     });
   });
 
+  const noAddress = () => ({ "x-viewer-ip": "", "x-viewer-ip-signature": createHmac("sha256", "x".repeat(40)).update("").digest("hex") });
+
   it("ignores x-forwarded-for, which the client can set to anything", async () => {
     incoming.headers.set("x-forwarded-for", "198.51.100.4, 10.0.0.1");
-    expect(await viewerIpHeaders()).toEqual({});
+    expect(await viewerIpHeaders()).toEqual(noAddress());
   });
 
-  it("sends nothing when there is no address or no request to read", async () => {
-    expect(await viewerIpHeaders()).toEqual({});
+  it("signs an empty address when there is no address or no request to read", async () => {
+    expect(await viewerIpHeaders()).toEqual(noAddress());
     incoming.fail = true;
-    expect(await viewerIpHeaders()).toEqual({});
+    expect(await viewerIpHeaders()).toEqual(noAddress());
   });
 });
