@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Select } from "./select";
 import { pick, valueOf } from "./select-test-helpers";
 
@@ -11,7 +11,15 @@ const options = [
   { value: "d", label: "Citrus" },
 ];
 
+// jsdom has no scrolling; moving through an open list scrolls the active option into view.
+const scroll = vi.fn();
+beforeEach(() => {
+  scroll.mockClear();
+  Element.prototype.scrollIntoView = scroll;
+});
 afterEach(cleanup);
+
+const activeLabel = (box: HTMLElement) => document.getElementById(box.getAttribute("aria-activedescendant") ?? "")?.textContent;
 
 describe("Select", () => {
   it("shows the placeholder until something is chosen, then the choice, and sends it with the form", () => {
@@ -75,5 +83,35 @@ describe("Select", () => {
     expect(screen.getByRole("combobox").textContent).toBe("Apple");
     rerender(<Select aria-label="Fruit" options={options} value="d" onChange={() => {}} />);
     expect(screen.getByRole("combobox").textContent).toBe("Citrus");
+  });
+
+  it("Home and End jump to the first and last option that can be picked while the list is open", () => {
+    render(<Select aria-label="Fruit" options={[{ value: "x", label: "Grape", disabled: true }, ...options, { value: "y", label: "Lime", disabled: true }]} />);
+    const box = screen.getByRole("combobox");
+    fireEvent.keyDown(box, { key: "Home" }); // closed: nothing happens
+    expect(screen.queryByRole("listbox")).toBeNull();
+    fireEvent.click(box);
+    fireEvent.keyDown(box, { key: "End" });
+    expect(activeLabel(box)).toBe("Citrus");
+    fireEvent.keyDown(box, { key: "Home" });
+    expect(activeLabel(box)).toBe("Apple");
+    expect(scroll).toHaveBeenCalledWith({ block: "nearest" });
+  });
+
+  it("typing while the list is open jumps to the match, a second letter narrows it, and after a pause a letter moves on", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    render(<Select aria-label="Fruit" options={options} />);
+    const box = screen.getByRole("combobox");
+    fireEvent.keyDown(box, { key: "ArrowDown" });
+    expect(activeLabel(box)).toBe("Apple");
+    fireEvent.keyDown(box, { key: "c" });
+    expect(activeLabel(box)).toBe("Cherry");
+    fireEvent.keyDown(box, { key: "i" });
+    expect(activeLabel(box)).toBe("Citrus");
+    now.mockReturnValue(12_000);
+    fireEvent.keyDown(box, { key: "c" }); // a new word: the next "c" after Citrus, around to Cherry
+    expect(activeLabel(box)).toBe("Cherry");
+    expect(screen.getByRole("listbox")).toBeTruthy();
+    now.mockRestore();
   });
 });

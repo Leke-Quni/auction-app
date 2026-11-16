@@ -81,7 +81,8 @@ test("a bid below the leader's hidden maximum is defended, a higher maximum take
     await signUp(challengerPage, challenger);
     await challengerPage.goto(`/listings/${defended.listingId}`);
     await bid(challengerPage, "20");
-    await expect(challengerPage.getByText("Someone has a higher maximum. The price is now €21.00.")).toBeVisible();
+    await expect(challengerPage.getByText("You are not the highest bidder.")).toBeVisible();
+    await expect(challengerPage.getByText("Your maximum of €20.00 has been beaten and the price is now €21.00. Raise your maximum to get back in front.")).toBeVisible();
     await expect(challengerPage.getByRole("button", { name: "Raise your maximum" })).toBeVisible();
 
     // The leader's page follows live, is not told they were outbid, and no longer quotes the old price.
