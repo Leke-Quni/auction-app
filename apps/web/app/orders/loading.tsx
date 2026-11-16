@@ -1,5 +1,5 @@
-import { ListPageSkeleton } from "../skeleton";
+import { OrdersSkeleton } from "../skeleton";
 
 export default function Loading() {
-  return <ListPageSkeleton />;
+  return <OrdersSkeleton />;
 }

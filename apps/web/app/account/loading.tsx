@@ -1,5 +1,5 @@
-import { NarrowPageSkeleton } from "../skeleton";
+import { AccountSkeleton } from "../skeleton";
 
 export default function Loading() {
-  return <NarrowPageSkeleton width="max-w-sm" fields={4} />;
+  return <AccountSkeleton />;
 }

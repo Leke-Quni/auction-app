@@ -1,5 +1,5 @@
-import { NarrowPageSkeleton } from "../../skeleton";
+import { ListingFormSkeleton } from "../../skeleton";
 
 export default function Loading() {
-  return <NarrowPageSkeleton fields={6} />;
+  return <ListingFormSkeleton head="intro" />;
 }

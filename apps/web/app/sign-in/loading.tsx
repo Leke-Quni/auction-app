@@ -1,5 +1,5 @@
-import { NarrowPageSkeleton } from "../skeleton";
+import { FormCardSkeleton } from "../skeleton";
 
 export default function Loading() {
-  return <NarrowPageSkeleton width="max-w-sm" fields={2} />;
+  return <FormCardSkeleton title="lg" fields={[0, 0]} labels={false} forgot fullButton footer wrapped />;
 }

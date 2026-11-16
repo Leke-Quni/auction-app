@@ -1,5 +1,5 @@
-import { NarrowPageSkeleton } from "../skeleton";
+import { SupportSkeleton } from "../skeleton";
 
 export default function Loading() {
-  return <NarrowPageSkeleton fields={3} />;
+  return <SupportSkeleton />;
 }
