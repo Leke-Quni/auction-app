@@ -158,6 +158,7 @@ export class BidsService {
           // The leader and what they have typed. A leader with no stored maximum (a bid from before proxy bidding) holds only their price.
           const price = listing.currentBidCents;
           let leader: { bidderId: string; maxCents: number } | null = null;
+          let blockedLeader = false;
           if (listing.highBidderId && price !== null) {
             const held = await tx.autoBid.findUnique({ where: { listingId_bidderId: { listingId, bidderId: listing.highBidderId } }, select: { maxCents: true } });
             let maxCents = Math.max(held?.maxCents ?? price, price);
@@ -167,7 +168,10 @@ export class BidsService {
               const [{ blocked }] = await tx.$queryRaw<{ blocked: boolean }[]>`
                 SELECT (u."bannedAt" IS NOT NULL OR u."deletionRequestedAt" IS NOT NULL OR (SELECT COUNT(*) FROM "Strike" s WHERE s."userId" = u."id") >= ${MAX_STRIKES}) AS "blocked"
                 FROM "User" u WHERE u."id" = ${listing.highBidderId}`;
-              if (blocked) maxCents = price;
+              if (blocked) {
+                maxCents = price;
+                blockedLeader = true;
+              }
             }
             leader = { bidderId: listing.highBidderId, maxCents };
           }
@@ -212,6 +216,11 @@ export class BidsService {
             if (row.kind !== "RAISE") visible.push(view);
           }
           if (!own) throw new Error("A bid request produced no row of its own");
+          // A blocked leader who is overtaken keeps, as their maximum, only the price they reached: if they may bid again later, an old
+          // maximum must not come back and start defending above what they then type.
+          if (blockedLeader && resolved.leaderId !== listing.highBidderId) {
+            await tx.autoBid.update({ where: { listingId_bidderId: { listingId, bidderId: listing.highBidderId! } }, data: { maxCents: price!, updatedAt: now } });
+          }
           // The bidder's maximum only ever rises.
           const [{ maxCents: yourMaxCents }] = await tx.$queryRaw<{ maxCents: number }[]>`
             INSERT INTO "AutoBid" ("listingId", "bidderId", "maxCents", "updatedAt") VALUES (${listingId}, ${bidderId}, ${input.amountCents}, ${now})

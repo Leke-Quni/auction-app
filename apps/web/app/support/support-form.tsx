@@ -3,6 +3,7 @@
 import type { SupportStrike } from "@auction/shared";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
+import { Select } from "../select";
 import { sendSupportAction, type SupportState } from "./actions";
 
 const when = (iso: string) => new Date(iso).toISOString().slice(0, 10);
@@ -51,14 +52,18 @@ export function SupportForm({ strikes, startWithAppeal, waiting, email }: { stri
       {kind === "STRIKE_APPEAL" && (
         <label className="block">
           <span className="text-xs text-muted">Which strike?</span>
-          <select name="strikeId" required value={chosen?.id ?? ""} onChange={(e) => setStrikeId(e.target.value)} className="mt-1 w-full border border-field bg-surface p-1.5 text-sm">
-            {strikes.map((s) => (
-              <option key={s.id} value={s.id} disabled={s.appealed}>
-                {when(s.createdAt)}: {s.givenByAdmin ? `given by an admin${s.reason ? ` (${s.reason.slice(0, 60)})` : ""}` : `did not pay for ${s.listingTitle ?? "an auction"}`}
-                {s.appealed ? " - appeal sent" : ""}
-              </option>
-            ))}
-          </select>
+          <Select
+            name="strikeId"
+            required
+            value={chosen?.id ?? ""}
+            onChange={setStrikeId}
+            className="mt-1 w-full border border-field bg-surface p-1.5 text-sm"
+            options={strikes.map((s) => ({
+              value: s.id,
+              disabled: s.appealed,
+              label: `${when(s.createdAt)}: ${s.givenByAdmin ? `given by an admin${s.reason ? ` (${s.reason.slice(0, 60)})` : ""}` : `did not pay for ${s.listingTitle ?? "an auction"}`}${s.appealed ? " - appeal sent" : ""}`,
+            }))}
+          />
           {chosen && (
             <div className="mt-2 space-y-1 border border-line bg-soft p-2 text-sm" data-testid="strike-details">
               <p className="font-bold">The strike you are appealing</p>

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { SEARCH_SORT_LABELS } from "@auction/shared";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -8,6 +9,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(nav.search),
 }));
 
+import { pick, valueOf } from "../select-test-helpers";
 import { SortSelect } from "./sort-select";
 
 afterEach(() => {
@@ -24,7 +26,7 @@ describe("SortSelect", () => {
         <SortSelect defaultValue="newest" />
       </label>,
     );
-    fireEvent.change(screen.getByLabelText("Sort by"), { target: { value: "priceAsc" } });
+    pick(screen.getByLabelText("Sort by"), SEARCH_SORT_LABELS.priceAsc);
     expect(nav.push).toHaveBeenCalledTimes(1);
     expect(nav.push).toHaveBeenCalledWith("/search?q=watch&category=art&sort=priceAsc");
   });
@@ -51,7 +53,7 @@ describe("SortSelect", () => {
       </form>,
     );
     fireEvent.change(screen.getByLabelText("Condition"), { target: { value: "GOOD" } });
-    fireEvent.change(screen.getByLabelText("Sort by"), { target: { value: "priceAsc" } });
+    pick(screen.getByLabelText("Sort by"), SEARCH_SORT_LABELS.priceAsc);
     expect(submitted).toEqual([{ q: "watch", condition: "GOOD", sort: "priceAsc" }]);
     expect(nav.push).not.toHaveBeenCalled();
   });
@@ -59,6 +61,6 @@ describe("SortSelect", () => {
   it("starts on the sort it is given", () => {
     nav.search = "";
     render(<SortSelect defaultValue="endingSoon" />);
-    expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("endingSoon");
+    expect(valueOf(screen.getByRole("combobox"))).toBe("endingSoon");
   });
 });

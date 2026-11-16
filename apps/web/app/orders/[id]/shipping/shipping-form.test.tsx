@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const saveShippingAndPayAction = vi.fn();
 vi.mock("../../actions", () => ({ saveShippingAndPayAction: (...args: unknown[]) => saveShippingAndPayAction(...args) }));
 
+import { pick, valueOf } from "../../../select-test-helpers";
 import { ShippingForm } from "./shipping-form";
 
 const options = [
@@ -18,7 +19,7 @@ const fill = () => {
   set(/street address/i, "Rr. Nene Tereza 1");
   set(/city/i, "Prishtina");
   set(/postcode/i, "10000");
-  set("Country", "XK");
+  pick(screen.getByLabelText("Country"), "Kosovo");
   fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "44 111 222" } });
 };
 
@@ -38,7 +39,7 @@ describe("ShippingForm", () => {
     render(<ShippingForm orderId="o1" amountCents={3150} options={options} saved={{ name: "Ada Buyer", line1: "Rr. Nene Tereza 1", city: "Prishtina", postcode: "10000", country: "XK", phone: "+38344111222" }} savedOptionId="express" savedTrackingEmails={false} />);
     expect((screen.getByLabelText(/Express/) as HTMLInputElement).checked).toBe(true);
     expect((screen.getByLabelText(/street address/i) as HTMLInputElement).value).toBe("Rr. Nene Tereza 1");
-    expect((screen.getByLabelText("Phone country code") as HTMLSelectElement).value).toBe("383");
+    expect(valueOf(screen.getByLabelText("Phone country code"))).toBe("383");
     expect((screen.getByLabelText("Phone number") as HTMLInputElement).value).toBe("44111222");
   });
 
@@ -62,14 +63,14 @@ describe("ShippingForm", () => {
 
   it("fills the phone prefix from the chosen country until the person picks a code themselves", () => {
     render(<ShippingForm orderId="o1" amountCents={3150} options={options} saved={null} savedOptionId={null} savedTrackingEmails={false} />);
-    const code = () => (screen.getByLabelText("Phone country code") as HTMLSelectElement).value;
+    const code = () => valueOf(screen.getByLabelText("Phone country code"));
     expect(code()).toBe("1"); // +1 to start with
-    fireEvent.change(screen.getByLabelText("Country"), { target: { value: "AL" } });
+    pick(screen.getByLabelText("Country"), "Albania");
     expect(code()).toBe("355");
-    fireEvent.change(screen.getByLabelText("Country"), { target: { value: "MK" } });
+    pick(screen.getByLabelText("Country"), "North Macedonia");
     expect(code()).toBe("389");
-    fireEvent.change(screen.getByLabelText("Phone country code"), { target: { value: "49" } }); // a German number
-    fireEvent.change(screen.getByLabelText("Country"), { target: { value: "XK" } });
+    pick(screen.getByLabelText("Phone country code"), /\+49$/); // a German number
+    pick(screen.getByLabelText("Country"), "Kosovo");
     expect(code()).toBe("49"); // their choice stays
   });
 
@@ -82,7 +83,8 @@ describe("ShippingForm", () => {
 
   it("lists each code as a flag and the code, without country names or help text", () => {
     render(<ShippingForm orderId="o1" amountCents={3150} options={options} saved={null} savedOptionId={null} savedTrackingEmails={false} />);
-    const labels = Array.from((screen.getByLabelText("Phone country code") as HTMLSelectElement).options).map((o) => o.textContent);
+    fireEvent.click(screen.getByLabelText("Phone country code"));
+    const labels = within(screen.getByRole("listbox")).getAllByRole("option").map((o) => o.textContent);
     expect(labels[0]).toBe("\u{1F1FA}\u{1F1F8} +1");
     expect(labels).toContain("\u{1F1E6}\u{1F1F1} +355");
     expect(labels).toContain("\u{1F1FD}\u{1F1F0} +383");

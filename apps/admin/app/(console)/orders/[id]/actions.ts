@@ -20,7 +20,8 @@ export async function addOrderNoteAction(_: NoteState, formData: FormData): Prom
   const body = String(formData.get("body") ?? "").trim();
   if (!body) return { error: "Write a note." };
   if (body.length > ORDER_NOTE_MAX) return { error: `A note is at most ${ORDER_NOTE_MAX} characters.` };
-  const res = await adminApiFetch(`/admin/orders/${encodeURIComponent(id)}/notes`, { method: "POST", body: JSON.stringify({ body }) });
+  const res = await adminApiFetch(`/admin/orders/${encodeURIComponent(id)}/notes`, { method: "POST", body: JSON.stringify({ body }) }).catch(() => null);
+  if (!res) return { error: "Could not reach the server. Try again." };
   if (res.status === 404) return { error: "That order no longer exists." };
   if (!res.ok) return { error: "Something went wrong. Try again." };
   revalidatePath(`/orders/${id}`);
@@ -36,7 +37,8 @@ export async function resendOrderEmailAction(_: ResendState, formData: FormData)
   await requireAdmin();
   const id = String(formData.get("id") ?? "");
   const kind = String(formData.get("kind") ?? "");
-  const res = await adminApiFetch(`/admin/orders/${encodeURIComponent(id)}/resend`, { method: "POST", body: JSON.stringify({ kind }) });
+  const res = await adminApiFetch(`/admin/orders/${encodeURIComponent(id)}/resend`, { method: "POST", body: JSON.stringify({ kind }) }).catch(() => null);
+  if (!res) return { error: "Could not reach the server. Try again." };
   revalidatePath(`/orders/${id}`);
   if (res.ok) return { ok: "Sent again. It goes out within a moment." };
   if (res.status === 404) return { error: "That order no longer exists." };

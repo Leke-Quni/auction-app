@@ -141,3 +141,6 @@ export const SIGN_UP_RATE_LIMIT = { limit: 5, windowSeconds: 3600 } as const;
 export const SIGN_UP_IP_RATE_LIMIT = { limit: 10, windowSeconds: 3600 } as const;
 export const FORGOT_PASSWORD_RATE_LIMIT = { limit: 3, windowSeconds: 3600 } as const;
 export const FORGOT_PASSWORD_IP_RATE_LIMIT = { limit: 10, windowSeconds: 3600 } as const;
+// Wrong current passwords on the signed-in forms that ask for it (change password or email, delete the account), per account and counted
+// together, so a stolen session cannot be used to guess the password.
+export const CURRENT_PASSWORD_RATE_LIMIT = { limit: 5, windowSeconds: 900 } as const;

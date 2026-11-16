@@ -262,7 +262,7 @@ describe("proxy bidding", () => {
   });
 
   // A leader who may no longer bid must not keep bidding by themselves: their maximum stops defending and they count as a plain bid
-  // at the price they reached (what they typed stays on record).
+  // at the price they reached. Once overtaken, that price becomes their stored maximum (what they typed stays on their bid row).
   describe("a leader who may not defend", () => {
     // A leads at €10.00 with a hidden maximum of €50.00; B then types €20.00, which a defending leader would beat at once.
     const setup = async () => {
@@ -279,8 +279,8 @@ describe("proxy bidding", () => {
         { who: a.username, kind: "BID", amount: 1000, max: 5000, outcome: "LEADING" },
         { who: b.username, kind: "BID", amount: 1100, max: 2000, outcome: "LEADING" },
       ]);
-      // What A typed stays on record; it just is not used.
-      expect((await prisma.autoBid.findUniqueOrThrow({ where: { listingId_bidderId: { listingId, bidderId: a.id } } })).maxCents).toBe(5000);
+      // What A typed stays on their bid row; their stored maximum is cut to the price they reached.
+      expect((await prisma.autoBid.findUniqueOrThrow({ where: { listingId_bidderId: { listingId, bidderId: a.id } } })).maxCents).toBe(1000);
     };
 
     it("stops defending once banned", async () => {
@@ -306,6 +306,28 @@ describe("proxy bidding", () => {
       await prisma.strike.create({ data: { userId: a.id, listingId: `gone_${stamp}_${counter}_x`, orderId: `order_${stamp}_${counter}_x` } });
       const res = (await bid(b, listing.id, 2000).expect(201)).body;
       expect(res).toMatchObject({ outcome: "OUTBID_BY_PROXY", previousHighBidderId: null, listing: { currentBidCents: 2100, highBidderId: a.id } });
+    });
+
+    it("does not bring the old maximum back when a leader overtaken while banned is restored and bids again", async () => {
+      const { a, b, listing } = await setup();
+      await prisma.user.update({ where: { id: a.id }, data: { bannedAt: new Date(), banReason: "Test" } });
+      await takenOver(listing.id, a, b);
+      await prisma.user.update({ where: { id: a.id }, data: { bannedAt: null, banReason: null } });
+      // A types €25.00, above B's €20.00: A leads one step above B's maximum, and €25.00 is now A's maximum, not the old €50.00.
+      const back = (await bid(a, listing.id, 2500).expect(201)).body;
+      expect(back).toMatchObject({ outcome: "LEADING", yourMaxCents: 2500, listing: { currentBidCents: 2100, highBidderId: a.id } });
+      // A challenger at €40.00 beats €25.00; with the old maximum A would have defended up to €50.00.
+      const [c] = await makePeople(1);
+      const res = (await bid(c!, listing.id, 4000).expect(201)).body;
+      expect(res).toMatchObject({ outcome: "LEADING", previousHighBidderId: a.id, listing: { highBidderId: c!.id, currentBidCents: 2625 } });
+      expect((await prisma.autoBid.findUniqueOrThrow({ where: { listingId_bidderId: { listingId: listing.id, bidderId: a.id } } })).maxCents).toBe(2500);
+    });
+
+    it("keeps the maximum of a blocked leader nobody has overtaken", async () => {
+      const { a, b, listing } = await setup();
+      await prisma.user.update({ where: { id: a.id }, data: { bannedAt: new Date(), banReason: "Test" } });
+      await bid(b, listing.id, 1000).expect(422); // below the minimum: refused, and nothing changes
+      expect((await prisma.autoBid.findUniqueOrThrow({ where: { listingId_bidderId: { listingId: listing.id, bidderId: a.id } } })).maxCents).toBe(5000);
     });
 
     it("does not touch a leader whose maximum is only their price, however they stand", async () => {

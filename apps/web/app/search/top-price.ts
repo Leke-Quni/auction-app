@@ -4,7 +4,9 @@ import { apiFetch, rarelyChanging } from "@/lib/api";
 export async function loadTopPriceCents(): Promise<number | undefined> {
   try {
     const res = await apiFetch("/search?sort=priceDesc&pageSize=1", rarelyChanging(60));
-    return res.ok ? (await res.json()).items[0]?.startingPriceCents : undefined;
+    if (!res.ok) return undefined;
+    const top = (await res.json()).items[0];
+    return top ? (top.currentBidCents ?? top.startingPriceCents) : undefined;
   } catch {
     return undefined;
   }

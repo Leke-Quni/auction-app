@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { startTransition, useActionState, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { AddressFields } from "../address-fields";
+import { Select } from "../select";
 import { saveListingAction } from "./actions";
 import { useUnsavedChanges } from "../use-unsaved-changes";
 
@@ -256,30 +257,12 @@ export function ListingForm({
               <div className="grid grid-cols-2 gap-2">
                 <label className="block">
                   <span className={label}>Category</span>
-                  <select key={listing?.categoryId} name="categoryId" required defaultValue={listing?.categoryId ?? ""} className={input}>
-                    <option value="" disabled>
-                      Choose…
-                    </option>
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+                  <Select key={listing?.categoryId} name="categoryId" required defaultValue={listing?.categoryId ?? ""} className={input} options={categories.map((c) => ({ value: c.id, label: c.name }))} />
                   {errorFor("categoryId")}
                 </label>
                 <label className="block">
                   <span className={label}>Condition</span>
-                  <select key={listing?.condition} name="condition" required defaultValue={listing?.condition ?? ""} className={input}>
-                    <option value="" disabled>
-                      Choose…
-                    </option>
-                    {LISTING_CONDITIONS.map((c) => (
-                      <option key={c} value={c}>
-                        {CONDITION_LABELS[c]}
-                      </option>
-                    ))}
-                  </select>
+                  <Select key={listing?.condition} name="condition" required defaultValue={listing?.condition ?? ""} className={input} options={LISTING_CONDITIONS.map((c) => ({ value: c, label: CONDITION_LABELS[c] }))} />
                   {errorFor("condition")}
                 </label>
               </div>
@@ -316,13 +299,7 @@ export function ListingForm({
                 </label>
                 <label className="block">
                   <span className={label}>Duration</span>
-                  <select key={listing?.durationDays} name="durationDays" required defaultValue={listing?.durationDays ?? 7} className={input}>
-                    {AUCTION_DURATIONS.map((d) => (
-                      <option key={d} value={d}>
-                        {formatDuration(d)}
-                      </option>
-                    ))}
-                  </select>
+                  <Select key={listing?.durationDays} name="durationDays" required defaultValue={String(listing?.durationDays ?? 7)} className={input} options={AUCTION_DURATIONS.map((d) => ({ value: String(d), label: formatDuration(d) }))} />
                 </label>
               </div>
               <p className="text-xs text-muted">The reserve price is shown to bidders. If it is not met, the item does not sell.</p>

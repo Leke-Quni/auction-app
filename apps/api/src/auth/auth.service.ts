@@ -16,7 +16,7 @@ import {
 import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import bcrypt from "bcryptjs";
 import { createHash, randomBytes } from "node:crypto";
-import { loginCodeCooldownSeconds, webUrl } from "../config";
+import { authIpLimitOverride, loginCodeCooldownSeconds, webUrl } from "../config";
 import { conflict, isUniqueViolation } from "../common/errors";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
@@ -47,7 +47,7 @@ export class AuthService {
   // Counts one attempt per email and, when the visitor's address is known, per address. Runs before any password hashing or
   // lookup, so a flood costs almost nothing. Returns false when either limit is passed.
   private async withinLimits(name: string, email: string, ip: string | null, perEmail: { limit: number; windowSeconds: number }, perIp: { limit: number; windowSeconds: number }) {
-    if (ip && !(await this.limiter.allow(`rl:${name}-ip:${ip}`, perIp.limit, perIp.windowSeconds))) return false;
+    if (ip && !(await this.limiter.allow(`rl:${name}-ip:${ip}`, authIpLimitOverride() || perIp.limit, perIp.windowSeconds))) return false;
     return this.limiter.allow(`rl:${name}:${email}`, perEmail.limit, perEmail.windowSeconds);
   }
 
@@ -115,27 +115,41 @@ export class AuthService {
   }
 
   // A new code for someone who is partway through signing in, who has not got the first or let it expire. There is no password
-  // here, so it sends only to an account whose password step passed in the last RESEND_WINDOW, at most MAX_RESENDS times per
+  // here, so it sends only to an account whose password step passed in the last RESEND_WINDOW (`passwordAt`), at most MAX_RESENDS times per
   // sign-in and once per cooldown, and it answers the same whether or not it sent anything: it cannot be used to find out who
   // has an account, and it can only ever write to the account's own inbox.
   async resendLoginCode(input: ResendLoginCodeInput) {
     const user = await this.prisma.user.findUnique({ where: { email: input.email.toLowerCase() } });
     if (!user || user.bannedAt) return;
-    const latest = await this.prisma.loginCode.findFirst({ where: { userId: user.id }, orderBy: { createdAt: "desc" } });
-    if (!latest || latest.resends >= MAX_CODE_RESENDS || Date.now() - latest.createdAt.getTime() > RESEND_WINDOW_MS) return;
-    if (Date.now() - latest.createdAt.getTime() < loginCodeCooldownSeconds() * 1000) return;
-    await this.sendLoginCode(user, latest.resends + 1);
+    const latest = await this.prisma.loginCode.findFirst({ where: { userId: user.id }, orderBy: { createdAt: "desc" }, select: { id: true } });
+    if (!latest) return;
+    const now = Date.now();
+    const code = generateCode();
+    // The checks and the new code are one guarded update of the row, so simultaneous requests cannot all pass the cooldown or the cap:
+    // the first one renews `createdAt` and counts the resend, and the others no longer match.
+    const { count } = await this.prisma.loginCode.updateMany({
+      where: {
+        id: latest.id,
+        resends: { lt: MAX_CODE_RESENDS },
+        passwordAt: { gte: new Date(now - RESEND_WINDOW_MS) },
+        createdAt: { lte: new Date(now - loginCodeCooldownSeconds() * 1000) },
+      },
+      data: { codeHash: hashCode(loginScope(user.id), code), expiresAt: new Date(now + CODE_TTL_MS), attempts: 0, resends: { increment: 1 }, createdAt: new Date(now) },
+    });
+    if (count === 1) await this.mailCode(user.email, code);
   }
 
-  private async sendLoginCode(user: { id: string; email: string }, resends = 0) {
+  private async sendLoginCode(user: { id: string; email: string }) {
     const code = generateCode();
     await this.prisma.$transaction([
       this.prisma.loginCode.deleteMany({ where: { userId: user.id } }),
-      this.prisma.loginCode.create({
-        data: { userId: user.id, codeHash: hashCode(loginScope(user.id), code), expiresAt: new Date(Date.now() + CODE_TTL_MS), resends },
-      }),
+      this.prisma.loginCode.create({ data: { userId: user.id, codeHash: hashCode(loginScope(user.id), code), expiresAt: new Date(Date.now() + CODE_TTL_MS) } }),
     ]);
-    await this.mail.send(user.email, "Your sign-in code", `Your sign-in code is ${code}. It expires in 10 minutes.`);
+    await this.mailCode(user.email, code);
+  }
+
+  private mailCode(email: string, code: string) {
+    return this.mail.send(email, "Your sign-in code", `Your sign-in code is ${code}. It expires in 10 minutes.`);
   }
 
   // Step 2: a correct code completes the sign-in and verifies the email.
@@ -168,7 +182,7 @@ export class AuthService {
   async forgotPassword(input: ForgotPasswordInput, ip: string | null = null) {
     const email = input.email.toLowerCase();
     // Too many from one address is refused. Too many for one email is answered like success, so it does not show the email has an account.
-    if (ip && !(await this.limiter.allow(`rl:forgot-ip:${ip}`, FORGOT_PASSWORD_IP_RATE_LIMIT.limit, FORGOT_PASSWORD_IP_RATE_LIMIT.windowSeconds))) throw this.tooMany();
+    if (ip && !(await this.limiter.allow(`rl:forgot-ip:${ip}`, authIpLimitOverride() || FORGOT_PASSWORD_IP_RATE_LIMIT.limit, FORGOT_PASSWORD_IP_RATE_LIMIT.windowSeconds))) throw this.tooMany();
     if (!(await this.limiter.allow(`rl:forgot:${email}`, FORGOT_PASSWORD_RATE_LIMIT.limit, FORGOT_PASSWORD_RATE_LIMIT.windowSeconds))) return;
     // The caller gets the same answer whether or not the email has an account.
     const user = await this.prisma.user.findUnique({ where: { email } });

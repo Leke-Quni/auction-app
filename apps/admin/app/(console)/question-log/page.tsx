@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { adminApiFetch } from "@/lib/api";
 import { requireAdmin } from "@/lib/require-admin";
+import { firstParam } from "@/lib/search-params";
 import { removeQuestionPostAction } from "./actions";
 import { RemoveButton } from "./remove-button";
 
@@ -35,13 +36,13 @@ function conversations(entries: Entry[]) {
   return [...listings.values()];
 }
 
-export default async function QuestionLog({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
+export default async function QuestionLog({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await requireAdmin();
   const params = await searchParams;
-  const q = (params.q ?? "").trim();
+  const q = firstParam(params.q).trim();
   const filtered = FILTERS.filter((k) => params[k]);
   const query = new URLSearchParams();
-  for (const key of FILTERS) if (params[key]) query.set(key, params[key]!);
+  for (const key of FILTERS) if (params[key]) query.set(key, firstParam(params[key]));
   if (q) query.set("q", q);
   const searching = q !== "" || filtered.length > 0;
   if (!searching) query.set("limit", String(RECENT));

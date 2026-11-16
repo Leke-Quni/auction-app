@@ -5,16 +5,20 @@ import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
 import { signIn, signOut } from "@/auth";
 import { apiFetch } from "@/lib/api";
+import { noViewerIpHeaders } from "@/lib/viewer-ip";
 
 export interface FormState {
   error?: string;
 }
 
+const UNREACHABLE = "Could not reach the server. Try again.";
+
 // Step 1: the password. The API emails a 6-digit code when it is right.
 export async function signInAction(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = signInSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Enter your email and password." };
-  const res = await apiFetch("/auth/login/start", { method: "POST", body: JSON.stringify(parsed.data) });
+  const res = await apiFetch("/auth/login/start", { method: "POST", body: JSON.stringify(parsed.data), headers: noViewerIpHeaders() }).catch(() => null);
+  if (!res) return { error: UNREACHABLE };
   if (res.status === 401) return { error: "Invalid email or password." };
   if (res.status === 403) return { error: "This account has been suspended." };
   if (res.status === 429) {
@@ -40,7 +44,8 @@ export async function verifyCodeAction(_: FormState, formData: FormData): Promis
 
 // "Send a new code" on the code page. The answer is the same whether or not a code went out, so the message is worded to match.
 export async function resendCodeAction(email: string): Promise<{ ok?: string; error?: string }> {
-  const res = await apiFetch("/auth/login/resend", { method: "POST", body: JSON.stringify({ email }) });
+  const res = await apiFetch("/auth/login/resend", { method: "POST", body: JSON.stringify({ email }) }).catch(() => null);
+  if (!res) return { error: UNREACHABLE };
   if (!res.ok) return { error: "Something went wrong. Try again." };
   return { ok: "If you signed in a moment ago, a new code is on its way. It replaces the old one." };
 }

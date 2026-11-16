@@ -15,7 +15,8 @@ export async function removeListingAction(_: RemoveState, formData: FormData): P
   const reason = String(formData.get("reason") ?? "").trim();
   if (!reason) return { error: "Give a reason. The seller sees it." };
   if (reason.length > 500) return { error: "The reason is at most 500 characters." };
-  const res = await adminApiFetch(`/admin/listings/${encodeURIComponent(id)}/remove`, { method: "POST", body: JSON.stringify({ reason }) });
+  const res = await adminApiFetch(`/admin/listings/${encodeURIComponent(id)}/remove`, { method: "POST", body: JSON.stringify({ reason }) }).catch(() => null);
+  if (!res) return { error: "Could not reach the server. Try again." };
   if (res.status === 409) {
     const body = await res.json().catch(() => null);
     revalidatePath(`/listings/${id}`);

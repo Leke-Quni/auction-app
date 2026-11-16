@@ -86,6 +86,14 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
         this.log.error(`Could not close session ${ref} of order ${orderId}: ${(error as Error).message}`);
       }
     }
+    // A payment that went through after the check above, before its page was closed, is kept and not punished (a completed
+    // session cannot be closed, and the provider does not say so). Asked once more now that no page can take another.
+    try {
+      if (await this.orders.settleIfPaid(orderId)) return null;
+    } catch (error) {
+      if (!giveUp && !(await this.longOverdue(orderId))) throw error;
+      this.log.error(`Could not check payments for order ${orderId} again after closing its checkout pages: ${(error as Error).message}`);
+    }
 
     let offered: { id: string; payBy: Date } | undefined;
     const result = await this.prisma.$transaction(async (tx) => {
@@ -152,6 +160,8 @@ export class OrderExpiryService implements OnModuleInit, OnModuleDestroy {
         AND EXISTS (SELECT 1 FROM "User" u WHERE u."id" = "Order"."sellerId" AND u."bannedAt" <= clock_timestamp() - ${SUSPENDED_ORDER_DAYS} * interval '1 day')`;
     if (due.length === 0) return false;
     for (const ref of new Set([...(due[0]!.paymentRef ? [due[0]!.paymentRef] : []), ...due[0]!.paymentRefs])) await this.payments.expireCheckout(ref);
+    // As in `expire`: a payment that went through before its page was closed is kept.
+    if (await this.orders.settleIfPaid(orderId)) return false;
     return this.prisma.$transaction(async (tx) => {
       const marked = await tx.$executeRaw`
         UPDATE "Order" SET "status" = 'CANCELLED', "updatedAt" = clock_timestamp()
