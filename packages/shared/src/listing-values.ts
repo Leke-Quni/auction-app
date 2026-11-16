@@ -38,6 +38,50 @@ export function formatEur(cents: number): string {
   return `€${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+export const PRICE_FILTER_HINT = "Use an amount (198 finds 198.00 to 198.99, 198.85 only that) or a range (10-50, 10- or -50).";
+export const COUNT_FILTER_HINT = "Use a whole number (3) or a range (1-5, 1- or -5).";
+export const COUNT_FILTER_MAX = 1_000_000;
+
+export type NumberRange = { min: number | null; max: number | null };
+
+// One amount (exact), a range "10-50", or an open one ("10-" and "-50"); the low end may not be above the high end, and a bound may
+// not be above `limit`. `one` reads a single bound.
+function parseRange(text: string, one: (part: string) => number | null, limit: number): NumberRange | null {
+  if (text.length === 0 || text.length > 30 || /\s/.test(text)) return null;
+  const parts = text.split("-");
+  if (parts.length > 2) return null;
+  const [low, high] = parts.length === 1 ? [parts[0], parts[0]] : parts;
+  if (parts.length === 2 && low === "" && high === "") return null;
+  const min = low === "" ? null : one(low);
+  const max = high === "" ? null : one(high);
+  if ((low !== "" && min === null) || (high !== "" && max === null)) return null;
+  if ((min !== null && min > limit) || (max !== null && max > limit)) return null;
+  if (min !== null && max !== null && min > max) return null;
+  return { min, max };
+}
+
+/**
+ * Reads a price search typed in an admin table, in euros with an optional € sign ("45", "10-50", "10-", "-50"). A single amount finds
+ * every price that starts with it: "198" is 198.00 to 198.99, "198.8" is 198.80 to 198.89, "198.85" is just that. A range uses its two
+ * ends as typed. Gives the bounds in cents (null = no bound), or null when it is not one of those, a bound is above `MAX_PRICE_CENTS`,
+ * or the low end is above the high end.
+ */
+export function parsePriceFilter(input: string): NumberRange | null {
+  // Spaces next to a dash or a € sign are fine ("10 - 50"); one between digits ("10 20") is not an amount.
+  const text = input.trim().replace(/\s*([-€])\s*/g, "$1").replace(/€/g, "");
+  const range = parseRange(text, eurosToCents, MAX_PRICE_CENTS);
+  if (!range || range.min === null || range.max === null || text.includes("-")) return range;
+  // One amount: the digits typed so far, not a price to the cent.
+  if (/^\d+$/.test(text)) return { min: range.min, max: range.max + 99 };
+  if (/^\d+[.,]\d$/.test(text)) return { min: range.min, max: range.max + 9 };
+  return range;
+}
+
+/** The same for a count (bids, listings, strikes): whole numbers only, up to `COUNT_FILTER_MAX`. */
+export function parseCountFilter(input: string): NumberRange | null {
+  return parseRange(input.trim().replace(/\s*-\s*/g, "-"), (part) => (/^\d{1,7}$/.test(part) ? Number(part) : null), COUNT_FILTER_MAX);
+}
+
 export type ListingPhase = "draft" | "upcoming" | "live" | "ended";
 
 export function listingPhase(

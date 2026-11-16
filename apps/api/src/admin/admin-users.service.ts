@@ -1,5 +1,5 @@
 import { ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { listingPhase, PAYMENT_WINDOW_HOURS, SUSPENDED_ORDER_DAYS } from "@auction/shared";
+import { listingPhase, parseCountFilter, PAYMENT_WINDOW_HOURS, SUSPENDED_ORDER_DAYS } from "@auction/shared";
 import { AdminListingsService } from "./admin-listings.service";
 import { queueMail } from "../email/mail-outbox";
 import { giveAdminStrike } from "./admin-strikes";
@@ -9,11 +9,31 @@ import { MAIL_SENDER, type MailSender } from "../email/mail-sender";
 import { emailUnbanNotice } from "./unban-notice";
 import { RealtimeGateway } from "../realtime/realtime.gateway";
 
+export type SortDir = "asc" | "desc";
+
 export interface UserListQuery {
   q?: string;
   banned?: boolean;
+  // Sort by one column (newest first without one) and narrow by the text typed under a column header.
+  sort?: "username" | "email" | "joined" | "listings" | "bids" | "strikes" | "status";
+  dir?: SortDir;
+  f_username?: string;
+  f_email?: string;
+  f_status?: "active" | "banned";
+  // A count or a range of counts ("3", "1-5", "2-", "-4"), read by `parseCountFilter`.
+  f_listings?: string;
+  f_bids?: string;
+  f_strikes?: string;
+  page: number;
   limit: number;
 }
+
+const userOrder = (sort: UserListQuery["sort"], d: SortDir) =>
+  sort === "username" ? { username: d }
+  : sort === "email" ? { email: d }
+  : sort === "joined" ? { createdAt: d }
+  : sort === "status" ? { bannedAt: d }
+  : { createdAt: "desc" as const };
 
 const summary = {
   id: true, username: true, email: true, firstName: true, lastName: true, role: true, isSuperAdmin: true, createdAt: true, emailVerified: true, bannedAt: true, banReason: true,
@@ -35,18 +55,42 @@ export class AdminUsersService {
     @Inject(MAIL_SENDER) private readonly mail: MailSender,
   ) {}
 
-  async list({ q, banned, limit }: UserListQuery) {
+  // `total` is how many accounts match, whatever the page. A sort or search by a count (listings, bids, strikes) cannot be done by
+  // Prisma (the bids shown leave out raises), so it is done in SQL over the ids the other conditions found.
+  async list({ q, banned, sort, dir = "asc", f_username, f_email, f_status, f_listings, f_bids, f_strikes, page, limit }: UserListQuery) {
     const term = q?.trim();
-    const users = await this.prisma.user.findMany({
-      where: {
-        ...(banned ? { bannedAt: { not: null } } : {}),
-        ...(term ? { OR: [{ username: { contains: term, mode: "insensitive" } }, { email: { contains: term, mode: "insensitive" } }, { id: term }] } : {}),
-      },
-      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-      take: limit,
-      select: summary,
-    });
-    return { users: users.map(toSummary) };
+    const where = {
+      ...(banned || f_status === "banned" ? { bannedAt: { not: null } } : f_status === "active" ? { bannedAt: null } : {}),
+      ...(f_username ? { username: { contains: f_username, mode: "insensitive" as const } } : {}),
+      ...(f_email ? { email: { contains: f_email, mode: "insensitive" as const } } : {}),
+      ...(term ? { OR: [{ username: { contains: term, mode: "insensitive" as const } }, { email: { contains: term, mode: "insensitive" as const } }, { id: term }] } : {}),
+    };
+    const ranges = { listings: f_listings ? parseCountFilter(f_listings) : null, bids: f_bids ? parseCountFilter(f_bids) : null, strikes: f_strikes ? parseCountFilter(f_strikes) : null };
+    if (sort === "listings" || sort === "bids" || sort === "strikes" || ranges.listings || ranges.bids || ranges.strikes) {
+      const ids = (await this.prisma.user.findMany({ where, select: { id: true } })).map((u) => u.id);
+      const key = sort === "listings" || sort === "bids" || sort === "strikes" ? sort : null;
+      const sign = dir === "desc" ? -1 : 1;
+      const ordered = await this.prisma.$queryRaw<{ id: string }[]>`
+        SELECT u."id"
+        FROM "User" u
+        LEFT JOIN (SELECT "sellerId", COUNT(*)::int AS n FROM "Listing" GROUP BY "sellerId") l ON l."sellerId" = u."id"
+        LEFT JOIN (SELECT "bidderId", COUNT(*)::int AS n FROM "Bid" WHERE "kind" <> 'RAISE' GROUP BY "bidderId") b ON b."bidderId" = u."id"
+        LEFT JOIN (SELECT "userId", COUNT(*)::int AS n FROM "Strike" GROUP BY "userId") s ON s."userId" = u."id"
+        WHERE u."id" = ANY(${ids})
+          AND COALESCE(l.n, 0) >= ${ranges.listings?.min ?? 0} AND COALESCE(l.n, 0) <= ${ranges.listings?.max ?? 2147483647}
+          AND COALESCE(b.n, 0) >= ${ranges.bids?.min ?? 0} AND COALESCE(b.n, 0) <= ${ranges.bids?.max ?? 2147483647}
+          AND COALESCE(s.n, 0) >= ${ranges.strikes?.min ?? 0} AND COALESCE(s.n, 0) <= ${ranges.strikes?.max ?? 2147483647}
+        ORDER BY (CASE ${key}::text WHEN 'listings' THEN COALESCE(l.n, 0) WHEN 'bids' THEN COALESCE(b.n, 0) WHEN 'strikes' THEN COALESCE(s.n, 0) ELSE 0 END) * ${sign}::int,
+                 u."createdAt" DESC, u."id" ASC`;
+      const pageIds = ordered.slice((page - 1) * limit, page * limit).map((r) => r.id);
+      const found = new Map((await this.prisma.user.findMany({ where: { id: { in: pageIds } }, select: summary })).map((u) => [u.id, u]));
+      return { total: ordered.length, users: pageIds.flatMap((id) => (found.has(id) ? [toSummary(found.get(id)!)] : [])) };
+    }
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({ where, orderBy: [userOrder(sort, dir), { id: "asc" }], skip: (page - 1) * limit, take: limit, select: summary }),
+      this.prisma.user.count({ where }),
+    ]);
+    return { total, users: users.map(toSummary) };
   }
 
   // The auctions a person has bid on, the latest bid first, one row per auction: their own highest bid, how many bids they placed

@@ -154,6 +154,8 @@ describe("admin reports queue and question log", () => {
     expect((await get(`/admin/question-log?listingId=${other.listing.id}`, admin).expect(200)).body.entries).toHaveLength(1);
     expect((await get(`/admin/question-log?actorId=${asker.id}`, admin).expect(200)).body.entries).toHaveLength(2);
     expect((await get(`/admin/question-log?questionId=${question.id}&limit=1`, admin).expect(200)).body.entries).toHaveLength(1);
+    const second = (await get(`/admin/question-log?questionId=${question.id}&limit=1&page=2`, admin).expect(200)).body;
+    expect(second).toMatchObject({ total: 3, entries: [{ action: "EDITED" }] });
   });
 
   it("removes a reported answer, leaving the question open, closes every report about it and writes the log and audit trail", async () => {

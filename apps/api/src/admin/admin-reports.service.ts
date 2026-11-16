@@ -12,6 +12,7 @@ export interface QuestionLogQuery {
   listingId?: string;
   actorId?: string;
   q?: string;
+  page: number;
   limit: number;
 }
 
@@ -157,7 +158,8 @@ export class AdminReportsService {
   // The conversations on listings. `q` finds a person's whole part in them: what they wrote, the answers to their questions, and
   // everything said on the listings they sell, matching a username, an email, an id or part of a listing title. The other
   // filters are exact. The log has no foreign keys, so people and listings are looked up here and shown as null when gone.
-  async questionLog({ questionId, listingId, actorId, q, limit }: QuestionLogQuery) {
+  // `total` is how many entries match, whatever the page.
+  async questionLog({ questionId, listingId, actorId, q, page, limit }: QuestionLogQuery) {
     const term = q?.trim();
     let match: { OR: Record<string, unknown>[] } | undefined;
     if (term) {
@@ -168,15 +170,16 @@ export class AdminReportsService {
       ]);
       match = { OR: [{ actorId: { in: userIds } }, { listingId: { in: listings.map((l) => l.id) } }, { questionId: { in: [term, ...asked.map((a) => a.id)] } }] };
     }
-    const rows = await this.prisma.questionLog.findMany({
-      where: { questionId, listingId, actorId, ...match },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: limit,
-    });
+    const where = { questionId, listingId, actorId, ...match };
+    const [rows, total] = await Promise.all([
+      this.prisma.questionLog.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (page - 1) * limit, take: limit }),
+      this.prisma.questionLog.count({ where }),
+    ]);
     const people = await this.usernames(rows.map((r) => r.actorId));
     const titles = new Map((await this.prisma.listing.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.listingId))] } }, select: { id: true, title: true } })).map((l) => [l.id, l.title]));
     const questions = await this.prisma.question.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.questionId))] } }, select: { id: true, createdAt: true, editedAt: true, answeredAt: true, answerEditedAt: true, deletedAt: true, moderatedAt: true, answerModeratedAt: true, answer: true } });
     return {
+      total,
       // Whether each question and its answer are still up, so the page offers a remove button only where there is something to remove.
       questions: Object.fromEntries(questions.map((qn) => [qn.id, { questionVersion: versionOf({ at: qn.createdAt, editedAt: qn.editedAt }), answerVersion: versionOf({ at: qn.answeredAt, editedAt: qn.answerEditedAt }), questionUp: !qn.deletedAt && !qn.moderatedAt, answerUp: !qn.deletedAt && !qn.moderatedAt && !qn.answerModeratedAt && qn.answer !== null }])),
       entries: rows.map((r) => ({
