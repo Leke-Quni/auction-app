@@ -112,6 +112,26 @@ describe("ImageUploader", () => {
     expect(beacon).toHaveBeenCalledOnce();
   });
 
+  it("deletes a photo uploaded in this visit as soon as it is removed, and never a saved one", async () => {
+    const beacon = vi.fn(() => true);
+    Object.defineProperty(navigator, "sendBeacon", { value: beacon, configurable: true });
+    upload.mockResolvedValueOnce({ url: blobUrl("fresh") });
+    const { choose, hidden } = setup([blobUrl("kept")]);
+    choose(file("1.jpg"));
+    await waitFor(() => expect(hidden()).toEqual([blobUrl("kept"), blobUrl("fresh")]));
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove photo 2" }));
+    expect(hidden()).toEqual([blobUrl("kept")]);
+    expect(beacon).toHaveBeenCalledOnce();
+    const [, body] = beacon.mock.calls[0] as unknown as [string, Blob];
+    expect(JSON.parse(await body.text())).toEqual({ urls: [blobUrl("fresh")] });
+
+    // The saved photo is deleted by the save that drops it (the API reports it), not here; leaving afterwards sends nothing more.
+    fireEvent.click(screen.getByRole("button", { name: "Remove photo 1" }));
+    window.dispatchEvent(new Event(DISCARD_EVENT));
+    expect(beacon).toHaveBeenCalledOnce();
+  });
+
   it("deletes nothing when nothing new was uploaded", () => {
     const beacon = vi.fn(() => true);
     Object.defineProperty(navigator, "sendBeacon", { value: beacon, configurable: true });

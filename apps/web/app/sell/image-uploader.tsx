@@ -8,6 +8,11 @@ import { DISCARD_EVENT } from "../use-unsaved-changes";
 
 const EXTENSIONS: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 
+const sendDiscard = (urls: string[]) => {
+  const body = new Blob([JSON.stringify({ urls })], { type: "application/json" });
+  if (!navigator.sendBeacon?.("/api/uploads/discard", body)) void fetch("/api/uploads/discard", { method: "POST", body, keepalive: true }).catch(() => undefined);
+};
+
 
 // Photos upload to Blob as they are picked but only travel along in the form, as a hidden JSON field, and are attached
 // when the form is saved. If the visitor leaves without saving, the photos uploaded meanwhile are deleted again.
@@ -31,8 +36,7 @@ export function ImageUploader({ userId, initial }: { userId: string; initial: st
       uploadedRef.current.clear();
       if (urls.length === 0) return;
       for (const u of urls) discardedRef.current.add(u);
-      const body = new Blob([JSON.stringify({ urls })], { type: "application/json" });
-      if (!navigator.sendBeacon?.("/api/uploads/discard", body)) void fetch("/api/uploads/discard", { method: "POST", body, keepalive: true }).catch(() => undefined);
+      sendDiscard(urls);
     };
     const restored = (e: PageTransitionEvent) => {
       if (!e.persisted || discardedRef.current.size === 0) return;
@@ -89,6 +93,16 @@ export function ImageUploader({ userId, initial }: { userId: string; initial: st
   const change = (next: string[]) => {
     setError("");
     setUrls(next);
+  };
+
+  // A photo uploaded in this visit and never saved is used nowhere, and a removal cannot be undone, so it is deleted at once.
+  const remove = (index: number) => {
+    const url = urls[index]!;
+    change(urls.filter((_, j) => j !== index));
+    if (uploadedRef.current.has(url) && !savedRef.current.has(url)) {
+      uploadedRef.current.delete(url);
+      sendDiscard([url]);
+    }
   };
 
   // Drag a photo onto another one to put it in that place; the photos in between shift by one.
@@ -153,7 +167,7 @@ export function ImageUploader({ userId, initial }: { userId: string; initial: st
                   aria-label={`Remove photo ${i + 1}`}
                   title="Remove photo"
                   disabled={busy}
-                  onClick={() => change(urls.filter((_, j) => j !== i))}
+                  onClick={() => remove(i)}
                   className="absolute right-1 top-1 cursor-pointer rounded bg-black/60 p-1 text-white hover:bg-black/80 disabled:opacity-40"
                 >
                   <X size={16} />
