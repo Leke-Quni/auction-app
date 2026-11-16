@@ -31,6 +31,13 @@ const SORT_BY: Record<SearchSort, string> = {
   priceDesc: "price_cents:desc",
 };
 
+// "Ending soonest" lists the live auctions first, then the upcoming ones, each by end time: an upcoming auction that would end sooner
+// once it starts still comes after every live one.
+const sortBy = (params: SearchParams) => {
+  const sort = sortWithoutText(params);
+  return sort === "endingSoon" ? `_eval(starts_at:<=${seconds(params.now)}):desc,ends_at:asc` : SORT_BY[sort];
+};
+
 // Best match with no words to match has nothing to rank by, so it lists the most active auctions first (most bids, then soonest ending).
 const sortWithoutText = (params: SearchParams): SearchSort => (params.sort === "relevance" && !normalizeQuery(params.q) ? "mostBids" : params.sort);
 
@@ -123,7 +130,7 @@ export class TypesenseSearchIndex implements SearchIndex {
       min_len_2typo: MIN_LENGTH_FOR_TWO_TYPOS,
       query_by_weights: "3,1",
       filter_by: buildFilter(params),
-      sort_by: SORT_BY[sortWithoutText(params)],
+      sort_by: sortBy(params),
       page: String(params.page),
       per_page: String(params.pageSize),
     });

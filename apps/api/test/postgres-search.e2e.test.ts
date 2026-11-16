@@ -145,6 +145,8 @@ describe("PostgresSearchIndex", () => {
   it("sorts and pages, and reports the total", async () => {
     expect((await find({ sort: "priceDesc" }))[0]).toBe(`${word} pricey new`);
     expect((await find({ sort: "endingSoon" }))[0]).toBe(`${word} soon`);
+    // Live auctions come first; the upcoming one comes last, whenever it would end.
+    expect((await find({ sort: "endingSoon" })).at(-1)).toBe(`${word} upcoming`);
     expect((await find({ sort: "mostBids" }))[0]).toBe(`${word} soon`);
     const latest = await find({ sort: "endingLatest" });
     expect(latest).not.toContain(`${word} upcoming`);

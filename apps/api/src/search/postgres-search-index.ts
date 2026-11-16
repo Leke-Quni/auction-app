@@ -111,7 +111,8 @@ export class PostgresSearchIndex implements SearchIndex {
     const orderBy: Record<SearchSort, ReturnType<typeof Sql.sql>> = {
       // With no words to match, best match lists the most active auctions first (most bids, then soonest ending).
       relevance: terms.length > 0 ? Sql.sql`${matched}(${titleHits}) DESC, l."endsAt" ASC` : Sql.sql`l."bidCount" DESC, l."endsAt" ASC`,
-      endingSoon: Sql.sql`l."endsAt" ASC`,
+      // Live auctions first, then upcoming ones, each by end time.
+      endingSoon: Sql.sql`(l."startsAt" <= ${params.now}) DESC, l."endsAt" ASC`,
       endingLatest: Sql.sql`l."endsAt" DESC`,
       newest: Sql.sql`l."publishedAt" DESC`,
       mostBids: Sql.sql`l."bidCount" DESC, l."endsAt" ASC`,

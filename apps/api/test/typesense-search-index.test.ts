@@ -157,7 +157,8 @@ describe("TypesenseSearchIndex.search", () => {
   });
 
   it("sorts by ending time, bids and price", async () => {
-    expect((await run({ sort: "endingSoon" })).titles).toEqual(["Vintage wristwatch", "Film camera", "Upcoming painting", "Blue ceramic vase"]);
+    // Live auctions first, then the upcoming one, although it would end before the vase once it starts.
+    expect((await run({ sort: "endingSoon" })).titles).toEqual(["Vintage wristwatch", "Film camera", "Blue ceramic vase", "Upcoming painting"]);
     expect((await run({ sort: "endingLatest" })).titles).toEqual(["Blue ceramic vase", "Film camera", "Vintage wristwatch"]);
     expect((await run({ sort: "mostBids" })).titles.slice(0, 2)).toEqual(["Film camera", "Vintage wristwatch"]);
     expect((await run({ sort: "fewestBids" })).titles).toEqual(["Upcoming painting", "Blue ceramic vase", "Vintage wristwatch", "Film camera"]);
