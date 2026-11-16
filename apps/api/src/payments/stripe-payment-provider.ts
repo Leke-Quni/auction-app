@@ -35,13 +35,25 @@ export class StripePaymentProvider implements PaymentProvider {
     return { id: session.id, url: session.url };
   }
 
+  // A session Stripe has never heard of (an order's reference saved while the fake provider was in use) is not paid or open.
+  private async retrieveKnown(sessionId: string) {
+    try {
+      return await this.stripe.checkout.sessions.retrieve(sessionId);
+    } catch (error) {
+      if ((error as { code?: string }).code === "resource_missing") return null;
+      throw error;
+    }
+  }
+
   async confirm(sessionId: string) {
-    const session = await this.stripe.checkout.sessions.retrieve(sessionId);
+    const session = await this.retrieveKnown(sessionId);
+    if (!session) return { paid: false };
     return { paid: session.payment_status === "paid", amountCents: session.amount_total ?? undefined };
   }
 
   async findOpenCheckout(sessionId: string) {
-    const session = await this.stripe.checkout.sessions.retrieve(sessionId);
+    const session = await this.retrieveKnown(sessionId);
+    if (!session) return null;
     if (session.status !== "open" || !session.url || session.amount_total == null) return null;
     return { url: session.url, amountCents: session.amount_total };
   }

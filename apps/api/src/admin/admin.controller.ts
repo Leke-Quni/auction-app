@@ -1,4 +1,4 @@
-import { ORDER_ATTENTION_KINDS, ORDER_NOTE_MAX, ORDER_RESEND_KINDS } from "@auction/shared";
+import { COUNT_FILTER_HINT, ORDER_ATTENTION_KINDS, ORDER_NOTE_MAX, ORDER_RESEND_KINDS, parseCountFilter, parsePriceFilter, PRICE_FILTER_HINT } from "@auction/shared";
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, Req, StreamableFile, UseGuards } from "@nestjs/common";
 import { z } from "zod";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
@@ -13,17 +13,38 @@ import { AdminUsersService } from "./admin-users.service";
 
 const supportQuerySchema = z.object({ status: z.enum(["OPEN", "HANDLED"]).default("OPEN"), limit: z.coerce.number().int().min(1).max(200).default(100) });
 const reportsQuerySchema = z.object({ status: z.enum(["OPEN", "HANDLED"]).default("OPEN"), limit: z.coerce.number().int().min(1).max(200).default(100) });
+// A text typed under a column header: a number or a range for a count, an amount or a range for a price. Anything else is a 400.
+const countField = z.string().trim().max(30).refine((v) => v === "" || parseCountFilter(v) !== null, { message: COUNT_FILTER_HINT }).optional();
+const priceField = z.string().trim().max(30).refine((v) => v === "" || parsePriceFilter(v) !== null, { message: PRICE_FILTER_HINT }).optional();
 const usersQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
   banned: z.enum(["true", "false"]).optional().transform((v) => v === "true"),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+  sort: z.enum(["username", "email", "joined", "listings", "bids", "strikes", "status"]).optional(),
+  dir: z.enum(["asc", "desc"]).default("asc"),
+  f_username: z.string().trim().max(100).optional(),
+  f_email: z.string().trim().max(100).optional(),
+  f_status: z.enum(["active", "banned"]).optional(),
+  f_listings: countField,
+  f_bids: countField,
+  f_strikes: countField,
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 const userBidsQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(100).default(20) });
 const ordersQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
   status: z.enum(["AWAITING_PAYMENT", "PAID", "EXPIRED", "CANCELLED"]).optional(),
   attention: z.enum([...ORDER_ATTENTION_KINDS, "any"]).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+  sort: z.enum(["created", "item", "buyer", "seller", "price", "status", "parcel"]).optional(),
+  dir: z.enum(["asc", "desc"]).default("asc"),
+  f_item: z.string().trim().max(100).optional(),
+  f_price: priceField,
+  f_status: z.enum(["AWAITING_PAYMENT", "PAID", "EXPIRED", "CANCELLED"]).optional(),
+  f_parcel: z.enum(["LABEL_CREATED", "IN_TRANSIT", "DELIVERED"]).optional(),
+  f_buyer: z.string().trim().max(100).optional(),
+  f_seller: z.string().trim().max(100).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 const orderNoteSchema = z.object({ body: z.string().trim().min(1, "Write a note").max(ORDER_NOTE_MAX) });
 const resendSchema = z.object({ kind: z.enum(ORDER_RESEND_KINDS) });
@@ -33,13 +54,21 @@ const strikeSchema = z.object({ reason: z.string().trim().min(1).max(500) });
 const banSchema = z.object({ reason: z.string().trim().min(1).max(500) });
 const unbanSchema = z.object({ reason: z.string().trim().min(1).max(500) });
 const removeListingSchema = z.object({ reason: z.string().trim().min(1).max(500) });
-const auditQuerySchema = z.object({ adminId: z.string().min(1).optional(), targetId: z.string().min(1).optional(), q: z.string().trim().max(100).optional(), limit: z.coerce.number().int().min(1).max(200).default(100) });
+const auditQuerySchema = z.object({ sort: z.enum(["when", "target", "reason"]).optional(), dir: z.enum(["asc", "desc"]).default("asc"), f_admin: z.string().trim().max(100).optional(), f_action: z.enum(["BAN_USER", "UNBAN_USER", "CLEAR_STRIKE", "REMOVE_LISTING", "VIEW_ORDER", "REMOVE_POST", "SET_ROLE", "STRIKE_USER", "VIEW_INVOICE", "HANDLE_SUPPORT", "ADD_ORDER_NOTE", "RESEND_ORDER_EMAIL"]).optional(), f_target: z.string().trim().max(100).optional(), f_reason: z.string().trim().max(100).optional(), adminId: z.string().min(1).optional(), targetId: z.string().min(1).optional(), q: z.string().trim().max(100).optional(), page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(200).default(20) });
 const listingsQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
   // Exactly this seller's listings (the user page), where `q` also matches part of a username.
   sellerId: z.string().min(1).optional(),
   phase: z.enum(["upcoming", "live", "ended", "removed"]).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+  sort: z.enum(["title", "seller", "price", "bids", "ends"]).optional(),
+  dir: z.enum(["asc", "desc"]).default("asc"),
+  f_title: z.string().trim().max(100).optional(),
+  f_state: z.enum(["upcoming", "live", "ended", "removed"]).optional(),
+  f_price: priceField,
+  f_bids: countField,
+  f_seller: z.string().trim().max(100).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 const removeQuestionPostSchema = z.object({ target: z.enum(["QUESTION", "ANSWER"]), version: z.string().max(64).optional() });
 const logQuerySchema = z.object({
@@ -47,7 +76,8 @@ const logQuerySchema = z.object({
   listingId: z.string().min(1).optional(),
   actorId: z.string().min(1).optional(),
   q: z.string().trim().max(100).optional(),
-  limit: z.coerce.number().int().min(1).max(200).default(100),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(20),
 });
 
 // Everything under /admin needs a signed-in account that is an ADMIN in the database right now (see AdminGuard); the admin app

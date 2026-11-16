@@ -38,6 +38,18 @@ describe("StripePaymentProvider", () => {
     );
   });
 
+  it("treats a session Stripe does not know (left by the fake provider) as not paid and not open", async () => {
+    const missing = Object.assign(new Error("No such checkout.session: fake_1"), { type: "StripeInvalidRequestError", code: "resource_missing" });
+    const { provider } = make({ checkout: { sessions: { retrieve: async () => { throw missing; } } } });
+    expect(await provider.confirm("fake_1")).toEqual({ paid: false });
+    expect(await provider.findOpenCheckout("fake_1")).toBeNull();
+  });
+
+  it("still fails on other Stripe errors when looking a session up", async () => {
+    const { provider } = make({ checkout: { sessions: { retrieve: async () => { throw Object.assign(new Error("down"), { code: "api_error" }); } } } });
+    await expect(provider.findOpenCheckout("cs_test_1")).rejects.toThrow("down");
+  });
+
   it("fails if Stripe gives no checkout URL", async () => {
     const { provider } = make({ checkout: { sessions: { create: async () => ({ id: "cs_x", url: null }) } } });
     await expect(provider.createCheckout({ orderId: "o", amountCents: 100, shippingCents: 0, shippingLabel: "d", description: "x", buyerEmail: "b@example.com" })).rejects.toThrow(/without a URL/);

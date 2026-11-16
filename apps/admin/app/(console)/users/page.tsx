@@ -1,35 +1,15 @@
-import Link from "next/link";
-import { adminApiFetch } from "@/lib/api";
 import { requireAdmin } from "@/lib/require-admin";
 import { firstParam } from "@/lib/search-params";
-
-interface UserRow {
-  id: string;
-  username: string;
-  email: string;
-  name: string;
-  role: "USER" | "ADMIN";
-  createdAt: string;
-  emailVerified: boolean;
-  bannedAt: string | null;
-  strikeCount: number;
-  listingCount: number;
-  bidCount: number;
-}
-
-const day = (iso: string) => iso.slice(0, 10);
+import { UsersTable } from "./users-table";
 
 export default async function Users({ searchParams }: { searchParams: Promise<{ q?: string | string[]; banned?: string | string[] }> }) {
   await requireAdmin();
   const params = await searchParams;
   const q = firstParam(params.q);
   const banned = firstParam(params.banned);
-  const query = new URLSearchParams();
-  if (q.trim()) query.set("q", q.trim());
-  if (banned === "true") query.set("banned", "true");
-  const res = await adminApiFetch(`/admin/users?${query}`);
-  if (!res.ok) throw new Error(`API /admin/users failed: ${res.status}`);
-  const { users } = (await res.json()) as { users: UserRow[] };
+  const filters: Record<string, string> = {};
+  if (q.trim()) filters.q = q.trim();
+  if (banned === "true") filters.banned = "true";
   return (
     <div className="space-y-3">
       <h1 className="text-lg font-bold">Users</h1>
@@ -40,43 +20,7 @@ export default async function Users({ searchParams }: { searchParams: Promise<{ 
         </label>
         <button className="cursor-pointer rounded bg-accent px-3 py-1 font-semibold text-on-brand hover:bg-accent-dark">Search</button>
       </form>
-      {users.length === 0 ? (
-        <p className="rounded border border-line bg-panel p-4 text-muted">No accounts match.</p>
-      ) : (
-        <div className="overflow-x-auto">
-        <table className="w-full border-collapse overflow-hidden rounded border border-line bg-panel text-left">
-          <thead className="bg-page text-muted">
-            <tr>
-              <th className="p-2">Username</th>
-              <th className="p-2">Email</th>
-              <th className="p-2">Joined</th>
-              <th className="p-2">Listings</th>
-              <th className="p-2">Bids</th>
-              <th className="p-2">Strikes</th>
-              <th className="p-2">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr key={u.id} className="border-t border-line">
-                <td className="p-2">
-                  <Link href={`/users/${u.id}`} className="text-accent underline">
-                    @{u.username}
-                  </Link>
-                  {u.role === "ADMIN" && <span className="ml-1 rounded bg-info-soft px-1.5 py-0.5 text-xs font-semibold text-info">admin</span>}
-                </td>
-                <td className="p-2">{u.email}</td>
-                <td className="p-2 text-muted">{day(u.createdAt)}</td>
-                <td className="p-2">{u.listingCount}</td>
-                <td className="p-2">{u.bidCount}</td>
-                <td className="p-2">{u.strikeCount}</td>
-                <td className="p-2">{u.bannedAt ? <span className="rounded bg-danger-soft px-1.5 py-0.5 text-xs font-semibold text-danger">banned</span> : <span className="text-muted">active</span>}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        </div>
-      )}
+      <UsersTable params={filters} />
     </div>
   );
 }

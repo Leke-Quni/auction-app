@@ -1,5 +1,5 @@
 import { isSellerSuspended } from "../orders/orders.service";
-import { ORDER_NOTE_MAX, ORDER_RESEND_COOLDOWN_MINUTES, type OrderAttentionKind, type OrderResendKind, type ShippingAddress } from "@auction/shared";
+import { ORDER_NOTE_MAX, parsePriceFilter, ORDER_RESEND_COOLDOWN_MINUTES, type OrderAttentionKind, type OrderResendKind, type ShippingAddress } from "@auction/shared";
 import { ConflictException, HttpException, HttpStatus, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { PRISMA, type Prisma } from "../db/db.module";
 import { queueMail } from "../email/mail-outbox";
@@ -13,8 +13,28 @@ export interface OrderListQuery {
   status?: "AWAITING_PAYMENT" | "PAID" | "EXPIRED" | "CANCELLED";
   // Only orders that are stuck in one way (see `attentionWhere`), or in any way.
   attention?: OrderAttentionKind | "any";
+  // Sort by one column (newest first without one) and narrow by the text typed under a column header.
+  sort?: "created" | "item" | "buyer" | "seller" | "price" | "status" | "parcel";
+  dir?: "asc" | "desc";
+  f_item?: string;
+  f_price?: string;
+  f_parcel?: "LABEL_CREATED" | "IN_TRANSIT" | "DELIVERED";
+  f_status?: "AWAITING_PAYMENT" | "PAID" | "EXPIRED" | "CANCELLED";
+  f_buyer?: string;
+  f_seller?: string;
+  page: number;
   limit: number;
 }
+
+const orderOrder = (sort: OrderListQuery["sort"], d: "asc" | "desc") =>
+  sort === "created" ? { createdAt: d }
+  : sort === "item" ? { listing: { title: d } }
+  : sort === "buyer" ? { buyer: { username: d } }
+  : sort === "seller" ? { seller: { username: d } }
+  : sort === "price" ? { amountCents: d }
+  : sort === "status" ? { status: d }
+  : sort === "parcel" ? { shipmentStatus: d }
+  : { createdAt: "desc" as const };
 
 const person = { select: { id: true, username: true, email: true, firstName: true, lastName: true } } as const;
 
@@ -27,29 +47,43 @@ export class AdminOrdersService {
     private readonly outbox: MailOutbox,
   ) {}
 
-  async list({ q, status, attention, limit }: OrderListQuery) {
+  // `total` is how many orders match, whatever the page.
+  async list({ q, status, attention, sort, dir = "asc", f_item, f_price, f_status, f_parcel, f_buyer, f_seller, page, limit }: OrderListQuery) {
     const now = new Date();
     const term = q?.trim();
+    const price = f_price ? parsePriceFilter(f_price) : null;
     const like = { contains: term ?? "", mode: "insensitive" } as const;
-    const orders = await this.prisma.order.findMany({
-      // Each condition is its own entry, because the search text and the "any kind" filter are both an OR and must not replace each other.
-      where: {
-        AND: [
-          ...(status ? [{ status }] : []),
-          ...(attention ? [attentionWhere(attention, now)] : []),
-          ...(term
-            ? [{ OR: [{ id: term }, { listingId: term }, { invoiceNumber: like }, { listing: { title: like } }, { buyer: { OR: [{ username: like }, { email: like }] } }, { seller: { OR: [{ username: like }, { email: like }] } }] }]
-            : []),
-        ],
-      },
-      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-      take: limit,
-      include: { listing: { select: { id: true, title: true } }, buyer: { select: { id: true, username: true } }, seller: { select: { id: true, username: true, bannedAt: true } }, payout: { select: { id: true } } },
-    });
+    // Each condition is its own entry, because the search text and the "any kind" filter are both an OR and must not replace each other.
+    const where = {
+      AND: [
+        ...(status ? [{ status }] : []),
+        ...(attention ? [attentionWhere(attention, now)] : []),
+        ...(price ? [{ amountCents: { ...(price.min !== null ? { gte: price.min } : {}), ...(price.max !== null ? { lte: price.max } : {}) } }] : []),
+        ...(f_status ? [{ status: f_status }] : []),
+        ...(f_parcel ? [{ shipmentStatus: f_parcel }] : []),
+        ...(f_item ? [{ listing: { title: { contains: f_item, mode: "insensitive" as const } } }] : []),
+        ...(f_buyer ? [{ buyer: { username: { contains: f_buyer, mode: "insensitive" as const } } }] : []),
+        ...(f_seller ? [{ seller: { username: { contains: f_seller, mode: "insensitive" as const } } }] : []),
+        ...(term
+          ? [{ OR: [{ id: term }, { listingId: term }, { invoiceNumber: like }, { listing: { title: like } }, { buyer: { OR: [{ username: like }, { email: like }] } }, { seller: { OR: [{ username: like }, { email: like }] } }] }]
+          : []),
+      ],
+    };
+    const [orders, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        orderBy: [orderOrder(sort, dir), { id: "asc" }],
+        skip: (page - 1) * limit,
+        take: limit,
+        include: { listing: { select: { id: true, title: true } }, buyer: { select: { id: true, username: true } }, seller: { select: { id: true, username: true, bannedAt: true } }, payout: { select: { id: true } } },
+      }),
+      this.prisma.order.count({ where }),
+    ]);
     const noteCounts = new Map(
       (await this.prisma.orderNote.groupBy({ by: ["orderId"], where: { orderId: { in: orders.map((o) => o.id) } }, _count: { _all: true } })).map((n) => [n.orderId, n._count._all]),
     );
     return {
+      total,
       orders: orders.map((o) => ({
         id: o.id,
         noteCount: noteCounts.get(o.id) ?? 0,

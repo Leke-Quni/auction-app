@@ -95,7 +95,40 @@ describe("admin accounts: ban, unban and strikes", () => {
     expect(banned.map((u: { id: string }) => u.id)).toContain(b.id);
     expect(banned.map((u: { id: string }) => u.id)).not.toContain(a.id);
     await request(url).get("/admin/users?limit=0").set(admin.auth).expect(400);
+    await request(url).get("/admin/users?page=0").set(admin.auth).expect(400);
     await request(url).get("/admin/users/nope").set(admin.auth).expect(404);
+  });
+
+  it("sorts the account list by a column and searches inside one", async () => {
+    const admin = await person("ADMIN");
+    const a = await person();
+    const b = await person();
+    const ids = (path: string) => request(url).get(path).set(admin.auth).expect(200).then((r) => r.body.users.map((u: { id: string }) => u.id));
+    const both = `q=${encodeURIComponent(a.username.slice(0, 3))}`;
+    const [lo, hi] = [a, b].sort((x, y) => x.username.localeCompare(y.username));
+    const asc = (await ids(`/admin/users?sort=username&dir=asc&limit=100`)).filter((id: string) => id === a.id || id === b.id);
+    const desc = (await ids(`/admin/users?sort=username&dir=desc&limit=100`)).filter((id: string) => id === a.id || id === b.id);
+    expect(asc.length).toBe(2);
+    expect(asc[0]).not.toBe(desc[0]);
+    expect([lo.id, hi.id]).toHaveLength(2);
+    expect(await ids(`/admin/users?f_username=${encodeURIComponent(a.username.toUpperCase())}`)).toEqual([a.id]);
+    expect(await ids(`/admin/users?f_email=${encodeURIComponent(b.email)}&${both}`)).not.toContain(a.id);
+    await request(url).get("/admin/users?sort=password").set(admin.auth).expect(400);
+    await request(url).get("/admin/users?dir=sideways").set(admin.auth).expect(400);
+  });
+
+  it("pages the account list, 20 to a page, with a total that the page does not cut", async () => {
+    const admin = await person("ADMIN");
+    for (let i = 0; i < 3; i++) await person();
+    const q = encodeURIComponent(admin.username);
+    const all = (await request(url).get("/admin/users?limit=2&page=1").set(admin.auth).expect(200)).body;
+    const next = (await request(url).get("/admin/users?limit=2&page=2").set(admin.auth).expect(200)).body;
+    expect(all.users).toHaveLength(2);
+    expect(next.total).toBe(all.total);
+    expect(all.total).toBeGreaterThanOrEqual(4);
+    expect(next.users.map((u: { id: string }) => u.id)).not.toContain(all.users[0].id);
+    expect((await request(url).get(`/admin/users?q=${q}`).set(admin.auth).expect(200)).body).toMatchObject({ total: 1 });
+    expect((await request(url).get("/admin/users?page=9999").set(admin.auth).expect(200)).body.users).toEqual([]);
   });
 
   it("bans: the very next request is refused, the reason is kept, and unbanning restores access", async () => {
@@ -122,6 +155,57 @@ describe("admin accounts: ban, unban and strikes", () => {
           startsAt: new Date(Date.now() - DAY), endsAt: new Date(Date.now() + 2 * DAY), publishedAt: new Date(Date.now() - DAY), ...over,
         },
       }).then((l) => (listingIds.push(l.id), l));
+
+    it("sorts and searches accounts and listings by counts, price and state", async () => {
+      const [admin, seller, few, many] = [await person("ADMIN"), await person(), await person(), await person()];
+      const a = await makeListing(seller.id, { currentBidCents: 1500, bidCount: 1, highBidderId: few.id });
+      const b = await makeListing(seller.id, { startingPriceCents: 3000, startsAt: new Date(Date.now() + DAY), endsAt: new Date(Date.now() + 4 * DAY) });
+      const c = await makeListing(seller.id, { startingPriceCents: 2000, startsAt: new Date(Date.now() - 4 * DAY), endsAt: new Date(Date.now() - DAY), closedAt: new Date(Date.now() - DAY), outcome: "NO_BIDS" });
+      const addBid = (bidderId: string, amountCents: number, kind?: "RAISE") =>
+        prisma.bid.create({ data: { listingId: a.id, bidderId, amountCents, ...(kind ? { kind, maxCents: 9000 } : {}), idempotencyKey: randomUUID() } });
+      await addBid(few.id, 1100);
+      await addBid(few.id, 1200);
+      await addBid(few.id, 1300, "RAISE");
+      for (const n of [1400, 1500, 1600]) await addBid(many.id, n);
+
+      const get = (path: string) => request(url).get(path).set(admin.auth);
+      const userIds = async (query: string) => (await get(`/admin/users?${query}&limit=100`).expect(200)).body.users.map((u: { id: string }) => u.id);
+      const mine = (all: string[]) => all.filter((id) => id === few.id || id === many.id);
+      // A raise is not counted as a bid, so one with 2 bids and a raise stays below one with 3.
+      expect(mine(await userIds("sort=bids&dir=desc&f_bids=1-"))).toEqual([many.id, few.id]);
+      expect(mine(await userIds("sort=bids&dir=asc&f_bids=1-"))).toEqual([few.id, many.id]);
+      expect(mine(await userIds("f_bids=3"))).toEqual([many.id]);
+      expect(mine(await userIds("f_bids=2-")).sort()).toEqual([many.id, few.id].sort());
+      expect(await userIds(`f_listings=3&f_username=${seller.username}`)).toEqual([seller.id]);
+      expect(await userIds(`f_listings=4-&f_username=${seller.username}`)).toEqual([]);
+      expect(await userIds(`f_listings=3&sort=strikes&dir=desc&f_username=${seller.username}`)).toEqual([seller.id]);
+      expect((await get(`/admin/users?f_bids=3&sort=bids&limit=1&page=1`).expect(200)).body.total).toBeGreaterThanOrEqual(1);
+      expect(mine(await userIds("f_status=active"))).toHaveLength(2);
+      expect(mine(await userIds("f_status=banned"))).toEqual([]);
+      for (const bad of ["abc", "5-1", "1.5", "-", "99999999999"]) await get(`/admin/users?f_bids=${encodeURIComponent(bad)}`).expect(400);
+      await get("/admin/users?f_status=deleted").expect(400);
+
+      const ids = async (query: string) => (await get(`/admin/listings?f_seller=${seller.username}&${query}&limit=100`).expect(200)).body.listings.map((l: { id: string }) => l.id);
+      expect(await ids("sort=price&dir=asc")).toEqual([a.id, c.id, b.id]);
+      expect(await ids("sort=price&dir=desc")).toEqual([b.id, c.id, a.id]);
+      expect(await ids("f_price=15")).toEqual([a.id]);
+      expect(await ids("f_price=1")).toEqual([]);
+      expect(await ids("f_price=15.0")).toEqual([a.id]);
+      expect(await ids("f_price=15.01")).toEqual([]);
+      expect(await ids("f_price=16")).toEqual([]);
+      expect((await ids("f_price=20-30")).sort()).toEqual([b.id, c.id].sort());
+      expect(await ids("f_price=-14.99")).toEqual([]);
+      expect(await ids("f_state=upcoming")).toEqual([b.id]);
+      expect(await ids("f_state=ended")).toEqual([c.id]);
+      expect(await ids("f_state=live&phase=ended")).toEqual([]);
+      expect(await ids("f_bids=1")).toEqual([a.id]);
+      expect(await ids("f_bids=0&sort=price&dir=desc")).toEqual([b.id, c.id]);
+      for (const bad of ["abc", "20-10", "1-2-3", "1e3"]) await get(`/admin/listings?f_price=${encodeURIComponent(bad)}`).expect(400);
+      await get("/admin/listings?f_bids=x").expect(400);
+      await get("/admin/listings?f_state=draft").expect(400);
+      const paged = (await get(`/admin/listings?f_seller=${seller.username}&sort=price&dir=asc&limit=1&page=2`).expect(200)).body;
+      expect(paged).toMatchObject({ total: 3, listings: [{ id: c.id }] });
+    });
 
     it("ends their live and upcoming auctions with no sale, and leaves drafts and ended auctions as they were", async () => {
       const [admin, seller, bidder] = [await person("ADMIN"), await person(), await person()];
@@ -272,6 +356,15 @@ describe("admin accounts: ban, unban and strikes", () => {
     expect(log.find((e: { action: string }) => e.action === "UNBAN_USER")).toMatchObject({ reason: "Appeal reviewed", admin: { id: a2.id } });
     const mine = (await request(url).get(`/admin/audit?adminId=${a1.id}`).set(a1.auth).expect(200)).body.entries;
     expect(mine).toHaveLength(1);
+    const byAction = (await request(url).get(`/admin/audit?targetId=${user.id}&f_action=BAN_USER`).set(a1.auth).expect(200)).body.entries;
+    expect(byAction.map((e: { action: string }) => e.action)).toEqual(["BAN_USER"]);
+    await request(url).get("/admin/audit?f_action=DELETE_EVERYTHING").set(a1.auth).expect(400);
+    const newest = (await request(url).get(`/admin/audit?targetId=${user.id}&sort=when&dir=desc`).set(a1.auth).expect(200)).body.entries;
+    const oldest = (await request(url).get(`/admin/audit?targetId=${user.id}&sort=when&dir=asc`).set(a1.auth).expect(200)).body.entries;
+    expect(newest.map((e: { id: string }) => e.id)).toEqual(oldest.map((e: { id: string }) => e.id).reverse());
+    const paged = (await request(url).get(`/admin/audit?targetId=${user.id}&limit=2&page=2`).set(a1.auth).expect(200)).body;
+    expect(paged).toMatchObject({ total: 3 });
+    expect(paged.entries).toHaveLength(1);
     const byName = (await request(url).get(`/admin/audit?q=${a1.username.slice(0, 8)}`).set(a1.auth).expect(200)).body.entries;
     expect(byName.length).toBeGreaterThan(0);
     expect(byName.every((e: { admin: { id: string } }) => e.admin.id === a1.id)).toBe(true);
@@ -433,6 +526,9 @@ describe("admin accounts: ban, unban and strikes", () => {
     // The count is not cut by the limit.
     expect((await get(`/admin/listings?sellerId=${other.id}&limit=1`).expect(200)).body).toMatchObject({ total: 3, listings: [expect.anything()] });
     expect((await get(`/admin/listings?sellerId=${other.id}&phase=ended`).expect(200)).body.total).toBe(2);
+    const page1 = (await get(`/admin/listings?sellerId=${other.id}&limit=2&page=1`).expect(200)).body;
+    const page2 = (await get(`/admin/listings?sellerId=${other.id}&limit=2&page=2`).expect(200)).body;
+    expect([page1.listings.length, page2.listings.length, page2.total]).toEqual([2, 1, 3]);
     expect((await get("/admin/listings?sellerId=nobody").expect(200)).body).toEqual({ total: 0, listings: [] });
   });
 });
