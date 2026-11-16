@@ -8,6 +8,9 @@ import { listingCardInclude, toListingCard } from "../listings/listing-card";
 const DAY_MS = 24 * 3600_000;
 // The most auctions a person can have on their watchlist page at once.
 const WATCHLIST_LIMIT = 200;
+// The watches the list shows: an auction that ended more than WATCHLIST_ENDED_DAYS ago drops off it. The cap counts only these, so
+// old ones the person can no longer see or remove never fill it.
+const shown = (userId: string, now: Date) => ({ userId, listing: { endsAt: { gt: new Date(now.getTime() - WATCHLIST_ENDED_DAYS * DAY_MS) } } });
 
 // A person's watchlist. Watching a live or upcoming auction owes the watcher one email 24 hours before it ends (a
 // PendingEndEmail row, due then and sent by the existing leased sweep); stopping removes both, in one transaction.
@@ -26,7 +29,7 @@ export class WatchlistService {
         // One person's watches take turns, so two at once cannot both slip under the cap.
         await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
         // Already watching is fine (a double click); a new watch past the cap is not.
-        if ((await tx.watch.count({ where: { userId, listingId } })) === 0 && (await tx.watch.count({ where: { userId } })) >= WATCHLIST_LIMIT) {
+        if ((await tx.watch.count({ where: { userId, listingId } })) === 0 && (await tx.watch.count({ where: shown(userId, new Date()) })) >= WATCHLIST_LIMIT) {
           throw new HttpException({ code: "WATCHLIST_FULL", message: `You can watch up to ${WATCHLIST_LIMIT} auctions. Stop watching one first.` }, HttpStatus.CONFLICT);
         }
         const added = await tx.watch.createMany({ data: { userId, listingId }, skipDuplicates: true });
@@ -63,8 +66,7 @@ export class WatchlistService {
   async list(userId: string) {
     const now = new Date();
     const rows = await this.prisma.watch.findMany({
-      // An auction that ended more than WATCHLIST_ENDED_DAYS ago drops off the list.
-      where: { userId, listing: { endsAt: { gt: new Date(now.getTime() - WATCHLIST_ENDED_DAYS * DAY_MS) } } },
+      where: shown(userId, now),
       orderBy: { createdAt: "desc" },
       take: WATCHLIST_LIMIT,
       include: { listing: { include: listingCardInclude } },

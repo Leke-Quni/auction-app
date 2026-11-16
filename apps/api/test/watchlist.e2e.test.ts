@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { WATCHLIST_ENDED_DAYS } from "@auction/shared";
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { SignJWT } from "jose";
@@ -209,6 +210,18 @@ describe("watchlist", () => {
     await unwatch(a, racers[1].id);
     await unwatch(a, racers[2].id);
     await watch(a, extra.id).expect(200);
+  });
+
+  it("counts toward the cap only the watches the list still shows", async () => {
+    const [seller, a] = [await makePerson(), await makePerson()];
+    const old = await Promise.all(
+      Array.from({ length: 200 }, () => listing(seller, { startsAt: new Date(Date.now() - (WATCHLIST_ENDED_DAYS + 10) * DAY), endsAt: new Date(Date.now() - (WATCHLIST_ENDED_DAYS + 1) * DAY), closedAt: new Date(), outcome: "NO_BIDS" })),
+    );
+    await prisma.watch.createMany({ data: old.map((r) => ({ userId: a.id, listingId: r.id })) });
+    expect((await api().get("/watchlist").set(as(a)).expect(200)).body.total).toBe(0);
+    const live = await listing(seller);
+    await watch(a, live.id).expect(200);
+    expect((await api().get("/watchlist").set(as(a)).expect(200)).body.total).toBe(1);
   });
 
   it("sends nothing when the watcher is already winning, stopped watching, or the auction is over", async () => {
