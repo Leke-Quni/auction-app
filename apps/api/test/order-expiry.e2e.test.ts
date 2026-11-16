@@ -327,6 +327,30 @@ describe("orders that are not paid in time", () => {
       expect(await strikes(a)).toBe(0);
     });
 
+    it("does not strike a buyer whose payment goes through between the check and the closing of the checkout page", async () => {
+      const [a, b] = await makePeople(2);
+      const { order } = await sale([[b, 1500], [a, 2000]]);
+      await prisma.order.update({ where: { id: order.id }, data: { shippingAddress: { name: "Ann", line1: "Rr 1", city: "Tirana", postcode: "1001", country: "AL", phone: "+355691112222" }, shippingOption: { id: "standard", name: "Standard", estimatedDays: 6, tracked: false, insured: false, priceCents: 300 }, shippingCents: 300, totalCents: 2300 } });
+      await api().post(`/orders/${order.id}/checkout`).set(as(a)).expect(201);
+      const ref = (await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).paymentRef!;
+      await overdue(order.id);
+      // The card goes through just as the page is being closed: a paid session cannot be closed, and closing it says nothing.
+      const real = provider.expireCheckout.bind(provider);
+      provider.expireCheckout = async (id) => {
+        provider.simulatePayment(id);
+        return real(id);
+      };
+      try {
+        expect(await expiry.expire(order.id)).toBeNull();
+      } finally {
+        provider.expireCheckout = real;
+      }
+      expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("PAID");
+      expect(provider.sessions.get(ref)).toMatchObject({ paid: true, refunded: false });
+      expect(await strikes(a)).toBe(0);
+      expect(await prisma.order.count({ where: { listingId: order.listingId } })).toBe(1); // nobody else was offered it
+    });
+
     it("waits, rather than striking, when the payment provider cannot be asked", async () => {
       const [a, b] = await makePeople(2);
       const { order } = await sale([[b, 1500], [a, 2000]]);
