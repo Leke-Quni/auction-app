@@ -3,11 +3,11 @@ import { resolveSearchSort } from "@auction/shared";
 import { redirect } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { loadCategories } from "@/lib/categories";
-import { ListingCard, type ListingSummary } from "./listing-card";
-import { Pagination, pageCount } from "./pagination";
-import { sliderMaxEuros } from "./search/price-scale";
-import { SearchSidebar, SidebarPage } from "./search/search-sidebar";
-import { loadTopPriceCents } from "./search/top-price";
+import { ListingCard, type ListingSummary } from "../listing-card";
+import { Pagination, pageCount } from "../pagination";
+import { sliderMaxEuros } from "../search/price-scale";
+import { SearchSidebar, SidebarPage } from "../search/search-sidebar";
+import { loadTopPriceCents } from "../search/top-price";
 
 const PAGE_SIZE = 24;
 const SECTION_SIZE = 4;
