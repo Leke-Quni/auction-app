@@ -37,9 +37,7 @@ export function SearchSidebar({
   // The boxes are uncontrolled, so they are keyed by what the address holds: when a filter is removed (the chips under the
   // search box), the page renders again and the box is unticked instead of keeping its old tick.
   return (
-    <aside
-      className="space-y-2 text-xs [@media(min-width:900px)_and_(min-height:760px)]:sticky [@media(min-width:900px)_and_(min-height:760px)]:top-[calc(var(--header-height,4.5rem)_+_0.5rem)]"
-    >
+    <aside className="space-y-2 text-xs">
       <nav aria-label="Categories" className="border border-line bg-surface">
         <h2 className="border-b border-line bg-head px-2 py-1 font-bold">Categories</h2>
         <ul className={`flex flex-wrap gap-x-3 px-2 py-1 min-[900px]:block min-[900px]:px-0`}>
