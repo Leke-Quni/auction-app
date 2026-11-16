@@ -64,15 +64,17 @@ model User {
 }
 
 model LoginCode {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  codeHash  String
-  expiresAt DateTime
-  attempts  Int      @default(0)
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int      @default(0)
   // How many times this sign-in has asked for a new code (reset by the password step), so "send a new code" cannot be used to flood an inbox.
-  resends   Int      @default(0)
-  createdAt DateTime @default(now())
+  resends    Int      @default(0)
+  // When this sign-in's password step passed. A new code keeps it, so "send a new code" stops 30 minutes after the password.
+  passwordAt DateTime @default(now())
+  createdAt  DateTime @default(now())
 
   @@index([userId])
 }

@@ -82,7 +82,8 @@ describe("send a new sign-in code", () => {
     await resend(email).expect(204);
     expect(sent).toHaveLength(0);
     const user = await prisma.user.findUniqueOrThrow({ where: { email } });
-    await prisma.loginCode.create({ data: { userId: user.id, codeHash: "x", expiresAt: new Date(), createdAt: new Date(Date.now() - 31 * 60_000) } });
+    const old = new Date(Date.now() - 31 * 60_000);
+    await prisma.loginCode.create({ data: { userId: user.id, codeHash: "x", expiresAt: new Date(), createdAt: old, passwordAt: old } });
     await resend(email).expect(204);
     expect(sent).toHaveLength(0);
   });
@@ -95,6 +96,36 @@ describe("send a new sign-in code", () => {
     expect(mailTo(email)).toHaveLength(7);
     await resend(email).expect(204);
     expect(mailTo(email)).toHaveLength(8);
+  });
+
+  it("counts the 30 minutes from the password step, not from the last new code", async () => {
+    const { email } = await signedUp();
+    const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+    // A new code a minute ago renewed the code, but the password was given 31 minutes ago.
+    await prisma.loginCode.updateMany({ where: { userId: user.id }, data: { passwordAt: new Date(Date.now() - 31 * 60_000), createdAt: new Date(Date.now() - 60_000), resends: 1 } });
+    await resend(email).expect(204);
+    expect(mailTo(email)).toHaveLength(1);
+    await api().post("/auth/login/start").send({ email, password }).expect(204);
+    await resend(email).expect(204);
+    expect(mailTo(email)).toHaveLength(3);
+  });
+
+  it("sends one code for simultaneous requests within the cooldown", async () => {
+    process.env.LOGIN_CODE_COOLDOWN_SECONDS = "30";
+    const { email } = await signedUp();
+    const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+    await prisma.loginCode.updateMany({ where: { userId: user.id }, data: { createdAt: new Date(Date.now() - 31_000) } });
+    await Promise.all(Array.from({ length: 10 }, () => resend(email).expect(204)));
+    expect(mailTo(email)).toHaveLength(2);
+    expect((await prisma.loginCode.findFirstOrThrow({ where: { userId: user.id } })).resends).toBe(1);
+  });
+
+  it("sends at most five new codes for simultaneous requests", async () => {
+    const { email } = await signedUp();
+    await Promise.all(Array.from({ length: 12 }, () => resend(email).expect(204)));
+    expect(mailTo(email).length).toBeLessThanOrEqual(6);
+    const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+    expect((await prisma.loginCode.findFirstOrThrow({ where: { userId: user.id } })).resends).toBe(mailTo(email).length - 1);
   });
 
   it("sends nothing to a banned account", async () => {
