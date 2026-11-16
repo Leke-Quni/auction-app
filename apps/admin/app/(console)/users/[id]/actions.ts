@@ -21,7 +21,8 @@ const MESSAGES: Record<string, string> = {
 
 async function run(id: string, path: string, init: RequestInit): Promise<UserActionState> {
   await requireAdmin();
-  const res = await adminApiFetch(path, init);
+  const res = await adminApiFetch(path, init).catch(() => null);
+  if (!res) return { error: "Could not reach the server. Try again." };
   revalidatePath(`/users/${id}`);
   if (res.ok) return {};
   if (res.status === 404) return { error: "That account or strike no longer exists." };

@@ -18,7 +18,7 @@ import {
 import type { ZodError } from "zod";
 import { AuthError } from "next-auth";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { auth, signIn, signOut, updateSession } from "@/auth";
 import { apiFetch, authedApiFetch } from "@/lib/api";
 import { readAddress } from "@/lib/address";
@@ -32,6 +32,18 @@ export interface FormState {
 }
 
 const SOMETHING_WENT_WRONG = "Something went wrong. Try again.";
+const UNREACHABLE = "Could not reach the server. Try again.";
+
+// An API that cannot be reached becomes a form error instead of the error page. A redirect thrown inside the call (a session that
+// ended, a banned account) still goes through.
+async function reach(call: Promise<Response>): Promise<Response | null> {
+  try {
+    return await call;
+  } catch (error) {
+    unstable_rethrow(error);
+    return null;
+  }
+}
 
 // The shared schemas carry user-facing messages, so show the first one.
 const firstIssue = (error: ZodError) => error.issues[0]?.message ?? "Check the form and try again.";
@@ -44,7 +56,8 @@ async function conflictMessage(res: Response) {
 export async function signUpAction(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = signUpSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: firstIssue(parsed.error) };
-  const res = await apiFetch("/auth/signup", { method: "POST", body: JSON.stringify(parsed.data), headers: await viewerIpHeaders() });
+  const res = await reach(apiFetch("/auth/signup", { method: "POST", body: JSON.stringify(parsed.data), headers: await viewerIpHeaders() }));
+  if (!res) return { error: UNREACHABLE };
   if (res.status === 409) return { error: await conflictMessage(res) };
   if (res.status === 422 || res.status === 429) return { error: await apiErrorMessage(res) };
   if (!res.ok) return { error: "Something went wrong. Try again." };
@@ -54,7 +67,8 @@ export async function signUpAction(_: FormState, formData: FormData): Promise<Fo
 export async function signInAction(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = signInSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Enter your email and password." };
-  const res = await apiFetch("/auth/login/start", { method: "POST", body: JSON.stringify(parsed.data), headers: await viewerIpHeaders() });
+  const res = await reach(apiFetch("/auth/login/start", { method: "POST", body: JSON.stringify(parsed.data), headers: await viewerIpHeaders() }));
+  if (!res) return { error: UNREACHABLE };
   if (res.status === 401) return { error: "Invalid email or password." };
   if (res.status === 403) return { error: "This account has been suspended." };
   if (res.status === 422 || res.status === 429) return { error: await apiErrorMessage(res) };
@@ -64,7 +78,8 @@ export async function signInAction(_: FormState, formData: FormData): Promise<Fo
 
 // "Send a new code" on the code page. The answer is the same whether or not a code went out, so the message is worded to match.
 export async function resendCodeAction(email: string): Promise<FormState> {
-  const res = await apiFetch("/auth/login/resend", { method: "POST", body: JSON.stringify({ email }) });
+  const res = await reach(apiFetch("/auth/login/resend", { method: "POST", body: JSON.stringify({ email }) }));
+  if (!res) return { error: UNREACHABLE };
   if (res.status === 422 || res.status === 429) return { error: await apiErrorMessage(res) };
   if (!res.ok) return { error: "Something went wrong. Try again." };
   return { ok: "If you signed in a moment ago, a new code is on its way. It replaces the old one." };
@@ -90,7 +105,8 @@ export async function verifyCodeAction(_: FormState, formData: FormData): Promis
 export async function forgotPasswordAction(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = forgotPasswordSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Enter a valid email." };
-  const res = await apiFetch("/auth/forgot-password", { method: "POST", body: JSON.stringify(parsed.data), headers: await viewerIpHeaders() });
+  const res = await reach(apiFetch("/auth/forgot-password", { method: "POST", body: JSON.stringify(parsed.data), headers: await viewerIpHeaders() }));
+  if (!res) return { error: UNREACHABLE };
   if (res.status === 429) return { error: await apiErrorMessage(res) };
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
   return { ok: "If that email has an account, we've sent a link to reset the password." };
@@ -99,7 +115,8 @@ export async function forgotPasswordAction(_: FormState, formData: FormData): Pr
 export async function resetPasswordAction(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = resetPasswordSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: firstIssue(parsed.error) };
-  const res = await apiFetch("/auth/reset-password", { method: "POST", body: JSON.stringify(parsed.data) });
+  const res = await reach(apiFetch("/auth/reset-password", { method: "POST", body: JSON.stringify(parsed.data) }));
+  if (!res) return { error: UNREACHABLE };
   if (res.status === 400) return { error: "This link is invalid or has expired. Request a new one." };
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
   redirect("/sign-in?reset=1");
@@ -108,7 +125,8 @@ export async function resetPasswordAction(_: FormState, formData: FormData): Pro
 export async function updateProfileAction(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = updateProfileSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: firstIssue(parsed.error) };
-  const res = await authedApiFetch("/me", { method: "PATCH", body: JSON.stringify(parsed.data) });
+  const res = await reach(authedApiFetch("/me", { method: "PATCH", body: JSON.stringify(parsed.data) }));
+  if (!res) return { error: UNREACHABLE };
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
   revalidatePath("/account", "layout");
   return { ok: "Name updated." };
@@ -118,7 +136,8 @@ export async function updateProfileAction(_: FormState, formData: FormData): Pro
 export async function savePickupAddressAction(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = pickupAddressSchema.safeParse(readAddress(formData) ?? {});
   if (!parsed.success) return { error: firstIssue(parsed.error) };
-  const res = await authedApiFetch("/me/pickup-address", { method: "PUT", body: JSON.stringify(parsed.data) });
+  const res = await reach(authedApiFetch("/me/pickup-address", { method: "PUT", body: JSON.stringify(parsed.data) }));
+  if (!res) return { error: UNREACHABLE };
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
   revalidatePath("/account", "layout");
   return { ok: "Pickup address saved." };
@@ -127,7 +146,8 @@ export async function savePickupAddressAction(_: FormState, formData: FormData):
 export async function updateUsernameAction(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = updateUsernameSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: firstIssue(parsed.error) };
-  const res = await authedApiFetch("/me/username", { method: "PATCH", body: JSON.stringify(parsed.data) });
+  const res = await reach(authedApiFetch("/me/username", { method: "PATCH", body: JSON.stringify(parsed.data) }));
+  if (!res) return { error: UNREACHABLE };
   if (res.status === 409) return { error: "That username is already taken." };
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
   const { username } = await res.json();
@@ -139,7 +159,8 @@ export async function updateUsernameAction(_: FormState, formData: FormData): Pr
 export async function changePasswordAction(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = changePasswordSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: firstIssue(parsed.error) };
-  const res = await authedApiFetch("/me/password", { method: "POST", body: JSON.stringify(parsed.data) });
+  const res = await reach(authedApiFetch("/me/password", { method: "POST", body: JSON.stringify(parsed.data) }));
+  if (!res) return { error: UNREACHABLE };
   if (res.status === 403) return { error: "Your current password is incorrect." };
   if (res.status === 429) return { error: await apiErrorMessage(res) };
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
@@ -152,7 +173,8 @@ export async function changePasswordAction(_: FormState, formData: FormData): Pr
 export async function startEmailChangeAction(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = startEmailChangeSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: firstIssue(parsed.error) };
-  const res = await authedApiFetch("/me/email/start", { method: "POST", body: JSON.stringify(parsed.data) });
+  const res = await reach(authedApiFetch("/me/email/start", { method: "POST", body: JSON.stringify(parsed.data) }));
+  if (!res) return { error: UNREACHABLE };
   if (res.status === 403) return { error: "Your password is incorrect." };
   if (res.status === 409) return { error: "That email is already registered." };
   if (res.status === 400) return { error: "That is already your email." };
@@ -164,7 +186,8 @@ export async function startEmailChangeAction(_: FormState, formData: FormData): 
 export async function confirmEmailChangeAction(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = confirmEmailChangeSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Enter the 6-digit code." };
-  const res = await authedApiFetch("/me/email/confirm", { method: "POST", body: JSON.stringify(parsed.data) });
+  const res = await reach(authedApiFetch("/me/email/confirm", { method: "POST", body: JSON.stringify(parsed.data) }));
+  if (!res) return { error: UNREACHABLE };
   if (res.status === 401) return { error: "That code is invalid or has expired." };
   if (res.status === 409) return { error: "That email is already registered." };
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
@@ -178,7 +201,8 @@ export async function confirmEmailChangeAction(_: FormState, formData: FormData)
 export async function sendAccountDeletionCodeAction(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = startAccountDeletionSchema.safeParse({ password: formData.get("password") });
   if (!parsed.success) return { error: firstIssue(parsed.error) };
-  const res = await authedApiFetch("/me/deletion/code", { method: "POST", body: JSON.stringify(parsed.data) });
+  const res = await reach(authedApiFetch("/me/deletion/code", { method: "POST", body: JSON.stringify(parsed.data) }));
+  if (!res) return { error: UNREACHABLE };
   if (res.status === 403) return { error: "Your password is incorrect." };
   if (res.status === 409) return { error: "Some things have to finish before this account can be deleted. Reload this page to see them." };
   if (res.status === 429) return { error: await apiErrorMessage(res) };
@@ -189,7 +213,8 @@ export async function sendAccountDeletionCodeAction(_: FormState, formData: Form
 export async function deleteAccountAction(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = confirmAccountDeletionSchema.safeParse({ password: formData.get("password"), code: formData.get("code") });
   if (!parsed.success) return { error: firstIssue(parsed.error) };
-  const res = await authedApiFetch("/me/deletion", { method: "POST", body: JSON.stringify(parsed.data) });
+  const res = await reach(authedApiFetch("/me/deletion", { method: "POST", body: JSON.stringify(parsed.data) }));
+  if (!res) return { error: UNREACHABLE };
   if (res.status === 403) return { error: "Your password is incorrect." };
   if (res.status === 401) return { error: "That code is invalid or has expired." };
   if (res.status === 409) return { error: "Some things have to finish before this account can be deleted. Reload this page to see them." };

@@ -23,15 +23,16 @@ async function failure(res: Response, what: string): Promise<ActionResult> {
 export async function markRepliedAction(id: string): Promise<void> {
   await requireAdmin();
   if (!id) return;
-  const res = await adminApiFetch(`/admin/support/${encodeURIComponent(id)}/replied`, { method: "POST" });
-  if (res.ok) revalidatePath("/support");
+  const res = await adminApiFetch(`/admin/support/${encodeURIComponent(id)}/replied`, { method: "POST" }).catch(() => null);
+  if (res?.ok) revalidatePath("/support");
 }
 
 export async function handleSupportAction(_: ActionResult, formData: FormData): Promise<ActionResult> {
   await requireAdmin();
   const id = String(formData.get("id") ?? "");
   if (!id) return {};
-  const res = await adminApiFetch(`/admin/support/${encodeURIComponent(id)}/handle`, { method: "POST" });
+  const res = await adminApiFetch(`/admin/support/${encodeURIComponent(id)}/handle`, { method: "POST" }).catch(() => null);
+  if (!res) return { error: "Could not reach the server. Try again." };
   if (!res.ok) return failure(res, "Could not close the request");
   revalidatePath("/support");
   return {};
@@ -42,7 +43,8 @@ export async function clearStrikeAndCloseAction(_: ActionResult, formData: FormD
   await requireAdmin();
   const id = String(formData.get("id") ?? "");
   if (!id) return {};
-  const res = await adminApiFetch(`/admin/support/${encodeURIComponent(id)}/grant`, { method: "POST" });
+  const res = await adminApiFetch(`/admin/support/${encodeURIComponent(id)}/grant`, { method: "POST" }).catch(() => null);
+  if (!res) return { error: "Could not reach the server. Try again." };
   if (!res.ok) return failure(res, "Could not clear the strike");
   const { changed } = (await res.json()) as { changed: boolean };
   revalidatePath("/support");
@@ -54,7 +56,8 @@ export async function liftBanAndCloseAction(_: ActionResult, formData: FormData)
   await requireAdmin();
   const id = String(formData.get("id") ?? "");
   if (!id) return {};
-  const res = await adminApiFetch(`/admin/support/${encodeURIComponent(id)}/lift-ban`, { method: "POST" });
+  const res = await adminApiFetch(`/admin/support/${encodeURIComponent(id)}/lift-ban`, { method: "POST" }).catch(() => null);
+  if (!res) return { error: "Could not reach the server. Try again." };
   if (!res.ok) return failure(res, "Could not lift the ban");
   const { changed } = (await res.json()) as { changed: boolean };
   revalidatePath("/support");

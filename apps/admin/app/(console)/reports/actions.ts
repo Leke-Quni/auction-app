@@ -33,7 +33,8 @@ export async function strikeAndRemoveAction(_: StrikeRemoveResult, formData: For
   await requireAdmin();
   const id = String(formData.get("id") ?? "");
   if (!id) return {};
-  const strike = await adminApiFetch(`/admin/reports/${encodeURIComponent(id)}/strike-author`, { method: "POST" });
+  const strike = await adminApiFetch(`/admin/reports/${encodeURIComponent(id)}/strike-author`, { method: "POST" }).catch(() => null);
+  if (!strike) return { error: "Could not reach the server. Try again." };
   if (!strike.ok) {
     if (strike.status === 404) {
       revalidatePath("/reports");
@@ -46,7 +47,8 @@ export async function strikeAndRemoveAction(_: StrikeRemoveResult, formData: For
     }
     throw new Error(`Could not strike the author: ${strike.status}`);
   }
-  const removal = await adminApiFetch(`/admin/reports/${encodeURIComponent(id)}/remove-post`, { method: "POST" });
+  const removal = await adminApiFetch(`/admin/reports/${encodeURIComponent(id)}/remove-post`, { method: "POST" }).catch(() => null);
+  if (!removal) return { error: "The strike was given, but the server could not be reached to remove the post. Remove it again." };
   if (!removal.ok && removal.status !== 404) throw new Error(`The strike was given, but the post could not be removed: ${removal.status}`);
   revalidatePath("/reports");
   return {};
