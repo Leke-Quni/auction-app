@@ -7,6 +7,7 @@ vi.mock("./actions", () => ({ sendSupportAction: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
 import type { SupportStrike } from "@auction/shared";
+import { pick } from "../select-test-helpers";
 import { sendSupportAction } from "./actions";
 import { SupportForm } from "./support-form";
 
@@ -30,6 +31,7 @@ describe("SupportForm", () => {
     render(<SupportForm strikes={[strike(), strike({ id: "S2", givenByAdmin: true, reason: "Abusive messages" })]} startWithAppeal waiting={false} email="a@b.co" />);
     expect((screen.getByLabelText(/Appeal a strike/) as HTMLInputElement).checked).toBe(true);
     expect(screen.getByText("Which strike?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("combobox"));
     expect(screen.getByRole("option", { name: /did not pay for Brass lamp/ })).toBeTruthy();
     expect(screen.getByRole("option", { name: /given by an admin \(Abusive messages\)/ })).toBeTruthy();
   });
@@ -41,7 +43,7 @@ describe("SupportForm", () => {
     expect(details().textContent).toContain('You did not pay for "Brass lamp" within 48 hours of winning it.');
     expect(details().textContent).toContain("Given on 2026-11-01");
 
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "S2" } });
+    pick(screen.getByRole("combobox"), /given by an admin/);
     expect(details().textContent).toContain('Given by an admin about "Old clock".');
     expect(details().textContent).toContain(reason);
     expect(details().textContent).toContain("THE END");

@@ -2,6 +2,7 @@
 
 import { CALLING_CODES, SHIPPING_COUNTRIES, splitPhone, type ShippingAddress, type ShippingCountry } from "@auction/shared";
 import { useState } from "react";
+import { Select } from "./select";
 
 const input = "mt-1 w-full border border-field bg-surface p-1.5 text-sm aria-invalid:border-urgent aria-invalid:outline aria-invalid:outline-2 aria-invalid:outline-urgent";
 const label = "text-xs text-muted";
@@ -64,48 +65,38 @@ export function AddressFields({ prefix = "", defaults, required = false, markReq
         </label>
         <label className="block">
           <span className={label}>Country</span>
-          <select
+          <Select
+            aria-label="Country"
             name={`${prefix}country`}
             required={required}
-            {...publish}
+            controlProps={publish}
             value={country}
-            onChange={(e) => {
-              setCountry(e.target.value);
-              if (!codeChosen) setCode(CALLING_CODES[e.target.value as ShippingCountry] ?? CALLING_CODES.US);
+            onChange={(c) => {
+              setCountry(c);
+              if (!codeChosen) setCode(CALLING_CODES[c as ShippingCountry] ?? CALLING_CODES.US);
             }}
             className={input}
-          >
-            <option value="" disabled>
-              Choose…
-            </option>
-            {Object.entries(SHIPPING_COUNTRIES).map(([c, name]) => (
-              <option key={c} value={c}>
-                {name}
-              </option>
-            ))}
-          </select>
+            options={Object.entries(SHIPPING_COUNTRIES).map(([c, name]) => ({ value: c, label: name }))}
+          />
           {problem("country")}
         </label>
       </div>
       <div>
         <span className={label}>Phone</span>
         <div className="grid grid-cols-[6.5rem_1fr] gap-2">
-          <select
+          <Select
             aria-label="Phone country code"
             value={code}
-            onChange={(e) => {
-              setCode(e.target.value);
+            onChange={(dial) => {
+              setCode(dial);
               setCodeChosen(true);
             }}
             className={input}
-          >
-            {CODE_OPTIONS.map(([c, dial]) => (
-              <option key={c} value={dial}>
-                {flag(c)} +{dial}
-              </option>
-            ))}
-            {code && !Object.values(CALLING_CODES).includes(code) && <option value={code}>+{code}</option>}
-          </select>
+            options={[
+              ...CODE_OPTIONS.map(([c, dial]) => ({ value: dial, label: `${flag(c)} +${dial}` })),
+              ...(code && !Object.values(CALLING_CODES).includes(code) ? [{ value: code, label: `+${code}` }] : []),
+            ]}
+          />
           <input
             aria-label="Phone number"
             value={national}

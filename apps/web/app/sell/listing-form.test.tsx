@@ -38,7 +38,7 @@ describe("ListingForm", () => {
     expect(field("title")?.value).toBe("");
     expect(field("durationDays")?.value).toBe("7");
     expect(field("listingId")).toBeNull();
-    const options = screen.getAllByRole("option").map((o) => o.textContent);
+    const options = Array.from(document.querySelectorAll("select option")).map((o) => o.textContent);
     expect(options).toEqual(expect.arrayContaining(["Art", "Electronics", "New", "Like new", "Good", "Fair", "Poor", "1 day", "7 days", "30 days (1 month)"]));
     expect(options).not.toContain("For parts or repair");
   });

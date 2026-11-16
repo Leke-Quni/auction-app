@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import type { QuestionItem } from "@auction/shared";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { REPORT_REASON_LABELS } from "@auction/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const actions = vi.hoisted(() => ({
@@ -15,6 +16,7 @@ const actions = vi.hoisted(() => ({
 }));
 vi.mock("./question-actions", () => actions);
 
+import { pick } from "@/app/select-test-helpers";
 import { Questions } from "./questions";
 
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
@@ -266,7 +268,7 @@ describe("Questions", () => {
       show({ viewerId: "anna", items: [answered()] });
       pickReport("Question actions");
       expect(actions.reportAction).not.toHaveBeenCalled(); // asks why first
-      fireEvent.change(screen.getByLabelText("Why are you reporting this?"), { target: { value: "ABUSE" } });
+      pick(screen.getByLabelText("Why are you reporting this?"), REPORT_REASON_LABELS.ABUSE);
       fireEvent.click(screen.getByRole("button", { name: "Send report" }));
       await waitFor(() => expect(actions.reportAction).toHaveBeenCalledWith("L1", "q", "QUESTION", "ABUSE"), { timeout: 3000 });
       expect((await screen.findByRole("status", {}, { timeout: 3000 })).textContent).toContain("Thanks");

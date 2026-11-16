@@ -4,6 +4,7 @@ import { ANSWER_MAX_LENGTH, POLICY_LINKS, QUESTION_MAX_LENGTH, REPORT_REASON_LAB
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { LocalTime } from "@/app/local-time";
+import { Select } from "@/app/select";
 import { useDismiss } from "@/app/use-dismiss";
 import { answerQuestionAction, askQuestionAction, deleteAnswerAction, deleteQuestionAction, editAnswerAction, editQuestionAction, reportAction, voteAction, type QuestionActionResult } from "./question-actions";
 
@@ -186,13 +187,7 @@ function MoreMenu({ label, items, disabled }: { label: string; items: MenuItem[]
         <div role="dialog" aria-label={asking.label} className="absolute right-0 z-10 mt-1 w-56 space-y-2 border border-line bg-surface p-2 text-xs shadow-md">
           <label className="block space-y-1">
             <span>Why are you reporting this?</span>
-            <select value={reason} onChange={(e) => setReason(e.target.value as ReportReason)} className="block w-full border border-field bg-surface p-1">
-              {REPORT_REASONS.map((value) => (
-                <option key={value} value={value}>
-                  {REPORT_REASON_LABELS[value]}
-                </option>
-              ))}
-            </select>
+            <Select aria-label="Why are you reporting this?" value={reason} onChange={(v) => setReason(v as ReportReason)} className="block w-full border border-field bg-surface p-1" options={REPORT_REASONS.map((value) => ({ value, label: REPORT_REASON_LABELS[value] }))} />
           </label>
           <div className="flex gap-1.5">
             <button
