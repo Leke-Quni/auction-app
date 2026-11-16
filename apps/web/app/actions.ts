@@ -19,7 +19,7 @@ import type { ZodError } from "zod";
 import { AuthError } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { auth, signIn, signOut, unstable_update } from "@/auth";
+import { auth, signIn, signOut, updateSession } from "@/auth";
 import { apiFetch, authedApiFetch } from "@/lib/api";
 import { readAddress } from "@/lib/address";
 import { deleteOwnBlobs } from "@/lib/blob";
@@ -131,7 +131,7 @@ export async function updateUsernameAction(_: FormState, formData: FormData): Pr
   if (res.status === 409) return { error: "That username is already taken." };
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
   const { username } = await res.json();
-  await unstable_update({ user: { name: username } });
+  await updateSession({ name: username });
   revalidatePath("/", "layout");
   return { ok: `Username changed to ${username}.` };
 }
@@ -144,7 +144,7 @@ export async function changePasswordAction(_: FormState, formData: FormData): Pr
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
   // Every other browser is signed out; this one takes the new number and stays signed in.
   const { sessionVersion } = await res.json();
-  await unstable_update({ user: { sessionVersion } });
+  await updateSession({ sessionVersion });
   return { ok: "Password changed." };
 }
 
@@ -168,7 +168,7 @@ export async function confirmEmailChangeAction(_: FormState, formData: FormData)
   if (res.status === 409) return { error: "That email is already registered." };
   if (!res.ok) return { error: SOMETHING_WENT_WRONG };
   const { email } = await res.json();
-  await unstable_update({ user: { email } });
+  await updateSession({ email });
   revalidatePath("/", "layout");
   redirect("/account/settings");
 }
