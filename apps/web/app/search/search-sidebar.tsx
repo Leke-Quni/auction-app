@@ -1,7 +1,7 @@
 import { CONDITION_LABELS, LISTING_CONDITIONS, type SearchSort } from "@auction/shared";
-import Form from "next/form";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { ClearFiltersLink, FilterForm } from "./filter-form";
 import { PriceSlider } from "./price-slider";
 import { categoryHref, categoryList, conditionList, type SearchPageParams } from "./search-params";
 import { PriceSortSelect, SortProvider, SortSelect } from "./sort-select";
@@ -62,7 +62,7 @@ export function SearchSidebar({
         </ul>
       </nav>
 
-      <Form action="/search" className={`grid grid-cols-2 gap-2 border border-line bg-surface p-2 min-[900px]:grid-cols-1`}>
+      <FilterForm action="/search" className={`grid grid-cols-2 gap-2 border border-line bg-surface p-2 min-[900px]:grid-cols-1`}>
         <SortProvider key={`sort:${sort}`} defaultValue={sort}>
           <h2 className="col-span-2 font-bold min-[900px]:col-span-1">Filters</h2>
           {params.category && <input type="hidden" name="category" value={params.category} />}
@@ -93,12 +93,10 @@ export function SearchSidebar({
             <button type="submit" className="cursor-pointer bg-brand px-3 py-1.5 font-bold text-on-brand hover:bg-brand-dark">
               Apply
             </button>
-            <Link href="/search" className="inline-block px-1 py-1.5 text-brand underline">
-              Clear
-            </Link>
+            <ClearFiltersLink className="inline-block px-1 py-1.5 text-brand underline">Clear</ClearFiltersLink>
           </div>
         </SortProvider>
-      </Form>
+      </FilterForm>
     </aside>
   );
 }
