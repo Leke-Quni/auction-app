@@ -4,11 +4,12 @@ import Credentials from "next-auth/providers/credentials";
 import { apiFetch } from "@/lib/api";
 import { decodeJwt, encodeJwt } from "@/lib/jwt";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/session-lifetime";
+import { jwtCallback, withSessionUpdate, type SessionUpdate } from "@/lib/session-update";
 
 // Its own cookie names: on localhost the storefront and this app share cookies, and must not sign each other out.
 const cookie = (name: string) => ({ name: `admin.${name}`, options: { httpOnly: true, sameSite: "lax" as const, path: "/", secure: process.env.NODE_ENV === "production" } });
 
-export const { handlers, signIn, signOut, auth } = NextAuth({
+export const { handlers, signIn, signOut, auth, unstable_update } = NextAuth({
   trustHost: true,
   session: { strategy: "jwt", maxAge: SESSION_MAX_AGE_SECONDS },
   jwt: { encode: encodeJwt, decode: decodeJwt },
@@ -30,14 +31,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     }),
   ],
   callbacks: {
-    jwt({ token, user }) {
-      if (user) {
-        token.id = user.id!;
-        token.role = user.role;
-        token.sv = user.sessionVersion;
-      }
-      return token;
-    },
+    jwt: jwtCallback,
     session({ session, token }) {
       session.user.id = token.id!;
       session.user.role = token.role!;
@@ -46,3 +40,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
   },
 });
+
+// The only way to change what a signed-in session carries: the value comes from the API's answer, never from the browser.
+export const updateSession = (update: SessionUpdate) => withSessionUpdate(update, () => unstable_update({}));

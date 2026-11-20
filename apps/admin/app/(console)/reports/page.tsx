@@ -8,6 +8,7 @@ import { RemovePostForm } from "./remove-post-form";
 import { Tip } from "./tip";
 import { StrikeRemoveForm } from "./strike-remove-form";
 import { handleReportAction, removePostAction, strikeAndRemoveAction } from "./actions";
+import { ResizableTable } from "@/components/data-table/resizable-table";
 
 interface Person {
   id: string;
@@ -63,17 +64,7 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
       {reports.length === 0 ? (
         <p className="rounded border border-line bg-panel p-4 text-muted">{status === "OPEN" ? "No open reports." : "No handled reports. They are removed 30 days after the auction ends."}</p>
       ) : (
-        <div className="overflow-x-auto">
-        <table className="w-full border-collapse overflow-hidden rounded border border-line bg-panel text-left">
-          <thead className="bg-page text-muted">
-            <tr>
-              <th className="p-2">Reason</th>
-              <th className="p-2">Words as written</th>
-              <th className="p-2">People</th>
-              <th className="p-2">Listing</th>
-              <th className="p-2">{status === "OPEN" ? "Reported" : "Handled"}</th>
-            </tr>
-          </thead>
+        <ResizableTable id={`reports-${status}`} headers={["Reason", "Words as written", "People", "Listing", status === "OPEN" ? "Reported" : "Handled"]}>
           <tbody>
             {reports.map((r) => (
               <tr key={r.id} className="border-t border-line align-top">
@@ -123,8 +114,7 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
               </tr>
             ))}
           </tbody>
-        </table>
-        </div>
+        </ResizableTable>
       )}
     </div>
   );
