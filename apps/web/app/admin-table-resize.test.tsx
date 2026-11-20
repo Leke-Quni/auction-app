@@ -154,3 +154,48 @@ describe("admin table: no highlight while dragging", () => {
     expect(document.body.style.cursor).toBe("");
   });
 });
+
+describe("admin table: an open column menu", () => {
+  it("closes when a divider is pressed, so it is not left behind where the column was", async () => {
+    render(
+      <DataTable
+        module="tmp"
+        params={{}}
+        columns={[
+          { header: "Name", key: "name", sortable: true, render: (r: Row) => r.name },
+          { header: "Status", render: (r: Row) => r.status },
+          { header: "Note", render: (r: Row) => r.note },
+        ]}
+        rowKey={(r: Row) => r.id}
+        rowsField="rows"
+        emptyText="none"
+      />,
+    );
+    await screen.findByText("Row 0");
+    fireEvent.click(screen.getByRole("button", { name: "Name" }));
+    expect(screen.getByText("Sort by name")).toBeTruthy();
+    fireEvent.pointerDown(handle("Name"), { button: 0, clientX: 100, pointerId: 1 });
+    expect(screen.queryByText("Sort by name")).toBeNull();
+    fireEvent.pointerUp(handle("Name"), { pointerId: 1 });
+  });
+
+  it("still stays open for a press inside it", async () => {
+    render(
+      <DataTable
+        module="tmp"
+        params={{}}
+        columns={[
+          { header: "Name", key: "name", sortable: true, render: (r: Row) => r.name },
+          { header: "Status", render: (r: Row) => r.status },
+        ]}
+        rowKey={(r: Row) => r.id}
+        rowsField="rows"
+        emptyText="none"
+      />,
+    );
+    await screen.findByText("Row 0");
+    fireEvent.click(screen.getByRole("button", { name: "Name" }));
+    fireEvent.pointerDown(screen.getByText("Sort by name"));
+    expect(screen.getByText("Sort by name")).toBeTruthy();
+  });
+});

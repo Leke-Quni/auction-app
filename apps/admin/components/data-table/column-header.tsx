@@ -156,10 +156,12 @@ export function ColumnHeader({
       !menu.current?.contains(e.target as Node) &&
       close();
     const esc = (e: KeyboardEvent) => e.key === "Escape" && close();
-    document.addEventListener("mousedown", away);
+    // A press, not a click: the column dividers swallow the mouse events of a drag, and the menu must still close when one starts (the
+    // column moves, and the menu would be left behind where it was).
+    document.addEventListener("pointerdown", away);
     document.addEventListener("keydown", esc);
     return () => {
-      document.removeEventListener("mousedown", away);
+      document.removeEventListener("pointerdown", away);
       document.removeEventListener("keydown", esc);
     };
   }, [open]);
