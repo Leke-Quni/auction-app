@@ -136,7 +136,10 @@ describe("PostgresSearchIndex", () => {
     const good = await find({ condition: ["GOOD"] });
     expect((await find({ condition: ["NEW", "GOOD"] })).sort()).toEqual([`${word} pricey new`, ...good].sort());
     expect(await find({ condition: ["NEW", "POOR"] })).toEqual([`${word} pricey new`]);
-    expect(await find({ category: "art" })).toEqual([`${word} pricey new`]);
+    expect(await find({ category: ["art"] })).toEqual([`${word} pricey new`]);
+    // Several categories match a listing in any of them.
+    expect((await find({ category: ["art", "collectibles"] })).sort()).toEqual((await find({})).sort());
+    expect(await find({ category: ["art", "electronics"] })).toEqual([`${word} pricey new`]);
     expect(await find({ minPriceCents: 1200, maxPriceCents: 2000 })).toEqual([`${word} soon`]);
     expect(await find({ minPriceCents: 1000, maxPriceCents: 1000 })).toEqual([`${word} cheap good`, `${word} upcoming`].sort());
     expect(await find({ endingSoon: true })).toEqual([`${word} soon`]);

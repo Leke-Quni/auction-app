@@ -77,7 +77,7 @@ describe("GET /search", () => {
     await api().get("/search?q=watch&category=art&condition=FAIR&minPriceCents=100&maxPriceCents=900&endingSoon=true&page=2&pageSize=10").expect(200);
     expect(lastParams).toMatchObject({
       q: "watch",
-      category: "art",
+      category: ["art"],
       condition: ["FAIR"],
       minPriceCents: 100,
       maxPriceCents: 900,

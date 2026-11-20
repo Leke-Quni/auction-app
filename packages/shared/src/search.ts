@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { LISTING_CONDITIONS, MAX_PRICE_CENTS } from "./listing-values";
-import { MAX_SEARCH_RESULTS, SEARCH_SORTS, SUGGESTION_MIN_LENGTH } from "./search-values";
+import { MAX_SEARCH_CATEGORIES, MAX_SEARCH_RESULTS, SEARCH_SORTS, SUGGESTION_MIN_LENGTH } from "./search-values";
 
 export * from "./search-values";
 
@@ -15,10 +15,19 @@ const conditions = z.preprocess(
     .pipe(z.array(z.enum(LISTING_CONDITIONS)).min(1)),
 );
 
+// One or more category slugs, written like the conditions. A listing matches when it is in any of them.
+const categories = z.preprocess(
+  (value) => (Array.isArray(value) ? value.join(",") : value),
+  z
+    .string()
+    .transform((text) => [...new Set(text.split(",").map((part) => part.trim()))])
+    .pipe(z.array(z.string().regex(/^[a-z0-9-]+$/).max(50)).min(1).max(MAX_SEARCH_CATEGORIES)),
+);
+
 export const searchQuerySchema = z
   .object({
     q: z.string().trim().max(100).default(""),
-    category: z.string().regex(/^[a-z0-9-]+$/).max(50).optional(),
+    category: categories.optional(),
     condition: conditions.optional(),
     minPriceCents: cents.optional(),
     maxPriceCents: cents.optional(),

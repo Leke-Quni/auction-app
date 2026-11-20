@@ -52,7 +52,7 @@ export class PostgresSearchIndex implements SearchIndex {
   private baseWhere(params: SearchParams) {
     const price = Sql.sql`COALESCE(l."currentBidCents", l."startingPriceCents")`;
     const where = [Sql.sql`l."status" = 'PUBLISHED'`, Sql.sql`l."endsAt" > ${params.now}`];
-    if (params.category) where.push(Sql.sql`c."slug" = ${params.category}`);
+    if (params.category) where.push(Sql.sql`c."slug" = ANY(${params.category}::text[])`);
     if (params.condition) where.push(Sql.sql`l."condition"::text = ANY(${params.condition}::text[])`);
     if (params.minPriceCents !== undefined) where.push(Sql.sql`${price} >= ${params.minPriceCents}`);
     if (params.maxPriceCents !== undefined) where.push(Sql.sql`${price} <= ${params.maxPriceCents}`);

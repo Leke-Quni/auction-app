@@ -16,6 +16,8 @@ export const SEARCH_SORT_LABELS: Record<SearchSort, string> = {
 export const ENDING_SOON_HOURS = 24;
 
 // Suggestions while typing: a few listing titles that match the text so far. Shorter text matches too much to help.
+// The most categories one search can list (there are ten, so this is all of them).
+export const MAX_SEARCH_CATEGORIES = 10;
 export const SUGGESTION_MIN_LENGTH = 2;
 export const SUGGESTION_COUNT = 5;
 

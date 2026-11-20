@@ -54,7 +54,7 @@ const MIN_LENGTH_FOR_TWO_TYPOS = "6";
 export function buildFilter(params: Pick<SearchParams, "category" | "condition" | "minPriceCents" | "maxPriceCents" | "endingSoon" | "sort" | "now">) {
   const now = seconds(params.now);
   const filters = [`ends_at:>${now}`];
-  if (params.category) filters.push(`category_slug:=${params.category}`);
+  if (params.category) filters.push(`category_slug:=[${params.category.join(",")}]`);
   if (params.condition) filters.push(`condition:=[${params.condition.join(",")}]`);
   if (params.minPriceCents !== undefined) filters.push(`price_cents:>=${params.minPriceCents}`);
   if (params.maxPriceCents !== undefined) filters.push(`price_cents:<=${params.maxPriceCents}`);
