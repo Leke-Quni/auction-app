@@ -1,5 +1,4 @@
 import type { DeletionBlocker } from "@auction/shared";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   changePasswordAction,
@@ -33,12 +32,8 @@ export default async function AccountSettingsPage({ searchParams }: { searchPara
   const blockers: DeletionBlocker[] = deletionRes?.ok ? (await deletionRes.json()).blockers : [];
   return (
     <div className="mx-auto max-w-sm space-y-2">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-lg font-bold">Account settings</h1>
-        <Link href="/account" className="text-brand underline">
-          Back to account
-        </Link>
-      </div>
+      <h1 className="text-lg font-bold">Account settings</h1>
+      <p className="text-xs text-muted">Email verified: {me.emailVerified ? new Date(me.emailVerified).toUTCString() : "No"}</p>
       <div className="divide-y divide-line border border-line bg-surface">
         <SettingRow
           label="First name"

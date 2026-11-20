@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { activeFilterChips, carriedFilters } from "./active-filters";
+import { activeFilterChips, addCategoryChips, carriedFilters } from "./active-filters";
 
 const categories = [
   { slug: "art", name: "Art" },
   { slug: "watches-jewelry", name: "Watches & Jewelry" },
+  { slug: "toys", name: "Toys" },
 ];
 
 describe("activeFilterChips", () => {
@@ -43,6 +44,31 @@ describe("activeFilterChips", () => {
 
   it("goes back to the plain search page when the last filter is removed", () => {
     expect(activeFilterChips({ condition: "GOOD" }, categories)[0].href).toBe("/search");
+  });
+});
+
+describe("category chips", () => {
+  it("has a chip for each chosen category, and removing one keeps the others", () => {
+    const chips = activeFilterChips({ q: "x", category: "art,toys" }, categories);
+    expect(chips.map((c) => [c.id, c.label, c.href])).toEqual([
+      ["category-art", "Art", "/search?q=x&category=toys"],
+      ["category-toys", "Toys", "/search?q=x&category=art"],
+    ]);
+    expect(activeFilterChips({ category: "art" }, categories)[0].href).toBe("/search");
+  });
+
+  it("offers each category not chosen yet, once one is chosen, linking to the search with it added and back on page 1", () => {
+    const add = addCategoryChips({ q: "x", category: "art", condition: "GOOD", page: "3" }, categories);
+    expect(add.map((c) => [c.label, c.href])).toEqual([
+      ["Watches & Jewelry", "/search?q=x&category=art%2Cwatches-jewelry&condition=GOOD"],
+      ["Toys", "/search?q=x&category=art%2Ctoys&condition=GOOD"],
+    ]);
+    expect(addCategoryChips({ category: "art,toys" }, categories).map((c) => c.label)).toEqual(["Watches & Jewelry"]);
+  });
+
+  it("offers none while no category is chosen, or when all are", () => {
+    expect(addCategoryChips({ q: "x" }, categories)).toEqual([]);
+    expect(addCategoryChips({ category: "art,watches-jewelry,toys" }, categories)).toEqual([]);
   });
 });
 

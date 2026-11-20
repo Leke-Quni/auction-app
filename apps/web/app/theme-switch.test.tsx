@@ -9,45 +9,62 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-const pressed = (name: string) => screen.getByRole("button", { name }).getAttribute("aria-pressed");
+const open = () => fireEvent.click(screen.getByRole("button", { name: /^Colour theme: / }));
+const checked = (name: string) => screen.getByRole("menuitemradio", { name }).getAttribute("aria-checked");
+const pick = (name: string) => {
+  open();
+  fireEvent.click(screen.getByRole("menuitemradio", { name }));
+};
 
 describe("ThemeSwitch", () => {
+  it("is one icon button, closed until pressed, that names the current theme", () => {
+    render(<ThemeSwitch />);
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.getByRole("button", { name: "Colour theme: System" }).getAttribute("aria-expanded")).toBe("false");
+    open();
+    expect(screen.getByRole("button", { name: "Colour theme: System" }).getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("starts on System, with no theme set", () => {
     render(<ThemeSwitch />);
-    expect([pressed("System"), pressed("Light"), pressed("Dark")]).toEqual(["true", "false", "false"]);
+    open();
+    expect([checked("System"), checked("Light"), checked("Dark")]).toEqual(["true", "false", "false"]);
     expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
   });
 
-  it("applies and remembers Light and Dark, and System clears both", () => {
+  it("applies and remembers Light and Dark, closes after a pick, and System clears both", () => {
     render(<ThemeSwitch />);
-    fireEvent.click(screen.getByRole("button", { name: "Light" }));
+    pick("Light");
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
     expect(localStorage.getItem("theme")).toBe("light");
-    fireEvent.click(screen.getByRole("button", { name: "Dark" }));
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.getByRole("button", { name: "Colour theme: Light" })).toBeTruthy();
+    pick("Dark");
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
-    expect(pressed("Dark")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "System" }));
+    open();
+    expect(checked("Dark")).toBe("true");
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "System" }));
     expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
     expect(localStorage.getItem("theme")).toBeNull();
   });
 
-  it("has a single button for narrow screens that steps System, Light, Dark and back", () => {
+  it("closes on Escape and on a click outside", () => {
     render(<ThemeSwitch />);
-    const stepper = () => screen.getByRole("button", { name: /^Colour theme: / });
-    expect(stepper().getAttribute("aria-label")).toBe("Colour theme: System. Switch to Light");
-    fireEvent.click(stepper());
-    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
-    fireEvent.click(stepper());
-    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
-    fireEvent.click(stepper());
-    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
-    expect(stepper().getAttribute("aria-label")).toBe("Colour theme: System. Switch to Light");
+    open();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    open();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("shows the saved choice when the page loads", () => {
     localStorage.setItem("theme", "dark");
     render(<ThemeSwitch />);
-    expect(pressed("Dark")).toBe("true");
+    expect(screen.getByRole("button", { name: "Colour theme: Dark" })).toBeTruthy();
+    open();
+    expect(checked("Dark")).toBe("true");
   });
 
   it("the pre-paint script sets a saved theme and ignores anything else", () => {

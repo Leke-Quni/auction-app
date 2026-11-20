@@ -232,5 +232,5 @@ export async function restoreAccountAction() {
   const res = await authedApiFetch("/me/deletion/restore", { method: "POST" });
   if (!res.ok && res.status !== 409) throw new Error(`API /me/deletion/restore failed: ${res.status}`);
   revalidatePath("/", "layout");
-  redirect("/account");
+  redirect("/account/settings");
 }
