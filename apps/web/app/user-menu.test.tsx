@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { UserMenu } from "./user-menu";
 
@@ -48,7 +48,8 @@ describe("UserMenu", () => {
 
   it("says what the icon button is when hovered", () => {
     const { button } = setup();
-    expect(button.getAttribute("title")).toBe("Account menu");
+    expect(screen.getByRole("tooltip").textContent).toBe("Your account");
+    expect(button.getAttribute("aria-label")).toBe("Account menu");
   });
 
   it("puts an icon beside every item, hidden from screen readers", () => {
@@ -87,5 +88,22 @@ describe("UserMenu", () => {
     fireEvent.click(button);
     const signOut = screen.getByRole("menuitem", { name: "Sign out" });
     expect(signOut.closest("form")).not.toBeNull();
+  });
+
+  it("ends the session, then loads the whole page again", async () => {
+    const assign = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, "location", { configurable: true, value: { ...original, assign } });
+    try {
+      const { signOutAction, button } = setup();
+      fireEvent.click(button);
+      await act(async () => {
+        fireEvent.submit(screen.getByRole("menuitem", { name: "Sign out" }).closest("form")!);
+      });
+      expect(signOutAction).toHaveBeenCalledTimes(1);
+      expect(assign).toHaveBeenCalledWith("/");
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: original });
+    }
   });
 });

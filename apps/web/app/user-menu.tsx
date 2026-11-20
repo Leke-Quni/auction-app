@@ -4,6 +4,7 @@ import { CircleUserRound, LifeBuoy, LogOut, Package, Settings, Tag, type LucideI
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { useDismiss } from "./use-dismiss";
+import { Tip } from "./tip";
 
 const itemClass = "flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-head";
 const iconClass = "size-4 shrink-0 text-muted";
@@ -28,17 +29,18 @@ export function UserMenu({ username, signOutAction }: { username: string; signOu
 
   return (
     <div ref={ref} className="relative">
-      <button
-        type="button"
-        aria-label="Account menu"
-        title="Account menu"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full hover:bg-chip"
-      >
-        <CircleUserRound className="size-6" strokeWidth={1.8} aria-hidden="true" />
-      </button>
+      <Tip label="Your account" align="right" suppress={open}>
+        <button
+          type="button"
+          aria-label="Account menu"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full hover:bg-chip"
+        >
+          <CircleUserRound className="size-6" strokeWidth={1.8} aria-hidden="true" />
+        </button>
+      </Tip>
       {open && (
         <div role="menu" className="absolute right-0 z-10 mt-2 w-52 border border-line bg-surface text-ink shadow-md">
           <p className="border-b border-line px-3 py-2 text-muted">
@@ -54,7 +56,14 @@ export function UserMenu({ username, signOutAction }: { username: string; signOu
               ))}
             </div>
           ))}
-          <form action={signOutAction} className="border-t border-line">
+          {/* The sign-out ends the session on the server, then the whole page is loaded again, so nothing of the signed-in page is left. */}
+          <form
+            action={async () => {
+              await signOutAction();
+              window.location.assign("/");
+            }}
+            className="border-t border-line"
+          >
             <button role="menuitem" className={`${itemClass} cursor-pointer font-bold text-danger`}>
               <LogOut className="size-4 shrink-0" strokeWidth={1.8} aria-hidden="true" />
               Sign out

@@ -10,8 +10,8 @@ import "./globals.css";
 import { NotificationBell } from "./notification-bell";
 import { Notifications } from "./notifications";
 import { SearchBox } from "./search-box";
-import { SignedOutNotice } from "./signed-out-notice";
 import { THEME_SCRIPT, ThemeSwitch } from "./theme-switch";
+import { Tip } from "./tip";
 import { UserMenu } from "./user-menu";
 
 const font = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-body", display: "swap" });
@@ -50,9 +50,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <header className="border-b border-line bg-surface px-4 py-2 text-ink">
           {/* The content stops at the width of the home and search pages (72rem), so on a very wide screen the bar's sides stay empty. */}
           <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 sm:grid sm:grid-cols-[1fr_minmax(0,24rem)_1fr]">
-            <Link href="/" className="justify-self-start text-xl font-black italic text-brand">
-              AUCTIONLY
-            </Link>
+            <div className="justify-self-start">
+              <Tip label="Home" align="left">
+                <Link href="/" className="text-xl font-black italic text-brand">
+                  AUCTIONLY
+                </Link>
+              </Tip>
+            </div>
             <Suspense fallback={<div className="flex-1" />}>
               <HeaderSearch />
             </Suspense>
@@ -60,12 +64,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <ThemeSwitch />
               {session ? (
                 <>
-                  <Link href="/sell/new" className="rounded-full border border-brand px-3 py-1 font-bold text-brand hover:bg-head">
-                    Sell
-                  </Link>
-                  <Link href="/watchlist" aria-label="Watchlist" title="Watchlist" className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-chip">
-                    <Eye className="size-6" strokeWidth={1.8} aria-hidden="true" />
-                  </Link>
+                  <Tip label="Sell an item" align="right">
+                    <Link href="/sell/new" className="rounded-full border border-brand px-3 py-1 font-bold text-brand hover:bg-head">
+                      Sell
+                    </Link>
+                  </Tip>
+                  <Tip label="Watchlist" align="right">
+                    <Link href="/watchlist" aria-label="Watchlist" className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-chip">
+                      <Eye className="size-6" strokeWidth={1.8} aria-hidden="true" />
+                    </Link>
+                  </Tip>
                   <Suspense fallback={<div className="h-8 w-8" />}>
                     <HeaderBell />
                   </Suspense>
@@ -73,24 +81,27 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                     username={session.user.name ?? ""}
                     signOutAction={async () => {
                       "use server";
-                      await signOut({ redirectTo: "/?signedOut=1" });
+                      await signOut({ redirect: false });
                     }}
                   />
                 </>
               ) : (
                 <>
-                  <Link href="/sign-in" className="inline-block py-1">
-                    Sign in
-                  </Link>
-                  <Link href="/sign-up" className="rounded-full bg-brand px-4 py-1.5 font-bold text-on-brand hover:bg-brand-dark">
-                    Sign up
-                  </Link>
+                  <Tip label="Log in" align="right">
+                    <Link href="/sign-in" className="inline-block py-1">
+                      Sign in
+                    </Link>
+                  </Tip>
+                  <Tip label="Create account" align="right">
+                    <Link href="/sign-up" className="rounded-full bg-brand px-4 py-1.5 font-bold text-on-brand hover:bg-brand-dark">
+                      Sign up
+                    </Link>
+                  </Tip>
                 </>
               )}
             </div>
           </div>
         </header>
-        <SignedOutNotice />
         {session && <Notifications />}
         <main id="main" className="mx-auto w-full max-w-3xl flex-1 p-3 has-[>[data-fill-page]]:flex has-[>[data-fill-page]]:flex-col">{children}</main>
         <footer className="border-t border-line bg-surface px-4 py-3">

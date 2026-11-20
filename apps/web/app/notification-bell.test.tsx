@@ -53,6 +53,7 @@ describe("NotificationBell", () => {
     cleanup();
     render(<NotificationBell initial={list([extended(false)])} />);
     expect(screen.getByRole("button", { name: "Notifications" })).toBeTruthy();
+    expect(screen.getByRole("tooltip").textContent).toBe("Notifications");
   });
 
   it("opens the list with each notification linking to its listing, without fetching when the list is fresh", () => {

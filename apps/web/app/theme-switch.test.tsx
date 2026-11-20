@@ -26,6 +26,12 @@ describe("ThemeSwitch", () => {
     expect(screen.getByRole("button", { name: "Colour theme: System" }).getAttribute("aria-expanded")).toBe("true");
   });
 
+  it("says what it does when hovered, while keeping a short name for screen readers", () => {
+    render(<ThemeSwitch />);
+    expect(screen.getByRole("tooltip").textContent).toBe("Light/dark mode");
+    expect(screen.getByRole("button", { name: "Colour theme: System" }).getAttribute("title")).toBeNull();
+  });
+
   it("starts on System, with no theme set", () => {
     render(<ThemeSwitch />);
     open();

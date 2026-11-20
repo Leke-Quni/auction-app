@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNotificationStore } from "@/lib/notification-store";
 import { clearNotificationsAction, dismissNotificationAction, loadNotificationsAction, markNotificationReadAction } from "./notification-actions";
 import { useDismiss } from "./use-dismiss";
+import { Tip } from "./tip";
 
 const MINUTE = 60_000;
 
@@ -92,22 +93,23 @@ export function NotificationBell({ initial }: { initial: NotificationList | null
 
   return (
     <div ref={ref} className="relative">
-      <button
-        type="button"
-        aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}
-        title={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={toggle}
-        className="relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-full hover:bg-chip"
-      >
-        <Bell className="size-6" strokeWidth={1.8} aria-hidden="true" />
-        {unreadCount > 0 && (
-          <span aria-hidden="true" className="absolute -right-1 -top-1 min-w-4 rounded-full bg-urgent px-1 text-center text-[11px] font-bold leading-4 text-on-brand">
-            {unreadCount > 99 ? "99+" : unreadCount}
-          </span>
-        )}
-      </button>
+      <Tip label="Notifications" align="right" suppress={open}>
+        <button
+          type="button"
+          aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={toggle}
+          className="relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-full hover:bg-chip"
+        >
+          <Bell className="size-6" strokeWidth={1.8} aria-hidden="true" />
+          {unreadCount > 0 && (
+            <span aria-hidden="true" className="absolute -right-1 -top-1 min-w-4 rounded-full bg-urgent px-1 text-center text-[11px] font-bold leading-4 text-on-brand">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          )}
+        </button>
+      </Tip>
       {open && (
         <div role="menu" className="absolute right-0 z-10 mt-2 w-80 max-w-[calc(100vw-1rem)] whitespace-normal border border-line bg-surface text-ink shadow-md">
           <div className="flex items-center justify-between border-b border-line px-3 py-2">

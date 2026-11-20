@@ -3,6 +3,7 @@
 import { Check, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useDismiss } from "./use-dismiss";
+import { Tip } from "./tip";
 
 export const THEME_KEY = "theme";
 export type ThemeChoice = "system" | "light" | "dark";
@@ -66,17 +67,18 @@ export function ThemeSwitch() {
 
   return (
     <div ref={ref} className="relative">
-      <button
-        type="button"
-        aria-label={`Colour theme: ${current.label}`}
-        title={`Colour theme: ${current.label}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full hover:bg-chip"
-      >
-        <CurrentIcon className="size-5" strokeWidth={1.8} aria-hidden="true" />
-      </button>
+      <Tip label="Light/dark mode" align="right" suppress={open}>
+        <button
+          type="button"
+          aria-label={`Colour theme: ${current.label}`}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full hover:bg-chip"
+        >
+          <CurrentIcon className="size-5" strokeWidth={1.8} aria-hidden="true" />
+        </button>
+      </Tip>
       {open && (
         <div role="menu" aria-label="Colour theme" className="absolute right-0 z-10 mt-2 w-40 border border-line bg-surface text-ink shadow-md">
           {OPTIONS.map(({ choice: c, label, icon: Icon }) => (
