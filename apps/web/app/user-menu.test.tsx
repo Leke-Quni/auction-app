@@ -19,19 +19,44 @@ describe("UserMenu", () => {
     expect(screen.queryByText("Sign out")).toBeNull();
   });
 
-  it("opens with sell, my listings, account info, settings, sign out, and the username", () => {
+  it("opens with my listings, my orders, settings, support, sign out, and the username", () => {
     const { button } = setup();
     fireEvent.click(button);
     expect(button.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByRole("menu")).toBeTruthy();
     expect(screen.getByText("ana_k")).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: "Sell an item" }).getAttribute("href")).toBe("/sell/new");
     expect(screen.getByRole("menuitem", { name: "My listings" }).getAttribute("href")).toBe("/sell");
     expect(screen.getByRole("menuitem", { name: "My orders" }).getAttribute("href")).toBe("/orders");
-    expect(screen.getByRole("menuitem", { name: "Watchlist" }).getAttribute("href")).toBe("/watchlist");
-    expect(screen.getByRole("menuitem", { name: "Account info" }).getAttribute("href")).toBe("/account");
     expect(screen.getByRole("menuitem", { name: "Settings" }).getAttribute("href")).toBe("/account/settings");
+    expect(screen.getByRole("menuitem", { name: "Support" }).getAttribute("href")).toBe("/support");
     expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeTruthy();
+  });
+
+  it("leaves selling, the watchlist and account info to the header and the settings page", () => {
+    const { button } = setup();
+    fireEvent.click(button);
+    for (const name of ["Sell an item", "Watchlist", "Account info"]) expect(screen.queryByRole("menuitem", { name })).toBeNull();
+  });
+
+  it("sets the two groups of links and sign out apart with lines", () => {
+    const { button } = setup();
+    fireEvent.click(button);
+    const groups = [...screen.getByRole("menu").children].filter((el) => el.querySelector('[role="menuitem"]'));
+    expect(groups).toHaveLength(3);
+    expect(groups.slice(1).every((el) => el.className.includes("border-t"))).toBe(true);
+  });
+
+  it("says what the icon button is when hovered", () => {
+    const { button } = setup();
+    expect(button.getAttribute("title")).toBe("Account menu");
+  });
+
+  it("puts an icon beside every item, hidden from screen readers", () => {
+    const { button } = setup();
+    fireEvent.click(button);
+    const items = screen.getAllByRole("menuitem");
+    expect(items).toHaveLength(5);
+    for (const item of items) expect(item.querySelector('svg[aria-hidden="true"]'), item.textContent ?? "").not.toBeNull();
   });
 
   it("closes on a second click, Escape, a click outside, or choosing a link", () => {

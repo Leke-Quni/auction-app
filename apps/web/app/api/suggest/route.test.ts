@@ -21,7 +21,13 @@ describe("GET /api/suggest", () => {
     apiFetch.mockResolvedValue(new Response(JSON.stringify({ suggestions: ["Old watch", 5, "Watch box"] })));
     const res = await call("  wat ");
     expect(apiFetch).toHaveBeenCalledWith("/search/suggest?q=wat", { headers: visitor });
-    expect(await res.json()).toEqual({ suggestions: ["Old watch", "Watch box"] });
+    expect(await res.json()).toEqual({ suggestions: ["Old watch", "Watch box"], items: [] });
+  });
+
+  it("passes the listing id, cover photo and price on for each suggestion and drops malformed ones", async () => {
+    const good = { id: "l1", title: "Old watch", coverUrl: "https://img/w.jpg", priceCents: 2500, hasBids: true };
+    apiFetch.mockResolvedValue(new Response(JSON.stringify({ suggestions: ["Old watch"], items: [good, { id: 5 }, { ...good, id: "l2", coverUrl: null, hasBids: false }, null] })));
+    expect((await (await call("wat")).json()).items).toEqual([good, { ...good, id: "l2", coverUrl: null, hasBids: false }]);
   });
 
   it("passes the visitor's address on, so the API's limit counts this visitor and not the web server", async () => {
@@ -32,21 +38,21 @@ describe("GET /api/suggest", () => {
 
   it("answers an empty list, not an error, when the API says slow down", async () => {
     apiFetch.mockResolvedValue(new Response(JSON.stringify({ code: "RATE_LIMITED" }), { status: 429 }));
-    expect(await (await call("wat")).json()).toEqual({ suggestions: [] });
+    expect(await (await call("wat")).json()).toEqual({ suggestions: [], items: [] });
   });
 
   it("does not ask for text that is too short or missing", async () => {
-    expect(await (await call("a")).json()).toEqual({ suggestions: [] });
-    expect(await (await call()).json()).toEqual({ suggestions: [] });
+    expect(await (await call("a")).json()).toEqual({ suggestions: [], items: [] });
+    expect(await (await call()).json()).toEqual({ suggestions: [], items: [] });
     expect(apiFetch).not.toHaveBeenCalled();
   });
 
   it("answers an empty list when the API is down, refuses, or sends something odd", async () => {
     apiFetch.mockResolvedValue(new Response("down", { status: 503 }));
-    expect(await (await call("wat")).json()).toEqual({ suggestions: [] });
+    expect(await (await call("wat")).json()).toEqual({ suggestions: [], items: [] });
     apiFetch.mockRejectedValue(new Error("asleep"));
-    expect(await (await call("wat")).json()).toEqual({ suggestions: [] });
+    expect(await (await call("wat")).json()).toEqual({ suggestions: [], items: [] });
     apiFetch.mockResolvedValue(new Response(JSON.stringify({ nope: true })));
-    expect(await (await call("wat")).json()).toEqual({ suggestions: [] });
+    expect(await (await call("wat")).json()).toEqual({ suggestions: [], items: [] });
   });
 });

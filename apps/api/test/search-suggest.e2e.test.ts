@@ -71,7 +71,7 @@ describe("GET /search/suggest", () => {
   });
 
   it("answers an empty list for text that matches nothing, and refuses text that is too short or missing", async () => {
-    expect((await request(url).get("/search/suggest").query({ q: `nomatch${stamp}` }).expect(200)).body).toEqual({ suggestions: [] });
+    expect((await request(url).get("/search/suggest").query({ q: `nomatch${stamp}` }).expect(200)).body).toEqual({ suggestions: [], items: [] });
     await request(url).get("/search/suggest").query({ q: "a" }).expect(400);
     await request(url).get("/search/suggest").query({ q: "   " }).expect(400);
     await request(url).get("/search/suggest").expect(400);

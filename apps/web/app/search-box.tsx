@@ -4,44 +4,41 @@ import Form from "next/form";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SUGGESTION_MIN_LENGTH } from "@auction/shared";
+import { formatEur, SUGGESTION_MIN_LENGTH } from "@auction/shared";
 import { addRecentSearch, clearRecentSearches, readRecentSearches, removeRecentSearch } from "@/lib/recent-searches";
-import { activeFilterChips, carriedFilters } from "./search/active-filters";
+import { carriedFilters } from "./search/active-filters";
 import { readSearchParams, recordFromSearchParams } from "./search/search-params";
 import { useDismiss } from "./use-dismiss";
+
+// What the API sends for one suggestion; the photo and price are missing when only titles come back.
+export interface SuggestionItem {
+  id: string;
+  title: string;
+  coverUrl: string | null;
+  priceCents: number;
+  hasBids: boolean;
+}
 
 const SUGGEST_DELAY_MS = 200;
 const AUTH_PATHS = ["/sign-in", "/sign-up", "/forgot-password", "/reset-password"];
 const isAuthPath = (pathname: string) => AUTH_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 
-// The header search. It is left out of the sign-in, sign-up and password pages. On the search page it shows the current text, keeps the chosen filters when searching again,
-// and lists them as chips that each remove one filter.
-export function SearchBox({ categories }: { categories: { slug: string; name: string }[] }) {
+// The header search. It is left out of the sign-in, sign-up and password pages. On the search page it shows the current text and keeps the chosen filters when searching again.
+export function SearchBox() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  // Worked out again only when the address or the categories change, not on every key typed in the box.
+  // Worked out again only when the address changes, not on every key typed in the box.
   const params = useMemo(() => (pathname === "/search" ? readSearchParams(recordFromSearchParams(searchParams)) : {}), [pathname, searchParams]);
-  const chips = useMemo(() => activeFilterChips(params, categories), [params, categories]);
 
-  // The header grows when the chips wrap onto a second line; the fixed sidebar on the search page reads its height from here.
   const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const header = box.current?.closest("header");
-    if (!header || typeof ResizeObserver === "undefined") return;
-    const publish = () => document.documentElement.style.setProperty("--header-height", `${header.offsetHeight}px`);
-    publish();
-    const observer = new ResizeObserver(publish);
-    observer.observe(header);
-    return () => observer.disconnect();
-  }, []);
 
   // Under the box while it is focused: the earlier searches made in this browser when it is empty, and titles that match
   // what is typed so far once there is some text.
   const [text, setText] = useState(params.q ?? "");
   const [open, setOpen] = useState(false);
   const [recent, setRecent] = useState<string[]>([]);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<(Partial<SuggestionItem> & { title: string })[]>([]);
   const [active, setActive] = useState(-1);
   useEffect(() => {
     setText(params.q ?? "");
@@ -50,7 +47,7 @@ export function SearchBox({ categories }: { categories: { slug: string; name: st
   useDismiss(box, open, () => setOpen(false));
   const typed = text.trim();
   // The highlight starts over whenever the list changes or closes.
-  const listKey = `${open}|${typed === ""}|${suggestions.join("\n")}|${recent.join("\n")}`;
+  const listKey = `${open}|${typed === ""}|${suggestions.map((item) => item.title).join("\n")}|${recent.join("\n")}`;
   useEffect(() => setActive(-1), [listKey]);
   // Asks for suggestions a moment after typing stops, and drops an answer that is no longer for what is in the box.
   useEffect(() => {
@@ -63,7 +60,9 @@ export function SearchBox({ categories }: { categories: { slug: string; name: st
       try {
         const res = await fetch(`/api/suggest?q=${encodeURIComponent(typed)}`, { signal: controller.signal });
         const body = res.ok ? await res.json() : null;
-        setSuggestions(Array.isArray(body?.suggestions) ? body.suggestions : []);
+        const titles: string[] = Array.isArray(body?.suggestions) ? body.suggestions : [];
+        const items: SuggestionItem[] = Array.isArray(body?.items) ? body.items : [];
+        setSuggestions(titles.map((title) => items.find((item) => item.title === title) ?? { title }));
       } catch {
         // A failed or cancelled request just means no suggestions.
       }
@@ -93,7 +92,7 @@ export function SearchBox({ categories }: { categories: { slug: string; name: st
   };
   const showRecent = open && typed === "" && recent.length > 0;
   const showSuggestions = open && typed.length >= SUGGESTION_MIN_LENGTH && suggestions.length > 0;
-  const choices = showRecent ? recent : showSuggestions ? suggestions : [];
+  const choices = showRecent ? recent : showSuggestions ? suggestions.map((item) => item.title) : [];
   const choose = (title: string) => {
     chooseSuggestion(title);
     router.push(`/search?q=${encodeURIComponent(title)}`);
@@ -175,6 +174,7 @@ export function SearchBox({ categories }: { categories: { slug: string; name: st
                   <button
                     type="button"
                     aria-label={`Forget ${item}`}
+                    title={`Forget ${item}`}
                     onClick={() => {
                       const list = removeRecentSearch(item);
                       setRecent(list);
@@ -193,10 +193,23 @@ export function SearchBox({ categories }: { categories: { slug: string; name: st
           <div className="absolute left-0 top-full z-20 mt-1 w-full border border-line-soft bg-surface text-sm text-subtle shadow-sm">
             <p className="px-3 py-1.5 text-xs text-faint">Suggestions</p>
             <ul role="listbox" id="search-choices" aria-label="Suggestions">
-              {suggestions.map((title, index) => (
+              {suggestions.map(({ title, coverUrl, priceCents, hasBids }, index) => (
                 <li key={title} id={`search-choice-${index}`} role="option" aria-selected={active === index} className={`hover:bg-soft ${active === index ? "bg-chip" : ""}`}>
-                  <Link href={`/search?q=${encodeURIComponent(title)}`} onClick={() => chooseSuggestion(title)} className="block truncate px-3 py-1.5">
-                    {title}
+                  <Link href={`/search?q=${encodeURIComponent(title)}`} onClick={() => chooseSuggestion(title)} className="flex items-center gap-3 px-3 py-1.5">
+                    {coverUrl !== undefined &&
+                      (coverUrl ? (
+                        <img src={coverUrl} alt="" className="size-12 shrink-0 rounded-md bg-sunken object-cover" loading="lazy" />
+                      ) : (
+                        <span aria-hidden className="flex size-12 shrink-0 items-center justify-center rounded-md bg-sunken text-[10px] text-muted">No photo</span>
+                      ))}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{title}</span>
+                      {priceCents !== undefined && (
+                        <span className="block text-xs">
+                          <span className="font-bold text-ink">{formatEur(priceCents)}</span> <span className="text-muted">{hasBids ? "current bid" : "starting"}</span>
+                        </span>
+                      )}
+                    </span>
                   </Link>
                 </li>
               ))}
@@ -204,18 +217,6 @@ export function SearchBox({ categories }: { categories: { slug: string; name: st
           </div>
         )}
       </Form>
-      {chips.length > 0 && (
-        <ul aria-label="Active filters" className="flex flex-wrap gap-1">
-          {chips.map((chip) => (
-            <li key={chip.id} className="inline-flex items-center gap-1 rounded-full border border-line bg-chip px-2 py-0.5 text-xs text-ink">
-              {chip.label}
-              <Link href={chip.href} aria-label={`Remove filter: ${chip.label}`} className="font-bold leading-none">
-                ×
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }

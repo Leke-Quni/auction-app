@@ -1,11 +1,24 @@
 "use client";
 
-import { CircleUserRound } from "lucide-react";
+import { CircleUserRound, LifeBuoy, LogOut, Package, Settings, Tag, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { useDismiss } from "./use-dismiss";
 
-const itemClass = "block w-full px-3 py-2 text-left hover:bg-head";
+const itemClass = "flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-head";
+const iconClass = "size-4 shrink-0 text-muted";
+
+// Two groups, set apart by a line: what the person buys and sells, then the account itself. Selling and the watchlist are in the header.
+const GROUPS: { href: string; label: string; Icon: LucideIcon }[][] = [
+  [
+    { href: "/sell", label: "My listings", Icon: Tag },
+    { href: "/orders", label: "My orders", Icon: Package },
+  ],
+  [
+    { href: "/account/settings", label: "Settings", Icon: Settings },
+    { href: "/support", label: "Support", Icon: LifeBuoy },
+  ],
+];
 
 export function UserMenu({ username, signOutAction }: { username: string; signOutAction: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
@@ -18,6 +31,7 @@ export function UserMenu({ username, signOutAction }: { username: string; signOu
       <button
         type="button"
         aria-label="Account menu"
+        title="Account menu"
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
@@ -30,29 +44,19 @@ export function UserMenu({ username, signOutAction }: { username: string; signOu
           <p className="border-b border-line px-3 py-2 text-muted">
             Signed in as <b className="text-ink">{username}</b>
           </p>
-          <Link role="menuitem" href="/sell/new" onClick={() => setOpen(false)} className={itemClass}>
-            Sell an item
-          </Link>
-          <Link role="menuitem" href="/sell" onClick={() => setOpen(false)} className={itemClass}>
-            My listings
-          </Link>
-          <Link role="menuitem" href="/orders" onClick={() => setOpen(false)} className={itemClass}>
-            My orders
-          </Link>
-          <Link role="menuitem" href="/watchlist" onClick={() => setOpen(false)} className={itemClass}>
-            Watchlist
-          </Link>
-          <Link role="menuitem" href="/account" onClick={() => setOpen(false)} className={itemClass}>
-            Account info
-          </Link>
-          <Link role="menuitem" href="/account/settings" onClick={() => setOpen(false)} className={itemClass}>
-            Settings
-          </Link>
-          <Link role="menuitem" href="/support" onClick={() => setOpen(false)} className={itemClass}>
-            Support
-          </Link>
+          {GROUPS.map((group, index) => (
+            <div key={index} className={index > 0 ? "border-t border-line" : ""}>
+              {group.map(({ href, label, Icon }) => (
+                <Link key={href} role="menuitem" href={href} onClick={() => setOpen(false)} className={itemClass}>
+                  <Icon className={iconClass} strokeWidth={1.8} aria-hidden="true" />
+                  {label}
+                </Link>
+              ))}
+            </div>
+          ))}
           <form action={signOutAction} className="border-t border-line">
-            <button role="menuitem" className={`${itemClass} cursor-pointer`}>
+            <button role="menuitem" className={`${itemClass} cursor-pointer font-bold text-danger`}>
+              <LogOut className="size-4 shrink-0" strokeWidth={1.8} aria-hidden="true" />
               Sign out
             </button>
           </form>

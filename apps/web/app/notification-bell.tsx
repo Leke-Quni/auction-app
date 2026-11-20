@@ -95,6 +95,7 @@ export function NotificationBell({ initial }: { initial: NotificationList | null
       <button
         type="button"
         aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}
+        title={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={toggle}

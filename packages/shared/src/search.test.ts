@@ -19,7 +19,7 @@ describe("searchQuerySchema", () => {
     });
     expect(parsed).toMatchObject({
       q: "watch",
-      category: "watches-jewelry",
+      category: ["watches-jewelry"],
       condition: ["GOOD"],
       minPriceCents: 1000,
       maxPriceCents: 50000,
@@ -36,6 +36,13 @@ describe("searchQuerySchema", () => {
     expect(searchQuerySchema.parse({}).condition).toBeUndefined();
   });
 
+  it("reads several categories from a comma list or a repeated parameter, once each", () => {
+    expect(searchQuerySchema.parse({ category: "art,home-garden" }).category).toEqual(["art", "home-garden"]);
+    expect(searchQuerySchema.parse({ category: ["art", "fashion"] }).category).toEqual(["art", "fashion"]);
+    expect(searchQuerySchema.parse({ category: "art, art,art" }).category).toEqual(["art"]);
+    expect(searchQuerySchema.parse({}).category).toBeUndefined();
+  });
+
   it("rejects bad values", () => {
     for (const bad of [
       { condition: "BROKEN" },
@@ -44,6 +51,10 @@ describe("searchQuerySchema", () => {
       { condition: "NEW,," },
       { sort: "random" },
       { category: "Watches & Jewelry" },
+      { category: "art,Bad Slug" },
+      { category: "" },
+      { category: "art,," },
+      { category: Array.from({ length: 11 }, (_, i) => `c${i}`).join(",") },
       { minPriceCents: "-1" },
       { minPriceCents: "abc" },
       { endingSoon: "yes" },

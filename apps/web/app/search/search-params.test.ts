@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { maxSearchPage } from "@auction/shared";
-import { apiQueryFromParams, categoryHref, pageHref, readSearchParams, recordFromSearchParams, SEARCH_PAGE_SIZE } from "./search-params";
+import { apiQueryFromParams, categoryHref, categoryList, pageHref, readSearchParams, recordFromSearchParams, SEARCH_PAGE_SIZE } from "./search-params";
 
 describe("readSearchParams", () => {
   it("keeps the first value of a list and drops blank form fields", () => {
-    expect(readSearchParams({ q: " watch ", category: ["art", "toys"], sort: undefined, page: "" })).toEqual({ q: "watch", category: "art" });
+    expect(readSearchParams({ q: " watch ", category: ["art", "toys"], sort: undefined, page: "" })).toEqual({ q: "watch", category: "art,toys" });
   });
 
   it("keeps every ticked condition, once each and in the order of the form, and drops values that are not conditions", () => {
@@ -67,6 +67,16 @@ describe("pageHref", () => {
   it("keeps the search and filters, and leaves page 1 implicit", () => {
     expect(pageHref({ q: "watch", category: "art", page: "2" }, 3)).toBe("/search?q=watch&category=art&page=3");
     expect(pageHref({ q: "watch", page: "2" }, 1)).toBe("/search?q=watch");
+  });
+});
+
+describe("categories", () => {
+  it("reads one or several, from a comma list or a repeated parameter, once each, dropping what is no slug", () => {
+    expect(categoryList("art, toys,art,Bad Slug,,")).toEqual(["art", "toys"]);
+    expect(categoryList(undefined)).toEqual([]);
+    expect(readSearchParams({ category: "art,home-garden" }).category).toBe("art,home-garden");
+    expect(readSearchParams({ category: ["art", "toys,art"] }).category).toBe("art,toys");
+    expect(readSearchParams({ category: "Not A Slug" }).category).toBeUndefined();
   });
 });
 

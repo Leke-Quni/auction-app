@@ -1,7 +1,8 @@
 "use client";
 
-import { Monitor, Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Check, Monitor, Moon, Sun } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useDismiss } from "./use-dismiss";
 
 export const THEME_KEY = "theme";
 export type ThemeChoice = "system" | "light" | "dark";
@@ -30,9 +31,12 @@ function apply(choice: ThemeChoice) {
   else root.setAttribute("data-theme", choice);
 }
 
-// Light, Dark, or follow the device, in the header. The choice is kept in this browser only; "System" is no choice at all.
+// Light, Dark, or follow the device: one icon in the header that opens a small menu. The choice is kept in this browser only; "System" is no choice at all.
 export function ThemeSwitch() {
   const [choice, setChoice] = useState<ThemeChoice>("system");
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useDismiss(ref, open, () => setOpen(false));
   useEffect(() => {
     setChoice(readChoice());
     // Another tab changed it.
@@ -57,39 +61,43 @@ export function ThemeSwitch() {
     apply(next);
   };
 
-  // On the narrowest phones the three buttons would push the header onto another row, so one button stands in for them and
-  // steps to the next choice each time it is pressed.
   const current = OPTIONS.find((o) => o.choice === choice) ?? OPTIONS[0]!;
-  const next = OPTIONS[(OPTIONS.indexOf(current) + 1) % OPTIONS.length]!;
   const CurrentIcon = current.icon;
 
   return (
-    <>
+    <div ref={ref} className="relative">
       <button
         type="button"
-        aria-label={`Colour theme: ${current.label}. Switch to ${next.label}`}
+        aria-label={`Colour theme: ${current.label}`}
         title={`Colour theme: ${current.label}`}
-        onClick={() => pick(next.choice)}
-        className="inline-flex cursor-pointer items-center rounded-[var(--radius-card)] border border-brand bg-brand px-1.5 py-1 text-on-brand min-[400px]:hidden"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full hover:bg-chip"
       >
-        <CurrentIcon size={14} aria-hidden="true" />
+        <CurrentIcon className="size-5" strokeWidth={1.8} aria-hidden="true" />
       </button>
-      <div role="group" aria-label="Colour theme" className="inline-flex gap-1 max-[399px]:hidden">
-        {OPTIONS.map(({ choice: c, label, icon: Icon }) => (
-          <button
-            key={c}
-            type="button"
-            aria-pressed={choice === c}
-            aria-label={label}
-            title={label}
-            onClick={() => pick(c)}
-            className={`inline-flex cursor-pointer items-center gap-1 rounded-[var(--radius-card)] border px-2.5 py-1 text-xs max-sm:px-1 ${choice === c ? "border-brand bg-brand font-bold text-on-brand" : "border-line bg-surface text-brand hover:bg-head"}`}
-          >
-            <Icon size={14} aria-hidden="true" />
-            <span className="max-sm:sr-only">{label}</span>
-          </button>
-        ))}
-      </div>
-    </>
+      {open && (
+        <div role="menu" aria-label="Colour theme" className="absolute right-0 z-10 mt-2 w-40 border border-line bg-surface text-ink shadow-md">
+          {OPTIONS.map(({ choice: c, label, icon: Icon }) => (
+            <button
+              key={c}
+              type="button"
+              role="menuitemradio"
+              aria-checked={choice === c}
+              onClick={() => {
+                pick(c);
+                setOpen(false);
+              }}
+              className="flex w-full cursor-pointer items-center gap-2.5 px-3 py-2 text-left hover:bg-head"
+            >
+              <Icon className="size-4 shrink-0 text-muted" strokeWidth={1.8} aria-hidden="true" />
+              <span className="flex-1">{label}</span>
+              {choice === c && <Check className="size-4 shrink-0 text-brand" strokeWidth={2} aria-hidden="true" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

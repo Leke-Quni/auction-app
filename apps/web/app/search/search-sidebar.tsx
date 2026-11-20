@@ -3,8 +3,8 @@ import Form from "next/form";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { PriceSlider } from "./price-slider";
-import { categoryHref, conditionList, type SearchPageParams } from "./search-params";
-import { SortSelect } from "./sort-select";
+import { categoryHref, categoryList, conditionList, type SearchPageParams } from "./search-params";
+import { PriceSortSelect, SortProvider, SortSelect } from "./sort-select";
 
 const input = "mt-0.5 w-full border border-field bg-surface p-1 text-xs";
 const label = "text-[11px] text-muted";
@@ -13,9 +13,13 @@ const label = "text-[11px] text-muted";
 // screen the sidebar is a column of its own beside the cards, and on a narrow one it stacks on top.
 export function SidebarPage({ sidebar, children }: { sidebar: ReactNode; children: ReactNode }) {
   return (
-    <div className="relative left-1/2 w-[min(72rem,calc(100vw-2rem))] -translate-x-1/2 space-y-3 min-[900px]:grid min-[900px]:grid-cols-[11rem_minmax(0,1fr)] min-[900px]:items-start min-[900px]:gap-6 min-[900px]:space-y-0">
-      {sidebar}
-      <div className="min-w-0 space-y-3">{children}</div>
+    // data-fill-page makes the layout's <main> a column this page fills to the bottom, so the page numbers sit at the foot of a short last page.
+    <div
+      data-fill-page
+      className="relative left-1/2 flex w-[min(72rem,calc(100vw-2rem))] flex-1 -translate-x-1/2 flex-col gap-3 min-[900px]:grid min-[900px]:grid-cols-[11rem_minmax(0,1fr)] min-[900px]:gap-6"
+    >
+      <div className="min-[900px]:self-start">{sidebar}</div>
+      <div className="flex min-w-0 flex-1 flex-col gap-3">{children}</div>
     </div>
   );
 }
@@ -37,14 +41,12 @@ export function SearchSidebar({
   // The boxes are uncontrolled, so they are keyed by what the address holds: when a filter is removed (the chips under the
   // search box), the page renders again and the box is unticked instead of keeping its old tick.
   return (
-    <aside
-      className="space-y-2 text-xs [@media(min-width:900px)_and_(min-height:760px)]:sticky [@media(min-width:900px)_and_(min-height:760px)]:top-[calc(var(--header-height,4.5rem)_+_0.5rem)]"
-    >
+    <aside className="space-y-2 text-xs">
       <nav aria-label="Categories" className="border border-line bg-surface">
         <h2 className="border-b border-line bg-head px-2 py-1 font-bold">Categories</h2>
         <ul className={`flex flex-wrap gap-x-3 px-2 py-1 min-[900px]:block min-[900px]:px-0`}>
           {[{ id: "all", slug: undefined, name: "All categories" }, ...categories].map((c) => {
-            const current = params.category === c.slug;
+            const current = c.slug === undefined ? !params.category : categoryList(params.category).includes(c.slug);
             return (
               <li key={c.id}>
                 <Link
@@ -61,37 +63,41 @@ export function SearchSidebar({
       </nav>
 
       <Form action="/search" className={`grid grid-cols-2 gap-2 border border-line bg-surface p-2 min-[900px]:grid-cols-1`}>
-        <h2 className="col-span-2 font-bold min-[900px]:col-span-1">Filters</h2>
-        {params.category && <input type="hidden" name="category" value={params.category} />}
-        {params.q && <input type="hidden" name="q" value={params.q} />}
-        <fieldset key={`conditions:${selectedConditions.join(",")}`} className="space-y-0.5">
-          <legend className={label}>Condition</legend>
-          {LISTING_CONDITIONS.map((c) => (
-            <label key={c} className="flex items-center gap-1.5 py-0.5">
-              <input type="checkbox" name="condition" value={c} defaultChecked={selectedConditions.includes(c)} />
-              {CONDITION_LABELS[c]}
-            </label>
-          ))}
-        </fieldset>
-        <label className="block">
-          <span className={label}>Sort by</span>
-          <SortSelect key={`sort:${sort}`} defaultValue={sort} className={input} />
-        </label>
-        <div className="col-span-2 min-[900px]:col-span-1">
-          <PriceSlider maxEuros={maxEuros} initialMin={params.minPrice} initialMax={params.maxPrice} />
-        </div>
-        <label key={`endingSoon:${params.endingSoon ?? ""}`} className={`col-span-2 flex items-center gap-1.5 min-[900px]:col-span-1`}>
-          <input type="checkbox" name="endingSoon" value="true" defaultChecked={params.endingSoon === "true"} />
-          Ending within 24 hours
-        </label>
-        <div className={`col-span-2 flex items-center gap-2 min-[900px]:col-span-1`}>
-          <button type="submit" className="cursor-pointer bg-brand px-3 py-1.5 font-bold text-on-brand hover:bg-brand-dark">
-            Apply
-          </button>
-          <Link href="/search" className="inline-block px-1 py-1.5 text-brand underline">
-            Clear
-          </Link>
-        </div>
+        <SortProvider key={`sort:${sort}`} defaultValue={sort}>
+          <h2 className="col-span-2 font-bold min-[900px]:col-span-1">Filters</h2>
+          {params.category && <input type="hidden" name="category" value={params.category} />}
+          {params.q && <input type="hidden" name="q" value={params.q} />}
+          <fieldset key={`conditions:${selectedConditions.join(",")}`} className="space-y-0.5">
+            <legend className={label}>Condition</legend>
+            {LISTING_CONDITIONS.map((c) => (
+              <label key={c} className="flex cursor-pointer items-center gap-1.5 py-0.5">
+                <input type="checkbox" name="condition" className="cursor-pointer" value={c} defaultChecked={selectedConditions.includes(c)} />
+                {CONDITION_LABELS[c]}
+              </label>
+            ))}
+          </fieldset>
+          <div>
+            <span className={label}>Sort by</span>
+            <SortSelect className={input} />
+          </div>
+          <div className="col-span-2 min-[900px]:col-span-1">
+            <PriceSlider maxEuros={maxEuros} initialMin={params.minPrice} initialMax={params.maxPrice} />
+            <span className={`${label} mt-2 block`}>Sort by price</span>
+            <PriceSortSelect className={input} />
+          </div>
+          <label key={`endingSoon:${params.endingSoon ?? ""}`} className={`col-span-2 flex cursor-pointer items-center gap-1.5 min-[900px]:col-span-1`}>
+            <input type="checkbox" name="endingSoon" className="cursor-pointer" value="true" defaultChecked={params.endingSoon === "true"} />
+            Ending within 24 hours
+          </label>
+          <div className={`col-span-2 flex items-center gap-2 min-[900px]:col-span-1`}>
+            <button type="submit" className="cursor-pointer bg-brand px-3 py-1.5 font-bold text-on-brand hover:bg-brand-dark">
+              Apply
+            </button>
+            <Link href="/search" className="inline-block px-1 py-1.5 text-brand underline">
+              Clear
+            </Link>
+          </div>
+        </SortProvider>
       </Form>
     </aside>
   );

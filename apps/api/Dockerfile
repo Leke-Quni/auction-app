@@ -1,3 +1,4 @@
+
 # Build from the repository root: docker build -f apps/api/Dockerfile .
 FROM node:24-bookworm-slim AS base
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0

@@ -18,7 +18,7 @@ const box = "border px-2.5 py-1 text-center";
 export function Pagination({ page, pages, hrefFor }: { page: number; pages: number; hrefFor: (page: number) => string }) {
   if (pages <= 1) return null;
   return (
-    <nav aria-label="Pagination" className="flex flex-wrap items-center justify-center gap-1">
+    <nav aria-label="Pagination" className="mt-auto flex flex-wrap items-center justify-center gap-1 pt-1">
       {page > 1 && (
         <Link href={hrefFor(page - 1)} className={`${box} border-line bg-surface text-brand hover:bg-head`}>
           Previous

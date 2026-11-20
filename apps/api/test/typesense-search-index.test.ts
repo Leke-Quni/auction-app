@@ -145,11 +145,12 @@ describe("TypesenseSearchIndex.search", () => {
   });
 
   it("filters by category, condition and price range", async () => {
-    expect((await run({ category: "electronics" })).titles).toEqual(["Film camera"]);
+    expect((await run({ category: ["electronics"] })).titles).toEqual(["Film camera"]);
+    expect((await run({ category: ["electronics", "home-garden"], sort: "newest" })).titles).toEqual(["Blue ceramic vase", "Film camera"]);
     expect((await run({ condition: ["LIKE_NEW"] })).titles).toEqual(["Blue ceramic vase"]);
     expect((await run({ condition: ["LIKE_NEW", "FAIR"] })).titles).toEqual(["Film camera", "Blue ceramic vase"]);
     expect((await run({ minPriceCents: 5000, maxPriceCents: 30000, sort: "priceAsc" })).titles).toEqual(["Film camera", "Vintage wristwatch"]);
-    expect((await run({ category: "electronics", condition: ["NEW"] })).titles).toEqual([]);
+    expect((await run({ category: ["electronics"], condition: ["NEW"] })).titles).toEqual([]);
   });
 
   it("'ending soon' means live and ending within 24 hours", async () => {
@@ -157,7 +158,8 @@ describe("TypesenseSearchIndex.search", () => {
   });
 
   it("sorts by ending time, bids and price", async () => {
-    expect((await run({ sort: "endingSoon" })).titles).toEqual(["Vintage wristwatch", "Film camera", "Upcoming painting", "Blue ceramic vase"]);
+    // Live auctions first, then the upcoming one, although it would end before the vase once it starts.
+    expect((await run({ sort: "endingSoon" })).titles).toEqual(["Vintage wristwatch", "Film camera", "Blue ceramic vase", "Upcoming painting"]);
     expect((await run({ sort: "endingLatest" })).titles).toEqual(["Blue ceramic vase", "Film camera", "Vintage wristwatch"]);
     expect((await run({ sort: "mostBids" })).titles.slice(0, 2)).toEqual(["Film camera", "Vintage wristwatch"]);
     expect((await run({ sort: "fewestBids" })).titles).toEqual(["Upcoming painting", "Blue ceramic vase", "Vintage wristwatch", "Film camera"]);

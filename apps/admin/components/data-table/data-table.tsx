@@ -3,6 +3,8 @@
 import { useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { ColumnHeader, type FilterOption, type SortKind, type SortLabels } from "./column-header";
+import { ColumnResizer } from "./column-resizer";
+import { percent, useColumnWidths } from "./column-widths";
 import { pageCount, PAGE_SIZE } from "./page-window";
 import { Pagination } from "./pagination";
 import { usePagedList } from "./use-paged-list";
@@ -45,6 +47,9 @@ interface Props<T> {
 export function DataTable<T>({ module, params, columns, rowKey, rowsField, emptyText, rowClassName }: Props<T>) {
   const { state, busy, page, goTo, reload } = usePagedList<Record<string, unknown>>(module, params);
   const search = useSearchParams();
+  const headers = columns.map((c) => c.header);
+  const sizes = useColumnWidths(module, headers);
+  const last = columns.length - 1;
   const sort = search.get("sort");
   const dir = search.get("dir") === "desc" ? "desc" : "asc";
   // Any change of sort or search starts again from page 1.
@@ -63,13 +68,33 @@ export function DataTable<T>({ module, params, columns, rowKey, rowsField, empty
   const pages = pageCount(total);
 
   return (
-    <div className="space-y-2">
+    // data-fill-page: the console layout stretches this to the bottom of the page, so the page numbers sit there and not against the rows.
+    <div data-fill-page className="flex flex-1 flex-col gap-2">
+      {sizes.custom && (
+        <p className="text-right text-xs">
+          <button type="button" onClick={sizes.reset} className="cursor-pointer text-accent underline">
+            Reset column widths
+          </button>
+        </p>
+      )}
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse overflow-hidden rounded border border-line bg-panel text-left" aria-busy={busy}>
+        <table
+          className="w-full border-collapse overflow-hidden rounded border border-line bg-panel text-left"
+          style={sizes.custom ? { tableLayout: "fixed", width: "100%" } : undefined}
+          aria-busy={busy}
+        >
+          {sizes.custom && (
+            <colgroup>
+              {columns.map((c) => (
+                <col key={c.header} style={{ width: percent(sizes.widths[c.header]) }} />
+              ))}
+            </colgroup>
+          )}
           <thead className="bg-page text-muted">
             <tr>
-              {columns.map((c) => (
-                <th key={c.header} className="p-2">
+              {columns.map((c, i) => (
+                <th key={c.header} className={`relative p-2 ${i < last ? "border-r border-line" : ""}`}>
+                  <div className={sizes.custom ? "overflow-hidden whitespace-nowrap text-ellipsis" : undefined}>
                   {c.key && (c.sortable || c.searchable || c.filterOptions) ? (
                     <ColumnHeader
                       title={c.header}
@@ -91,6 +116,8 @@ export function DataTable<T>({ module, params, columns, rowKey, rowsField, empty
                   ) : (
                     c.header
                   )}
+                  </div>
+                  {i < last && <ColumnResizer label={c.header} onBegin={sizes.begin} onMove={(d) => sizes.move(i, d)} onCommit={sizes.commit} onReset={sizes.reset} />}
                 </th>
               ))}
             </tr>
@@ -126,8 +153,8 @@ export function DataTable<T>({ module, params, columns, rowKey, rowsField, empty
             {state.status === "ready" &&
               rows.map((row) => (
                 <tr key={rowKey(row)} className={`border-t border-line ${rowClassName ?? ""}`}>
-                  {columns.map((c) => (
-                    <td key={c.header} className={`p-2 ${c.className ?? ""}`}>
+                  {columns.map((c, i) => (
+                    <td key={c.header} className={`p-2 ${i < last ? "border-r border-line" : ""} ${sizes.custom ? "overflow-hidden text-ellipsis whitespace-nowrap! [&_*]:whitespace-nowrap!" : ""} ${c.className ?? ""}`}>
                       {c.render(row)}
                     </td>
                   ))}

@@ -5,6 +5,8 @@ import { loadCategories } from "@/lib/categories";
 import { viewerIpHeaders } from "@/lib/viewer-ip";
 import { ListingCard, type ListingSummary } from "../listing-card";
 import { Pagination, pageCount } from "../pagination";
+import { activeFilterChips, addCategoryChips } from "./active-filters";
+import { FilterChips } from "./filter-chips";
 import { sliderMaxEuros } from "./price-scale";
 import { SearchSidebar, SidebarPage } from "./search-sidebar";
 import { SEARCH_PAGE_SIZE, apiQueryFromParams, pageHref, readSearchParams } from "./search-params";
@@ -45,6 +47,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   return (
     <SidebarPage sidebar={<SearchSidebar params={params} categories={categories} sort={sort} maxEuros={sliderMaxEuros(topPriceCents)} />}>
       <h1 className="text-lg font-bold">{params.q ? `Results for "${params.q}"` : "Browse auctions"}</h1>
+      <FilterChips chips={activeFilterChips(params, categories)} addable={addCategoryChips(params, categories)} />
       {"message" in outcome ? (
         <p className="border border-urgent bg-surface p-3 text-urgent">{outcome.message}</p>
       ) : outcome.items.length === 0 ? (

@@ -7,7 +7,7 @@ export function Pagination({ page, total, onPage }: { page: number; total: numbe
   const from = (page - 1) * PAGE_SIZE + 1;
   const to = Math.min(total, page * PAGE_SIZE);
   return (
-    <nav aria-label="Pages" className="flex flex-wrap items-center justify-between gap-2">
+    <nav aria-label="Pages" className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-2">
       <p className="text-muted">
         Showing {from}-{to} of {total}
       </p>

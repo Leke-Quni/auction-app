@@ -18,26 +18,24 @@ afterEach(() => {
   nav.push.mockReset();
 });
 
-const categories = [{ slug: "art", name: "Art" }];
 const hiddenFields = (container: HTMLElement) =>
   Object.fromEntries([...container.querySelectorAll<HTMLInputElement>('input[type="hidden"]')].map((i) => [i.name, i.value]));
 
 describe("SearchBox", () => {
-  it("shows the current text and each active filter as a chip that removes it, and keeps the filters for a new search", () => {
+  it("shows the current text and keeps the filters for a new search, without listing them as chips", () => {
     nav.pathname = "/search";
     nav.search = "q=rolex&category=art&condition=GOOD&page=2";
-    const { container } = render(<SearchBox categories={categories} />);
+    const { container } = render(<SearchBox />);
 
     expect((screen.getByLabelText("Search auctions") as HTMLInputElement).value).toBe("rolex");
-    expect(screen.getByRole("link", { name: "Remove filter: Art" }).getAttribute("href")).toBe("/search?q=rolex&condition=GOOD");
-    expect(screen.getByRole("link", { name: "Remove filter: Good" }).getAttribute("href")).toBe("/search?q=rolex&category=art");
+    expect(screen.queryByRole("list", { name: "Active filters" })).toBeNull();
     expect(hiddenFields(container)).toEqual({ category: "art", condition: "GOOD" });
   });
 
   it("is a plain search box away from the search page, whatever is in the address", () => {
     nav.pathname = "/";
     nav.search = "category=art";
-    const { container } = render(<SearchBox categories={categories} />);
+    const { container } = render(<SearchBox />);
     expect(screen.queryByRole("list")).toBeNull();
     expect(hiddenFields(container)).toEqual({});
     expect((screen.getByLabelText("Search auctions") as HTMLInputElement).value).toBe("");
@@ -46,7 +44,7 @@ describe("SearchBox", () => {
   it("stays where it is when searched with nothing typed and no filter, and searches otherwise", () => {
     nav.pathname = "/listings/abc";
     nav.search = "";
-    render(<SearchBox categories={categories} />);
+    render(<SearchBox />);
     const box = screen.getByLabelText("Search auctions") as HTMLInputElement;
     const submit = () => fireEvent.submit(box.closest("form")!); // false when the submit was cancelled
 
@@ -60,7 +58,7 @@ describe("SearchBox", () => {
   it("keeps searching when the text is empty but a filter is chosen", () => {
     nav.pathname = "/search";
     nav.search = "category=art";
-    render(<SearchBox categories={categories} />);
+    render(<SearchBox />);
     expect(fireEvent.submit((screen.getByLabelText("Search auctions") as HTMLInputElement).closest("form")!)).toBe(true);
   });
 
@@ -68,7 +66,7 @@ describe("SearchBox", () => {
     window.localStorage.setItem("recent-searches", JSON.stringify(["old watch", "blue vase"]));
     nav.pathname = "/listings/abc";
     nav.search = "";
-    render(<SearchBox categories={categories} />);
+    render(<SearchBox />);
     const box = screen.getByLabelText("Search auctions") as HTMLInputElement;
     expect(screen.queryByText("Recent searches")).toBeNull();
 
@@ -88,7 +86,7 @@ describe("SearchBox", () => {
   it("shows nothing when there are no earlier searches", () => {
     nav.pathname = "/";
     nav.search = "";
-    render(<SearchBox categories={categories} />);
+    render(<SearchBox />);
     fireEvent.focus(screen.getByLabelText("Search auctions"));
     expect(screen.queryByText("Recent searches")).toBeNull();
   });
@@ -97,7 +95,7 @@ describe("SearchBox", () => {
     window.localStorage.setItem("recent-searches", JSON.stringify(["old watch", "blue vase"]));
     nav.pathname = "/";
     nav.search = "";
-    render(<SearchBox categories={categories} />);
+    render(<SearchBox />);
     fireEvent.focus(screen.getByLabelText("Search auctions"));
     fireEvent.click(screen.getByRole("button", { name: "Forget old watch" }));
     expect(screen.queryByRole("link", { name: "old watch" })).toBeNull();
@@ -110,7 +108,7 @@ describe("SearchBox", () => {
   it("remembers a search when it is made, but not an empty one", () => {
     nav.pathname = "/";
     nav.search = "";
-    render(<SearchBox categories={categories} />);
+    render(<SearchBox />);
     const box = screen.getByLabelText("Search auctions") as HTMLInputElement;
     fireEvent.submit(box.closest("form")!);
     expect(window.localStorage.getItem("recent-searches")).toBeNull();
@@ -144,7 +142,7 @@ describe("SearchBox", () => {
     it("asks a moment after typing stops and lists the titles as links to that search", async () => {
       const fetchMock = answer(["Old watch", "Watch strap"]);
       vi.stubGlobal("fetch", fetchMock);
-      render(<SearchBox categories={categories} />);
+      render(<SearchBox />);
       const box = screen.getByLabelText("Search auctions") as HTMLInputElement;
       fireEvent.focus(box);
       fireEvent.change(box, { target: { value: "w" } });
@@ -160,10 +158,29 @@ describe("SearchBox", () => {
       expect(screen.getByRole("link", { name: "Old watch" }).getAttribute("href")).toBe("/search?q=Old%20watch");
     });
 
+    it("shows each suggestion's cover photo (or a placeholder) and its price under the title", async () => {
+      const items = [
+        { id: "l1", title: "Old watch", coverUrl: "https://img/w.jpg", priceCents: 2500, hasBids: true },
+        { id: "l2", title: "Watch strap", coverUrl: null, priceCents: 900, hasBids: false },
+      ];
+      vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response(JSON.stringify({ suggestions: ["Old watch", "Watch strap"], items }))));
+      render(<SearchBox />);
+      await typeText("wat");
+      const first = screen.getByRole("link", { name: /Old watch/ });
+      expect(first.querySelector("img")?.getAttribute("src")).toBe("https://img/w.jpg");
+      expect(first.textContent).toContain("€25.00");
+      expect(first.textContent).toContain("current bid");
+      const second = screen.getByRole("link", { name: /Watch strap/ });
+      expect(second.querySelector("img")).toBeNull();
+      expect(second.textContent).toContain("No photo");
+      expect(second.textContent).toContain("€9.00");
+      expect(second.textContent).toContain("starting");
+    });
+
     it("does not ask for one letter, and shows nothing when there are no suggestions or the request fails", async () => {
       const fetchMock = answer([]);
       vi.stubGlobal("fetch", fetchMock);
-      render(<SearchBox categories={categories} />);
+      render(<SearchBox />);
       await typeText("w");
       expect(fetchMock).not.toHaveBeenCalled();
       await typeText("wat");
@@ -177,7 +194,7 @@ describe("SearchBox", () => {
     it("closes on Escape, remembers a chosen suggestion, and gives way to the recent searches when emptied", async () => {
       window.localStorage.setItem("recent-searches", JSON.stringify(["blue vase"]));
       vi.stubGlobal("fetch", answer(["Old watch"]));
-      render(<SearchBox categories={categories} />);
+      render(<SearchBox />);
       const box = await typeText("wat");
       expect(screen.getByText("Suggestions")).toBeTruthy();
       fireEvent.change(box, { target: { value: "" } });
@@ -206,7 +223,7 @@ describe("SearchBox", () => {
 
     it("moves through the recent searches with the arrow keys, wraps round, and searches the highlighted one on Enter", () => {
       window.localStorage.setItem("recent-searches", JSON.stringify(["old watch", "blue vase", "rolex"]));
-      render(<SearchBox categories={categories} />);
+      render(<SearchBox />);
       const box = screen.getByLabelText("Search auctions") as HTMLInputElement;
       fireEvent.focus(box);
       expect(activeId(box)).toBeNull();
@@ -230,7 +247,7 @@ describe("SearchBox", () => {
 
     it("starts from the last item on ArrowUp, and Enter with nothing highlighted just searches the typed text", () => {
       window.localStorage.setItem("recent-searches", JSON.stringify(["old watch", "blue vase"]));
-      render(<SearchBox categories={categories} />);
+      render(<SearchBox />);
       const box = screen.getByLabelText("Search auctions") as HTMLInputElement;
       fireEvent.focus(box);
       key(box, "ArrowUp");
@@ -246,7 +263,7 @@ describe("SearchBox", () => {
       try {
         window.localStorage.setItem("recent-searches", JSON.stringify(["blue vase"]));
         vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response(JSON.stringify({ suggestions: ["Old watch", "Watch strap"] }))));
-        render(<SearchBox categories={categories} />);
+        render(<SearchBox />);
         const box = screen.getByLabelText("Search auctions") as HTMLInputElement;
         key(box, "ArrowDown"); // closed: opens the list first
         expect(screen.getByText("Recent searches")).toBeTruthy();
@@ -270,13 +287,13 @@ describe("SearchBox", () => {
     nav.search = "";
     for (const path of ["/sign-in", "/sign-in/code", "/sign-up", "/forgot-password", "/reset-password"]) {
       nav.pathname = path;
-      render(<SearchBox categories={categories} />);
+      render(<SearchBox />);
       expect(screen.queryByLabelText("Search auctions"), path).toBeNull();
       cleanup();
     }
     for (const path of ["/", "/search", "/listings/abc", "/account/settings", "/sign-insecure"]) {
       nav.pathname = path;
-      render(<SearchBox categories={categories} />);
+      render(<SearchBox />);
       expect(screen.queryByLabelText("Search auctions"), path).not.toBeNull();
       cleanup();
     }

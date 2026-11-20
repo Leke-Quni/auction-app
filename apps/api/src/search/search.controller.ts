@@ -60,7 +60,8 @@ export class SearchController {
     }
   }
 
-  // Titles of live and upcoming listings that match the text so far, best match first, each title once. It asks the same
+  // Live and upcoming listings that match the text so far, best match first, each title once, with the cover photo and price
+  // the header box shows beside the title (`suggestions` is the same titles alone). It asks the same
   // index as the search page, so Typesense gives typo tolerance and the Postgres fallback gives partial words.
   @Get("search/suggest")
   async suggest(@Req() req: Parameters<typeof clientIp>[0], @Query(new ZodValidationPipe(suggestQuerySchema)) query: { q: string }) {
@@ -76,15 +77,16 @@ export class SearchController {
         now: new Date(),
       });
       const seen = new Set<string>();
-      const suggestions: string[] = [];
-      for (const { title } of documents) {
-        const key = title.toLowerCase();
+      const items: { id: string; title: string; coverUrl: string | null; priceCents: number; hasBids: boolean }[] = [];
+      for (const doc of documents) {
+        const key = doc.title.toLowerCase();
         if (seen.has(key)) continue;
         seen.add(key);
-        suggestions.push(title);
-        if (suggestions.length === SUGGESTION_COUNT) break;
+        // The indexed price is the current bid once there are bids, otherwise the starting price.
+        items.push({ id: doc.id, title: doc.title, coverUrl: doc.cover_url ?? null, priceCents: doc.price_cents, hasBids: doc.bid_count > 0 });
+        if (items.length === SUGGESTION_COUNT) break;
       }
-      return { suggestions };
+      return { suggestions: items.map((item) => item.title), items };
     } catch (error) {
       this.logger.error(`Suggestions failed: ${error instanceof Error ? error.message : error}`);
       throw new ServiceUnavailableException("Search is unavailable right now");

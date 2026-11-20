@@ -22,14 +22,25 @@ export function conditionList(value: string | undefined): ListingCondition[] {
   return LISTING_CONDITIONS.filter((condition) => wanted.has(condition));
 }
 
+// The category slugs chosen, in the order given: "art,toys" and a repeated parameter both become ["art", "toys"], once each, and a
+// value that cannot be a slug is dropped.
+export function categoryList(value: string | undefined): string[] {
+  return [...new Set((value ?? "").split(",").map((part) => part.trim()))].filter((slug) => /^[a-z0-9-]+$/.test(slug));
+}
+
 // Next hands over a string or a list of strings; an empty form field arrives as "". Keep the first value and drop blanks.
-// Conditions are the exception: several can be ticked, so every value is kept.
+// Conditions and categories are the exception: several can be chosen, so every value is kept.
 export function readSearchParams(raw: Record<string, string | string[] | undefined>): SearchPageParams {
   const params: SearchPageParams = {};
   for (const key of KEYS) {
     if (key === "condition") {
       const conditions = conditionList((Array.isArray(raw.condition) ? raw.condition : [raw.condition ?? ""]).join(","));
       if (conditions.length > 0) params.condition = conditions.join(",");
+      continue;
+    }
+    if (key === "category") {
+      const slugs = categoryList((Array.isArray(raw.category) ? raw.category : [raw.category ?? ""]).join(","));
+      if (slugs.length > 0) params.category = slugs.join(",");
       continue;
     }
     const value = Array.isArray(raw[key]) ? raw[key][0] : raw[key];

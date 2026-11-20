@@ -1,5 +1,5 @@
 import { CONDITION_LABELS } from "@auction/shared";
-import { conditionList, pageHref, type SearchPageParams } from "./search-params";
+import { categoryList, conditionList, pageHref, type SearchPageParams } from "./search-params";
 
 export interface FilterChip {
   id: string;
@@ -17,12 +17,25 @@ export function carriedFilters(params: SearchPageParams): [string, string][] {
 const without = (params: SearchPageParams, keys: (keyof SearchPageParams)[]) =>
   pageHref({ ...params, ...Object.fromEntries(keys.map((key) => [key, undefined])), page: undefined }, 1);
 
+// Once a category is chosen: one chip for each category not chosen yet, linking to the same search with it added, so a search can
+// grow to several. None while no category is chosen (the sidebar lists them all then), and none when all are.
+export function addCategoryChips(params: SearchPageParams, categories: { slug: string; name: string }[]): FilterChip[] {
+  const chosen = categoryList(params.category);
+  if (chosen.length === 0) return [];
+  return categories
+    .filter((c) => !chosen.includes(c.slug))
+    .map((c) => ({ id: `add-category-${c.slug}`, label: c.name, href: pageHref({ ...params, category: [...chosen, c.slug].join(","), page: undefined }, 1) }));
+}
+
 // One chip per active filter, each linking to the same search without it. Sort is a choice, not a filter, so it has none.
 export function activeFilterChips(params: SearchPageParams, categories: { slug: string; name: string }[]): FilterChip[] {
   const chips: FilterChip[] = [];
-  if (params.category) {
-    const name = categories.find((c) => c.slug === params.category)?.name ?? params.category;
-    chips.push({ id: "category", label: name, href: without(params, ["category"]) });
+  // One chip per chosen category; removing one keeps the others.
+  const chosen = categoryList(params.category);
+  for (const slug of chosen) {
+    const name = categories.find((c) => c.slug === slug)?.name ?? slug;
+    const rest = chosen.filter((s) => s !== slug).join(",");
+    chips.push({ id: `category-${slug}`, label: name, href: pageHref({ ...params, category: rest || undefined, page: undefined }, 1) });
   }
   // One chip per ticked condition; removing one keeps the others.
   const conditions = conditionList(params.condition);
